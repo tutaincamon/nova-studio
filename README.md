@@ -1,12 +1,39 @@
 # NOVA Studio · web
 
-Arrancar:
+Barbería NOVA Studio — Av. del Atlántico, 317 · Vecindario, Gran Canaria.
+
+Arrancar en local:
 
 ```bash
 node server.js
 ```
 
 y abrir http://localhost:5173
+
+---
+
+## Publicada en GitHub Pages
+
+La web funciona **sin servidor**. Cuando no hay backend detrás (que es el caso
+en GitHub Pages), las llamadas a `/api/...` devuelven 404 y la página lo detecta
+sola: en vez de dar error, prepara el mensaje de la reserva y lo cierra por
+**WhatsApp**; las candidaturas se cierran por **email**. El cliente no se queda
+tirado en ningún caso.
+
+| | En local con `node server.js` | En GitHub Pages |
+|---|---|---|
+| Intro, secciones, fotos | ✅ | ✅ |
+| Reserva de citas | Se guarda en `reservas.json` | Se cierra por WhatsApp |
+| Google Calendar | ✅ si hay credenciales | ❌ (no hay servidor) |
+| Candidaturas | Se guardan en `candidaturas.json` | Se cierran por email |
+
+Para tener **la agenda automática en Google Calendar** hace falta un alojamiento
+que ejecute Node (Render, Railway, Fly…), no Pages. Los pasos de las credenciales
+están más abajo.
+
+> `google-credentials.json`, `reservas.json` y `candidaturas.json` están en
+> `.gitignore`: nunca se suben. Contienen la clave del calendario y datos
+> personales de clientes.
 
 ---
 
