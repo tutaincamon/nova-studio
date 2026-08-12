@@ -1,0 +1,12 @@
+{
+  "calendarId": "primary",
+  "timeZone": "Atlantic/Canary",
+  "duraciones": {
+    "Corte & Estilismo": 45,
+    "Corte & Barba": 60,
+    "Barbería": 30,
+    "Color & Mechas": 120,
+    "Tratamiento capilar": 60,
+    "Ritual NOVA": 150
+  }
+}

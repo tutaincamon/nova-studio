@@ -1,0 +1,27 @@
+# ─── NUNCA subir ────────────────────────────────────────────────
+# Clave de la cuenta de servicio de Google: da acceso al calendario
+google-credentials.json
+
+# Datos de clientes: nombres, teléfonos y correos reales
+reservas.json
+candidaturas.json
+
+
+# ─── Vídeo original de la intro (121 MB) ────────────────────────
+# La supernova se genera por código desde supernova.js, así que la web NO
+# necesita estos 300 PNG. Se quedan sólo en tu equipo.
+# Si algún día quieres volver a index-frames.html, borra esta línea.
+frames/
+
+
+# ─── Ajustes locales del editor ─────────────────────────────────
+.claude/settings.local.json
+
+
+# ─── Basura del sistema y del editor ────────────────────────────
+node_modules/
+desktop.ini
+Thumbs.db
+.DS_Store
+*.log
+_*.png
