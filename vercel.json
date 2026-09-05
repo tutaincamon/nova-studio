@@ -3,5 +3,8 @@
   "framework": null,
   "buildCommand": null,
   "cleanUrls": true,
-  "trailingSlash": false
+  "trailingSlash": false,
+  "rewrites": [
+    { "source": "/", "destination": "/camisetas.html" }
+  ]
 }
