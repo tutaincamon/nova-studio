@@ -41,10 +41,10 @@ están más abajo.
 
 | Dónde | Qué |
 |---|---|
-| `index.html` → `TEL_WHATSAPP` | número de WhatsApp del salón (formato `34XXXXXXXXX`) |
-| `index.html` → enlaces `tel:` y `mailto:` | teléfono y correo reales |
-| `index.html` → sección Servicios | precios y servicios definitivos |
-| `index.html` → `<select id="pro">` | nombres del equipo |
+| `barberia.html` → `TEL_WHATSAPP` | número de WhatsApp del salón (formato `34XXXXXXXXX`) |
+| `barberia.html` → enlaces `tel:` y `mailto:` | teléfono y correo reales |
+| `barberia.html` → sección Servicios | precios y servicios definitivos |
+| `barberia.html` → `<select id="pro">` | nombres del equipo |
 | `config.json` | duración de cada servicio (minutos) |
 
 La dirección ya está puesta: Av. del Atlántico, 317 · 35110 Vecindario · Las Palmas.
@@ -190,7 +190,7 @@ resuelve `object-fit: cover`.
 ### Volver a la versión con el vídeo
 
 La anterior sigue guardada en **`index-frames.html`** (usa la carpeta
-`frames/`). Para recuperarla basta con renombrarla a `index.html`.
+`frames/`). Para recuperarla basta con renombrarla a `barberia.html`.
 
 Si te quedas con la versión generada por código, puedes **borrar la carpeta
 `frames/` y liberar 121 MB**.

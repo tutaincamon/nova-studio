@@ -4,7 +4,7 @@
   "buildCommand": null,
   "cleanUrls": true,
   "trailingSlash": false,
-  "rewrites": [
-    { "source": "/", "destination": "/camisetas.html" }
+  "redirects": [
+    { "source": "/camisetas", "destination": "/", "permanent": false }
   ]
 }
