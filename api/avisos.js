@@ -17,12 +17,40 @@
 const CLAVE = 'avisos:drop02';
 const ES_CORREO = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-// La integración de Vercel llama a las variables de una forma y la de
-// Upstash de otra, según cómo la hayas dado de alta. Aceptamos las dos.
+// Cada integración bautiza las variables a su manera (KV_..., UPSTASH_...,
+// y con prefijos propios si conectas varias bases). Probamos los nombres
+// conocidos y, si no, buscamos cualquier pareja URL + TOKEN que encaje.
 function credenciales() {
-    const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
-    const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
-    return url && token ? { url, token } : null;
+    const e = process.env;
+
+    const conocidos = [
+        ['KV_REST_API_URL', 'KV_REST_API_TOKEN'],
+        ['UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN'],
+        ['REDIS_REST_API_URL', 'REDIS_REST_API_TOKEN']
+    ];
+    for (const [u, t] of conocidos) {
+        if (e[u] && e[t]) return { url: e[u], token: e[t], como: u };
+    }
+
+    for (const clave of Object.keys(e)) {
+        if (!/REST_(API_)?URL$/.test(clave)) continue;
+        if (!/^https:\/\//.test(String(e[clave]))) continue;
+        const raiz = clave.replace(/REST_(API_)?URL$/, '');
+        const conToken = Object.keys(e).find(
+            k => k.startsWith(raiz) && /REST_(API_)?TOKEN$/.test(k) && e[k]
+        );
+        if (conToken) return { url: e[clave], token: e[conToken], como: clave };
+    }
+
+    return null;
+}
+
+// Sólo los NOMBRES de las variables relacionadas, nunca sus valores: sirve
+// para ver desde fuera si la base llegó a conectarse al proyecto.
+function pistas() {
+    return Object.keys(process.env)
+        .filter(k => /REDIS|KV_|UPSTASH/i.test(k))
+        .sort();
 }
 
 async function redis(cred, comando) {
@@ -59,7 +87,7 @@ module.exports = async (req, res) => {
     const cred = credenciales();
     if (!cred) {
         console.error('Faltan las variables de entorno de la base de datos');
-        return res.status(500).json({ ok: false, error: 'sin-base' });
+        return res.status(500).json({ ok: false, error: 'sin-base', variables: pistas() });
     }
 
     try {
