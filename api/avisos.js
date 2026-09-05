@@ -45,13 +45,6 @@ function credenciales() {
     return null;
 }
 
-// Sólo los NOMBRES de las variables relacionadas, nunca sus valores: sirve
-// para ver desde fuera si la base llegó a conectarse al proyecto.
-function pistas() {
-    return Object.keys(process.env)
-        .filter(k => /REDIS|KV_|UPSTASH/i.test(k))
-        .sort();
-}
 
 async function redis(cred, comando) {
     const r = await fetch(cred.url, {
@@ -87,7 +80,7 @@ module.exports = async (req, res) => {
     const cred = credenciales();
     if (!cred) {
         console.error('Faltan las variables de entorno de la base de datos');
-        return res.status(500).json({ ok: false, error: 'sin-base', variables: pistas() });
+        return res.status(500).json({ ok: false, error: 'sin-base' });
     }
 
     try {
