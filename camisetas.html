@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>NOVA Studio · Drop 01</title>
+<meta name="description" content="Drop 01 de NOVA Studio: nuestra primera colección de camisetas. Piezas limitadas, hasta fin de existencias. Solo venta física.">
+<meta name="theme-color" content="#ffffff">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='15' fill='%23121110'/><path d='M16 5 C16.9 12.4 19.6 15.1 27 16 C19.6 16.9 16.9 19.6 16 27 C15.1 19.6 12.4 16.9 5 16 C12.4 15.1 15.1 12.4 16 5 Z' fill='%23ffffff'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@800&family=Space+Grotesk:wght@300;400;500&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+    --blanco:#ffffff;      /* la mitad clara */
+    --tinta:#0e0e10;
+    --gris:#6f6b66;
+    --acento:#a4525f;      /* rosa oscuro, sacado de la propia camiseta */
+    --linea:rgba(14,14,16,.16);
+
+    --noche:#07070a;       /* la mitad oscura */
+    --noche-texto:#f0ece6;
+    --noche-gris:#8d877f;
+    --noche-linea:rgba(255,255,255,.15);
+    --acento-noche:#d99aa2;
+
+    /* Syne para los rótulos cortos en mayúsculas, Space Grotesk para el
+       texto y Space Mono para lo técnico: etiquetas, coordenadas y fichas. */
+    --display:'Syne','Segoe UI',system-ui,sans-serif;
+    --texto:'Space Grotesk','Segoe UI',system-ui,-apple-system,sans-serif;
+    --mono:'Space Mono',ui-monospace,'Courier New',monospace;
+}
+
+*{box-sizing:border-box}
+/* La página acaba en negro: lo que sobre por debajo sigue siendo noche. */
+html{background:var(--noche);scroll-behavior:smooth}
+body{
+    margin:0;
+    background:var(--blanco);
+    color:var(--tinta);
+    font-family:var(--texto);
+    font-weight:300;
+    -webkit-font-smoothing:antialiased;
+}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
+/* Toda la entrada es CSS: nada arranca oculto sin su animación, así que el
+   contenido se ve siempre, con o sin JavaScript. */
+@keyframes rise{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}
+@keyframes markIn{from{opacity:0;transform:scale(.82)}to{opacity:1;transform:scale(1)}}
+@keyframes anillo{
+    0%  {opacity:0;transform:scale(1)}
+    18% {opacity:.5}
+    100%{opacity:0;transform:scale(1.5)}
+}
+
+/* ══════════════════════════════════════════════════════════════
+   LOGO FIJO
+   Aparece al pasar de la cabecera y se queda arriba, centrado.
+   Sobre la mitad oscura se invierte a blanco y el velo cambia de
+   color con un fundido (dos capas cruzadas, porque un degradado
+   no interpola solo).
+   ══════════════════════════════════════════════════════════════ */
+.fijo{
+    position:fixed;top:0;left:0;right:0;z-index:20;
+    display:flex;justify-content:center;
+    padding:15px 22px 26px;
+    pointer-events:none;
+    opacity:0;transform:translateY(-10px);
+    transition:opacity .45s ease,transform .45s ease;
+}
+.fijo.visible{opacity:1;transform:none}
+.fijo::before,.fijo::after{
+    content:'';position:absolute;inset:0;transition:opacity .5s ease;
+}
+.fijo::before{background:linear-gradient(to bottom,rgba(255,255,255,.96) 40%,rgba(255,255,255,0));opacity:1}
+.fijo::after {background:linear-gradient(to bottom,rgba(7,7,10,.96) 40%,rgba(7,7,10,0));opacity:0}
+.fijo.noche::before{opacity:0}
+.fijo.noche::after {opacity:1}
+
+.fijo-logo{position:relative;z-index:1;pointer-events:auto;line-height:0}
+.fijo-logo img{
+    width:clamp(94px,17vw,126px);height:auto;display:block;
+    transition:filter .5s ease;
+}
+.fijo.noche .fijo-logo img{filter:invert(1)}
+
+/* ══════════════════════════════════════════════════════════════
+   MITAD CLARA · Drop 01
+   ══════════════════════════════════════════════════════════════ */
+main{max-width:1040px;margin:0 auto;padding:clamp(48px,9vh,92px) 22px clamp(64px,10vh,104px)}
+
+.logo{display:flex;flex-direction:column;align-items:center;gap:24px}
+
+.mark-wrap{
+    position:relative;width:clamp(84px,14vw,108px);aspect-ratio:1;
+    border-radius:50%;background:#121110;      /* el disco negro del logo original */
+    animation:markIn 1.1s cubic-bezier(.2,.8,.2,1) both;
+}
+.mark-wrap::after{                             /* anillo que se expande y se desvanece */
+    content:'';position:absolute;inset:0;border-radius:50%;
+    border:1px solid rgba(14,14,16,.5);
+    animation:anillo 6s cubic-bezier(.2,.8,.2,1) 1.2s infinite;
+}
+.mark{position:absolute;inset:0;width:100%;height:100%;display:block}
+
+.wordmark{                                     /* logo-nova-web.png ya viene en negro plano */
+    width:clamp(184px,32vw,254px);height:auto;
+    animation:rise .9s .18s cubic-bezier(.2,.8,.2,1) both;
+}
+
+/* ---------- la etiqueta del drop ----------
+   Sin caja: sólo el rótulo entre dos filetes, pero grande. */
+.drop{
+    display:inline-flex;align-items:center;gap:clamp(14px,3.4vw,24px);
+    margin:0 0 clamp(26px,4.5vh,40px);
+    font-family:var(--mono);font-weight:700;
+    font-size:clamp(13px,2.6vw,18px);letter-spacing:.46em;text-transform:uppercase;
+    color:var(--tinta);padding-left:.46em;
+}
+.drop::before,.drop::after{content:'';width:clamp(30px,8vw,74px);height:1px;background:var(--linea)}
+.oscuro .drop{color:var(--noche-texto)}
+.oscuro .drop::before,.oscuro .drop::after{background:var(--noche-linea)}
+
+/* ---------- cabecera del drop ---------- */
+.intro{text-align:center;margin:clamp(48px,8vh,80px) 0 clamp(40px,6vh,60px)}
+.intro .drop{animation:rise .85s .34s cubic-bezier(.2,.8,.2,1) both}
+
+/* El h1 de la página es el propio logotipo: la página ya no lleva titular
+   escrito, pero sigue necesitando un encabezado para lectores y buscadores. */
+h1.titulo{margin:0;line-height:0}
+
+.lede{
+    margin:0 auto;max-width:46ch;color:var(--gris);
+    font-size:clamp(14px,1.7vw,16.5px);line-height:1.75;
+    animation:rise .95s .56s cubic-bezier(.2,.8,.2,1) both;
+}
+.lede b{color:var(--tinta);font-weight:500}
+
+/* ---------- la camiseta ----------
+   Las cuatro fotos vienen recortadas y pegadas sobre el mismo blanco y en la
+   misma caja, así que el visor no da ningún salto al girar ni al cambiar de
+   color. Sin marco: la camiseta flota sobre la página. */
+.producto{animation:rise 1s .68s cubic-bezier(.2,.8,.2,1) both}
+.escaparate{position:relative;max-width:660px;margin:0 auto;padding:0 clamp(0px,5vw,72px)}
+
+.visor{
+    display:block;position:relative;width:100%;max-width:520px;margin:0 auto;
+    aspect-ratio:920/780;
+    padding:0;border:0;background:none;
+    cursor:pointer;-webkit-tap-highlight-color:transparent;
+}
+.visor img{
+    position:absolute;inset:0;width:100%;height:100%;object-fit:contain;
+    opacity:0;transition:opacity .4s ease;
+}
+.visor img.activa{opacity:1}                   /* sin JS se queda la primera, que ya viene marcada */
+.visor:focus-visible{outline:2px solid var(--acento);outline-offset:6px}
+
+.flecha{
+    position:absolute;top:50%;margin-top:-21px;z-index:2;
+    width:42px;height:42px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    background:rgba(255,255,255,.9);border:1px solid var(--linea);
+    color:var(--tinta);cursor:pointer;
+    transition:border-color .3s,background .3s;
+}
+.flecha.izq{left:0}
+.flecha.der{right:0}
+.flecha svg{width:14px;height:14px;display:block}
+.flecha:hover{border-color:var(--tinta);background:var(--blanco)}
+.flecha:focus-visible{outline:2px solid var(--acento);outline-offset:3px}
+@media(max-width:520px){
+    .flecha{width:36px;height:36px;margin-top:-18px}
+    .flecha svg{width:12px;height:12px}
+}
+
+.ficha{
+    max-width:520px;margin:16px auto 0;
+    display:flex;justify-content:space-between;align-items:baseline;gap:16px;
+    padding-top:13px;border-top:1px solid var(--linea);
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.24em;text-transform:uppercase;
+}
+.ficha i{font-style:normal;color:var(--acento)}
+
+.selector{display:flex;justify-content:center;gap:10px;margin:26px auto 0}
+.swatch{
+    display:inline-flex;align-items:center;gap:9px;
+    padding:9px 17px 9px 11px;
+    background:none;border:1px solid var(--linea);border-radius:100px;
+    color:var(--gris);font-family:var(--mono);font-weight:400;
+    font-size:10px;letter-spacing:.22em;text-transform:uppercase;
+    cursor:pointer;transition:border-color .3s,color .3s;
+}
+.swatch:hover{border-color:rgba(14,14,16,.45);color:var(--tinta)}
+.swatch:focus-visible{outline:2px solid var(--acento);outline-offset:3px}
+.swatch[aria-pressed="true"]{border-color:var(--tinta);color:var(--tinta)}
+
+.punto{
+    width:15px;height:15px;border-radius:50%;
+    background:var(--c);box-shadow:0 0 0 1px rgba(14,14,16,.2) inset;
+    transition:box-shadow .3s;
+}
+.swatch[aria-pressed="true"] .punto{box-shadow:0 0 0 1px rgba(14,14,16,.2) inset,0 0 0 2px var(--blanco),0 0 0 3px var(--tinta)}
+
+/* ---------- venta física ---------- */
+.venta{margin-top:clamp(56px,10vh,100px);text-align:center}
+.rule{height:1px;border:0;margin:0 auto clamp(34px,6vh,52px);max-width:460px;background:var(--linea)}
+
+.venta h2{
+    margin:0;font-family:var(--display);font-weight:800;
+    font-size:clamp(15px,3.1vw,25px);
+    letter-spacing:.16em;text-transform:uppercase;text-indent:.16em;
+}
+.venta p{margin:22px auto 0;max-width:42ch;color:var(--gris);font-size:13.5px;line-height:1.9}
+.venta a{
+    color:var(--tinta);text-decoration:none;
+    border-bottom:1px solid var(--linea);transition:border-color .35s,color .35s;
+}
+.venta a:hover{color:var(--acento);border-bottom-color:var(--acento)}
+
+/* ---------- el bucle de seis fotos ----------
+   Un vídeo de mentira: los seis fotogramas apilados y una única animación
+   CSS con el arranque desplazado en cada uno. Sin JavaScript. Si el
+   navegador no anima (o piden menos movimiento) se queda quieto en el
+   primero, que es el único con opacidad 1 de base.
+   Va fuera de <main> para llegar de borde a borde sin trucos de 100vw,
+   que con la barra de desplazamiento visible desbordan a lo ancho. */
+/* Proporción fija 2:1, la misma que traen los fotogramas: así no se recorta
+   nada y la banda crece con la ventana en vez de quedarse en una tira.
+   El mínimo evita que en el móvil sea un hilo; el máximo, que en pantallas
+   muy anchas se coma la altura entera. */
+.bucle{
+    position:relative;width:100%;
+    aspect-ratio:2/1;min-height:240px;max-height:82vh;
+    overflow:hidden;background:#f2f0ed;
+}
+.bucle img{
+    position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+    opacity:0;
+    animation:pase 1.5s linear infinite;      /* sin fill-mode: antes de su
+                                                 turno manda el CSS de arriba */
+    animation-delay:calc(var(--i) * .25s);
+}
+.bucle img:first-child{opacity:1}
+@keyframes pase{
+    0%      {opacity:0}
+    2.7%    {opacity:1}
+    16.667% {opacity:1}
+    19.3%   {opacity:0}
+    100%    {opacity:0}
+}
+
+/* ══════════════════════════════════════════════════════════════
+   LA TRANSICIÓN · de blanco a noche
+   Larga y con los pasos puestos a mano: la interpolación directa
+   entre blanco y negro cae demasiado rápido en la parte oscura.
+   ══════════════════════════════════════════════════════════════ */
+.transicion{
+    height:clamp(320px,50vh,580px);
+    background:linear-gradient(to bottom,
+        #ffffff 0%, #f6f6f6 12%, #e4e4e4 25%, #c4c4c5 39%,
+        #969698 54%, #5f5f64 70%, #2b2b31 86%, #07070a 100%);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   MITAD OSCURA · coordenadas y Drop 02
+   ══════════════════════════════════════════════════════════════ */
+.oscuro{
+    background:var(--noche);color:var(--noche-texto);
+    padding:clamp(20px,4vh,44px) 22px clamp(56px,9vh,90px);
+    text-align:center;
+}
+.oscuro .adentro{max-width:560px;margin:0 auto}
+.oscuro .lede{color:var(--noche-gris)}
+.oscuro .lede b{color:var(--noche-texto)}
+
+.oscuro h2{
+    margin:0 0 20px;font-family:var(--display);font-weight:800;
+    font-size:clamp(22px,4.4vw,38px);line-height:1.05;letter-spacing:.02em;
+    text-transform:uppercase;
+}
+
+.etiqueta{
+    margin:0 0 20px;font-family:var(--mono);font-size:10px;
+    letter-spacing:.4em;text-transform:uppercase;color:var(--noche-gris);
+}
+
+/* El visor de la sudadera reutiliza el de la camiseta, pero en negativo
+   y con su propia proporción de caja. */
+.oscuro .escaparate{margin-top:clamp(26px,4.5vh,44px)}
+.oscuro .visor{aspect-ratio:900/840}
+.oscuro .visor:focus-visible{outline-color:var(--acento-noche)}
+.oscuro .flecha{
+    background:rgba(7,7,10,.7);border-color:var(--noche-linea);color:var(--noche-texto);
+}
+.oscuro .flecha:hover{border-color:var(--noche-texto);background:var(--noche)}
+.oscuro .flecha:focus-visible{outline-color:var(--acento-noche)}
+.oscuro .ficha{border-top-color:var(--noche-linea);color:var(--noche-texto)}
+.oscuro .ficha i{color:var(--acento-noche)}
+
+/* ---------- las coordenadas ---------- */
+.coords{padding-top:clamp(8px,2vh,20px)}
+.coord-foto{
+    margin:0 auto clamp(26px,4vh,40px);max-width:420px;
+    border:1px solid var(--noche-linea);border-radius:3px;overflow:hidden;
+}
+.coord-foto img{display:block;width:100%;height:auto}
+
+.coord-dato{
+    margin:0 0 14px;font-family:var(--mono);font-weight:700;
+    font-size:clamp(14px,3.2vw,19px);letter-spacing:.04em;color:var(--noche-texto);
+}
+.coord-texto{margin:0 auto;max-width:44ch;color:var(--noche-gris);font-size:13.5px;line-height:1.85}
+.coord-texto a{
+    color:var(--acento-noche);text-decoration:none;
+    border-bottom:1px solid transparent;transition:border-color .35s,color .35s;
+}
+.coord-texto a:hover{color:#ffc879;border-bottom-color:rgba(240,165,60,.5)}
+
+.corte{height:1px;border:0;margin:clamp(56px,9vh,96px) auto clamp(44px,7vh,76px);max-width:420px;background:var(--noche-linea)}
+
+/* ---------- aviso por correo ---------- */
+.aviso{margin:clamp(28px,5vh,44px) auto 0;max-width:420px}
+.campos{display:flex;gap:10px}
+@media(max-width:460px){.campos{flex-direction:column}}
+
+.aviso input{
+    flex:1;min-width:0;
+    background:rgba(255,255,255,.04);
+    border:1px solid var(--noche-linea);border-radius:2px;
+    padding:13px 15px;
+    color:var(--noche-texto);font-family:var(--texto);font-weight:300;font-size:14px;
+    transition:border-color .3s,background .3s;
+}
+.aviso input::placeholder{color:#5f5a54}
+.aviso input:focus{outline:none;border-color:var(--acento-noche);background:rgba(255,255,255,.06)}
+
+.aviso button{
+    background:var(--noche-texto);border:1px solid var(--noche-texto);border-radius:2px;
+    padding:13px 24px;
+    color:var(--noche);font-family:var(--mono);font-weight:700;
+    font-size:10px;letter-spacing:.24em;text-transform:uppercase;
+    cursor:pointer;white-space:nowrap;
+    transition:background .3s,border-color .3s,color .3s;
+}
+.aviso button:hover{background:var(--acento-noche);border-color:var(--acento-noche)}
+.aviso button:focus-visible{outline:2px solid var(--acento-noche);outline-offset:3px}
+
+.nota{
+    margin:14px 0 0;min-height:1.2em;
+    font-size:11.5px;line-height:1.6;color:var(--noche-gris);
+}
+.nota.error{color:#e0836b}
+
+footer{
+    background:var(--noche);
+    text-align:center;padding:0 22px clamp(38px,7vh,62px);
+    font-family:var(--mono);font-size:9.5px;letter-spacing:.4em;text-transform:uppercase;color:#4e4a45;
+}
+
+@media(prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto}
+    *,*::before,*::after{animation:none!important;transition-duration:.01ms!important}
+}
+</style>
+</head>
+<body id="arriba">
+
+<header class="fijo" id="fijo">
+    <a class="fijo-logo" href="#arriba" aria-label="NOVA Studio · volver arriba">
+        <img src="logo-nova-web.png" width="560" height="197" alt="NOVA Studio">
+    </a>
+</header>
+
+<main>
+
+    <div class="logo">
+        <div class="mark-wrap"><img class="mark" src="logo-marca.png" width="512" height="512" alt="Emblema de NOVA Studio"></div>
+        <h1 class="titulo"><img class="wordmark" src="logo-nova-web.png" width="560" height="197" alt="NOVA Studio"></h1>
+    </div>
+
+    <section class="intro">
+        <p class="drop">Drop 01</p>
+        <p class="lede">Piezas limitadas, <b>hasta fin de existencias</b>. Cuando se acaban, se acaban.</p>
+    </section>
+
+    <section class="producto">
+        <div class="escaparate" id="camiseta">
+            <button type="button" class="flecha izq" aria-label="Ver el otro lado de la camiseta">
+                <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10.5 1.5 4 8l6.5 6.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+
+            <button type="button" class="visor" id="visor">
+                <img class="foto activa" data-color="negro" data-cara="delante" src="negro-delante.jpg"
+                     width="920" height="780" alt="Camiseta NOVA Studio negra por delante, con el emblema en el pecho">
+                <img class="foto" data-color="negro" data-cara="detras" src="negro-detras.jpg"
+                     width="920" height="780" alt="Camiseta NOVA Studio negra por detrás, con NOVA en grande">
+                <img class="foto" data-color="rosa" data-cara="delante" src="rosa-delante.jpg"
+                     width="920" height="780" alt="Camiseta NOVA Studio rosa por delante, con el emblema en el pecho">
+                <img class="foto" data-color="rosa" data-cara="detras" src="rosa-detras.jpg"
+                     width="920" height="780" alt="Camiseta NOVA Studio rosa por detrás, con NOVA en grande">
+            </button>
+
+            <button type="button" class="flecha der" aria-label="Ver el otro lado de la camiseta">
+                <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 1.5 12 8l-6.5 6.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+        </div>
+
+        <p class="ficha" aria-live="polite"><span id="nombre-color">Negro lavado</span><i id="nombre-cara">Delante</i></p>
+
+        <div class="selector" id="colores" role="group" aria-label="Color de la camiseta">
+            <button type="button" class="swatch" data-color="negro" aria-pressed="true">
+                <span class="punto" style="--c:#2b2b2d"></span>Negro
+            </button>
+            <button type="button" class="swatch" data-color="rosa" aria-pressed="false">
+                <span class="punto" style="--c:#c98f95"></span>Rosa
+            </button>
+        </div>
+    </section>
+
+    <section class="venta">
+        <hr class="rule">
+        <h2>Solo venta física</h2>
+        <p>
+            Disponibles únicamente en el salón.<br>
+            <a href="https://maps.google.com/?q=27.8398143,-15.4413670" target="_blank" rel="noopener">Av. del Atlántico 317 · Vecindario</a>
+        </p>
+    </section>
+
+</main>
+
+<div class="bucle" role="img" aria-label="El emblema de NOVA Studio pintado en el suelo, grabado en cuero, en un cartel de calle, sobre un atardecer, en un colgante y en una pantalla">
+    <img src="reel1.jpg" width="1400" height="700" loading="lazy" alt="" style="--i:0">
+    <img src="reel2.jpg" width="1400" height="700" loading="lazy" alt="" style="--i:1">
+    <img src="reel3.jpg" width="1400" height="700" loading="lazy" alt="" style="--i:2">
+    <img src="reel4.jpg" width="1400" height="700" loading="lazy" alt="" style="--i:3">
+    <img src="reel5.jpg" width="1400" height="700" loading="lazy" alt="" style="--i:4">
+    <img src="reel6.jpg" width="1400" height="700" loading="lazy" alt="" style="--i:5">
+</div>
+
+<div class="transicion" aria-hidden="true"></div>
+
+<section class="oscuro">
+
+    <div class="adentro">
+        <p class="drop">Drop 02</p>
+        <h2>Coming soon</h2>
+    </div>
+
+    <div class="escaparate" id="sudadera">
+        <button type="button" class="flecha izq" aria-label="Ver el otro lado de la sudadera">
+            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10.5 1.5 4 8l6.5 6.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+
+        <button type="button" class="visor">
+            <img class="foto activa" data-cara="delante" src="sud-delante.jpg" width="900" height="840" loading="lazy"
+                 alt="Sudadera NOVA Studio por delante, con cremallera y Studio y Nova en las mangas">
+            <img class="foto" data-cara="detras" src="sud-detras.jpg" width="900" height="840" loading="lazy"
+                 alt="Sudadera NOVA Studio por detrás, con el emblema grande en la espalda">
+        </button>
+
+        <button type="button" class="flecha der" aria-label="Ver el otro lado de la sudadera">
+            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 1.5 12 8l-6.5 6.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+    </div>
+
+    <p class="ficha" aria-live="polite"><span>Sudadera</span><i id="cara-sudadera">Delante</i></p>
+
+    <div class="adentro">
+        <form class="aviso" id="aviso" novalidate>
+            <label class="sr-only" for="correo">Tu correo electrónico</label>
+            <div class="campos">
+                <input id="correo" name="correo" type="email" inputmode="email" autocomplete="email"
+                       placeholder="tu@correo.com" required>
+                <button type="submit">Avísame</button>
+            </div>
+            <p class="nota" id="nota" role="status"></p>
+        </form>
+    </div>
+
+    <hr class="corte">
+
+    <div class="adentro coords">
+        <p class="etiqueta">Las coordenadas</p>
+        <figure class="coord-foto">
+            <img src="coordenadas-web.jpg" width="760" height="950" loading="lazy"
+                 alt="Detalle del bajo de la camiseta con EST. 2026, las coordenadas 27.8398143, -15.4413670 y el lema FOCUS. CREATE. ELEVATE.">
+        </figure>
+        <p class="coord-dato">27.8398143, −15.4413670</p>
+        <p class="coord-texto">
+            Los números de la espalda no son un adorno: son el sitio exacto donde está el estudio.<br>
+            <a href="https://maps.google.com/?q=27.8398143,-15.4413670" target="_blank" rel="noopener">Av. del Atlántico 317 · Vecindario</a>
+        </p>
+    </div>
+
+</section>
+
+<footer>NOVA Studio</footer>
+
+<script>
+/* ---------- el logo que se queda arriba ----------
+   Aparece al dejar atrás la cabecera y se pone en blanco cuando el punto de
+   la página que tiene debajo ya es oscuro (a mitad del degradado). */
+(function(){
+    var fijo  = document.getElementById('fijo');
+    var hero  = document.querySelector('.logo');
+    var trans = document.querySelector('.transicion');
+    if(!fijo || !hero || !trans) return;
+
+    var apareceEn = 0, cambiaEn = 0, alto = 0, pedido = false;
+
+    function medir(){
+        var h = hero.getBoundingClientRect();
+        apareceEn = h.bottom + window.scrollY - 20;
+        var t = trans.getBoundingClientRect();
+        cambiaEn  = t.top + window.scrollY + t.height * 0.55;
+        alto = fijo.offsetHeight;
+    }
+
+    function pintar(){
+        pedido = false;
+        var y = window.scrollY;
+        fijo.classList.toggle('visible', y > apareceEn);
+        fijo.classList.toggle('noche',   cambiaEn - y < alto);
+    }
+
+    function alScroll(){ if(!pedido){ pedido = true; requestAnimationFrame(pintar); } }
+
+    medir(); pintar();
+    addEventListener('scroll', alScroll, {passive:true});
+    addEventListener('resize', function(){ medir(); pintar(); }, {passive:true});
+    addEventListener('load',   function(){ medir(); pintar(); });
+})();
+
+/* ---------- girar la prenda ----------
+   El mismo visor sirve para la camiseta (con colores) y para la sudadera
+   (sin ellos). Tres formas de ver el otro lado, todas sobre un solo estado:
+     · pasar el ratón por encima   → asoma el reverso mientras estás ahí
+     · pulsar la foto o una flecha → lo deja fijado
+   Sin JavaScript se queda la primera foto, que ya viene marcada en el HTML. */
+function montarVisor(cfg){
+    var caja = document.getElementById(cfg.caja);
+    if(!caja) return;
+
+    var visor   = caja.querySelector('.visor');
+    var fotos   = caja.querySelectorAll('.foto');
+    var flechas = caja.querySelectorAll('.flecha');
+    var laCara  = cfg.cara  ? document.getElementById(cfg.cara)  : null;
+    var elColor = cfg.color ? document.getElementById(cfg.color) : null;
+    var selector = cfg.selector ? document.getElementById(cfg.selector) : null;
+    var swatches = selector ? selector.querySelectorAll('.swatch') : [];
+
+    var nombresCara = { delante:'Delante', detras:'Detrás' };
+    var nombresColor = cfg.colores || {};
+
+    var color      = cfg.colorInicial || null;   // null = la prenda no tiene colores
+    var caraFijada = 'delante';                  // la que dejan el clic y las flechas
+    var asomando   = false;                      // el ratón por encima enseña la otra
+
+    // En el móvil no hay ratón: el "hover" que emula el navegador se queda
+    // pegado tras tocar, así que allí sólo mandan el toque y las flechas.
+    var conRaton = window.matchMedia &&
+                   matchMedia('(hover: hover) and (pointer: fine)').matches;
+
+    function otra(c){ return c === 'delante' ? 'detras' : 'delante'; }
+
+    function pintar(){
+        var cara = asomando ? otra(caraFijada) : caraFijada;
+        Array.prototype.forEach.call(fotos, function(foto){
+            var mismoColor = !color || foto.getAttribute('data-color') === color;
+            foto.classList.toggle('activa', mismoColor && foto.getAttribute('data-cara') === cara);
+        });
+        if(elColor) elColor.textContent = nombresColor[color];
+        if(laCara)  laCara.textContent  = nombresCara[cara];
+        visor.setAttribute('aria-label',
+            cfg.prenda + (color ? ' ' + nombresColor[color].toLowerCase() : '') + ', ' +
+            nombresCara[cara].toLowerCase() + '. Pulsa para girarla.');
+    }
+
+    function girar(){ caraFijada = otra(caraFijada); asomando = false; pintar(); }
+
+    visor.addEventListener('click', girar);
+    Array.prototype.forEach.call(flechas, function(f){ f.addEventListener('click', girar); });
+
+    if(conRaton){
+        visor.addEventListener('pointerenter', function(){ asomando = true;  pintar(); });
+        visor.addEventListener('pointerleave', function(){ asomando = false; pintar(); });
+    }
+
+    Array.prototype.forEach.call(swatches, function(boton){
+        boton.addEventListener('click', function(){
+            color = boton.getAttribute('data-color');
+            Array.prototype.forEach.call(swatches, function(otro){
+                otro.setAttribute('aria-pressed', otro === boton ? 'true' : 'false');
+            });
+            pintar();
+        });
+    });
+
+    pintar();
+}
+
+montarVisor({
+    caja:'camiseta', prenda:'Camiseta',
+    cara:'nombre-cara', color:'nombre-color', selector:'colores',
+    colorInicial:'negro', colores:{ negro:'Negro lavado', rosa:'Rosa lavado' }
+});
+
+montarVisor({ caja:'sudadera', prenda:'Sudadera', cara:'cara-sudadera' });
+
+/* ---------- aviso del Drop 02 ----------
+   PENDIENTE DE CONECTAR. La estructura está montada: valida el correo y
+   deja el envío en un único sitio. Para que funcione de verdad hay que
+   sustituir el bloque marcado por una de estas dos opciones:
+
+     a) Servidor propio — añadir en server.js un POST /api/avisos que
+        guarde el correo (como ya hace con /api/reservas), y aquí:
+            await fetch('/api/avisos', {
+                method:'POST',
+                headers:{'content-type':'application/json'},
+                body: JSON.stringify({ correo: correo })
+            });
+        Ojo: en GitHub Pages no hay servidor, así que esto sólo vale si la
+        web se sirve desde server.js.
+
+     b) Servicio externo (Formspree, Mailchimp, Brevo...) — cambiar el
+        <form> por su action/method y borrar este manejador.
+
+   Hasta entonces el formulario NO guarda nada y lo dice en pantalla, para
+   que nadie crea que se ha apuntado.                                      */
+(function(){
+    var form = document.getElementById('aviso');
+    var nota = document.getElementById('nota');
+    if(!form || !nota) return;
+
+    var esCorreo = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+    form.addEventListener('submit', function(e){
+        e.preventDefault();
+
+        var correo = form.correo.value.trim();
+
+        if(!correo){
+            nota.className = 'nota error';
+            nota.textContent = 'Escribe tu correo.';
+            form.correo.focus();
+            return;
+        }
+        if(!esCorreo.test(correo)){
+            nota.className = 'nota error';
+            nota.textContent = 'Ese correo no parece válido.';
+            form.correo.focus();
+            return;
+        }
+
+        /* ↓↓↓ AQUÍ VA EL ENVÍO REAL ↓↓↓ */
+        nota.className = 'nota';
+        nota.textContent = 'Formulario listo, pero todavía no está conectado: el correo no se guarda en ningún sitio.';
+        /* ↑↑↑ AQUÍ VA EL ENVÍO REAL ↑↑↑ */
+    });
+})();
+</script>
+
+</body>
+</html>
