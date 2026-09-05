@@ -353,6 +353,17 @@ h1.titulo{margin:0;line-height:0}
 }
 .nota.error{color:#e0836b}
 
+/* Cuando el correo queda guardado, los campos sobran: se van y deja sitio
+   al mensaje de bienvenida. */
+.aviso.dentro .campos{display:none}
+.aviso.dentro .nota{font-size:12.5px;line-height:1.8}
+.aviso.dentro .nota b{
+    display:block;margin-bottom:8px;
+    font-family:var(--mono);font-weight:700;
+    font-size:12px;letter-spacing:.26em;text-transform:uppercase;
+    color:var(--acento-noche);
+}
+
 footer{
     background:var(--noche);
     text-align:center;padding:0 22px clamp(38px,7vh,62px);
@@ -610,54 +621,75 @@ montarVisor({
 montarVisor({ caja:'sudadera', prenda:'Sudadera', cara:'cara-sudadera' });
 
 /* ---------- aviso del Drop 02 ----------
-   PENDIENTE DE CONECTAR. La estructura está montada: valida el correo y
-   deja el envío en un único sitio. Para que funcione de verdad hay que
-   sustituir el bloque marcado por una de estas dos opciones:
-
-     a) Servidor propio — añadir en server.js un POST /api/avisos que
-        guarde el correo (como ya hace con /api/reservas), y aquí:
-            await fetch('/api/avisos', {
-                method:'POST',
-                headers:{'content-type':'application/json'},
-                body: JSON.stringify({ correo: correo })
-            });
-        Ojo: en GitHub Pages no hay servidor, así que esto sólo vale si la
-        web se sirve desde server.js.
-
-     b) Servicio externo (Formspree, Mailchimp, Brevo...) — cambiar el
-        <form> por su action/method y borrar este manejador.
-
-   Hasta entonces el formulario NO guarda nada y lo dice en pantalla, para
-   que nadie crea que se ha apuntado.                                      */
+   Manda el correo a /api/avisos, que lo guarda en la base de datos. La
+   respuesta trae "nuevo": true si es la primera vez que se apunta, false si
+   ese correo ya estaba en la lista. De ahí salen los dos mensajes. */
 (function(){
     var form = document.getElementById('aviso');
     var nota = document.getElementById('nota');
     if(!form || !nota) return;
 
+    var boton   = form.querySelector('button');
+    var textoOk = boton ? boton.textContent : 'Avísame';
     var esCorreo = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+    var enviando = false;
+
+    function fallo(mensaje){
+        nota.className = 'nota error';
+        nota.textContent = mensaje;
+        form.correo.focus();
+    }
 
     form.addEventListener('submit', function(e){
         e.preventDefault();
+        if(enviando) return;
 
         var correo = form.correo.value.trim();
 
-        if(!correo){
-            nota.className = 'nota error';
-            nota.textContent = 'Escribe tu correo.';
-            form.correo.focus();
-            return;
-        }
-        if(!esCorreo.test(correo)){
-            nota.className = 'nota error';
-            nota.textContent = 'Ese correo no parece válido.';
-            form.correo.focus();
-            return;
+        if(!correo)               return fallo('Escribe tu correo.');
+        if(!esCorreo.test(correo)) return fallo('Ese correo no parece válido.');
+
+        enviando = true;
+        nota.className = 'nota';
+        nota.textContent = 'Guardando…';
+        if(boton){ boton.disabled = true; boton.textContent = 'Enviando'; }
+
+        function recuperar(){
+            enviando = false;
+            if(boton){ boton.disabled = false; boton.textContent = textoOk; }
         }
 
-        /* ↓↓↓ AQUÍ VA EL ENVÍO REAL ↓↓↓ */
-        nota.className = 'nota';
-        nota.textContent = 'Formulario listo, pero todavía no está conectado: el correo no se guarda en ningún sitio.';
-        /* ↑↑↑ AQUÍ VA EL ENVÍO REAL ↑↑↑ */
+        fetch('/api/avisos', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ correo: correo })
+        })
+        .then(function(r){
+            // si la respuesta no fuese JSON (un 404 de otro servidor, por
+            // ejemplo) no reventamos: seguimos por la rama de error normal
+            return r.json().catch(function(){ return {}; })
+                    .then(function(d){ return { estado:r.status, datos:d }; });
+        })
+        .then(function(res){
+            if(res.datos && res.datos.ok){
+                form.classList.add('dentro');
+                nota.className = 'nota';
+                nota.innerHTML = res.datos.nuevo
+                    ? '<b>Ya perteneces a NOVA Studio</b>Te escribimos a ' + correo +
+                      ' en cuanto el Drop 02 tenga fecha.'
+                    : '<b>Ya estabas dentro</b>Ese correo ya figuraba en la lista. Te avisamos igual.';
+                return;
+            }
+            recuperar();
+            var motivo = res.datos && res.datos.error;
+            if(motivo === 'correo')      fallo('Ese correo no parece válido.');
+            else if(motivo === 'sin-base') fallo('El aviso no está operativo todavía. Vuelve a intentarlo en un rato.');
+            else                          fallo('No hemos podido guardarlo. Inténtalo de nuevo en un momento.');
+        })
+        .catch(function(){
+            recuperar();
+            fallo('No hemos podido conectar. Comprueba tu conexión e inténtalo otra vez.');
+        });
     });
 })();
 </script>

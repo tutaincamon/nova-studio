@@ -1,0 +1,21 @@
+# Qué NO se sube a Vercel.
+#
+# En Vercel la web se sirve como archivos estáticos: no hay ningún proceso
+# de Node escuchando. Si server.js está presente, Vercel lo detecta como
+# aplicación y lo ejecuta, y entonces TODAS las rutas caen en su 404.
+# Dejándolo fuera del despliegue, Vercel sirve el index.html y el resto.
+#
+# Ojo: esto no borra nada. Los archivos siguen en tu carpeta y en GitHub,
+# y `node server.js` sigue funcionando en local igual que siempre.
+
+server.js
+google-calendar.js
+config.json
+
+# Variante antigua de la portada, con los 300 fotogramas. No se usa.
+index-frames.html
+frames/
+
+# Cosas del editor y documentación interna
+.claude/
+README.md
