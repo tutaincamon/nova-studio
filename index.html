@@ -226,29 +226,31 @@ h1.titulo{margin:0;line-height:0}
    primero, que es el único con opacidad 1 de base.
    Va fuera de <main> para llegar de borde a borde sin trucos de 100vw,
    que con la barra de desplazamiento visible desbordan a lo ancho. */
-/* Proporción fija 2:1, la misma que traen los fotogramas: así no se recorta
+/* Proporción fija 3:2, la misma que traen los fotogramas: así no se recorta
    nada y la banda crece con la ventana en vez de quedarse en una tira.
    El mínimo evita que en el móvil sea un hilo; el máximo, que en pantallas
    muy anchas se coma la altura entera. */
 .bucle{
     position:relative;width:100%;
-    aspect-ratio:2/1;min-height:240px;max-height:82vh;
+    aspect-ratio:3/2;min-height:280px;max-height:86vh;
     overflow:hidden;background:#f2f0ed;
 }
 .bucle img{
     position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
     opacity:0;
-    animation:pase 1.5s linear infinite;      /* sin fill-mode: antes de su
+    animation:pase 2s linear infinite;        /* sin fill-mode: antes de su
                                                  turno manda el CSS de arriba */
     animation-delay:calc(var(--i) * .25s);
 }
 .bucle img:first-child{opacity:1}
+/* Ocho fotogramas: cada uno ocupa un octavo del ciclo (12,5 %) y se cruza
+   con el siguiente en un 2 %, unos 40 ms. */
 @keyframes pase{
-    0%      {opacity:0}
-    2.7%    {opacity:1}
-    16.667% {opacity:1}
-    19.3%   {opacity:0}
-    100%    {opacity:0}
+    0%     {opacity:0}
+    2%     {opacity:1}
+    12.5%  {opacity:1}
+    14.5%  {opacity:0}
+    100%   {opacity:0}
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -441,13 +443,17 @@ footer{
 
 </main>
 
-<div class="bucle" role="img" aria-label="El emblema de NOVA Studio pintado en el suelo, grabado en cuero, en un cartel de calle, sobre un atardecer, en un colgante y en una pantalla">
-    <img src="reel1.jpg" width="1400" height="700" loading="lazy" alt="" style="--i:0">
-    <img src="reel2.jpg" width="1400" height="700" loading="lazy" alt="" style="--i:1">
-    <img src="reel3.jpg" width="1400" height="700" loading="lazy" alt="" style="--i:2">
-    <img src="reel4.jpg" width="1400" height="700" loading="lazy" alt="" style="--i:3">
-    <img src="reel5.jpg" width="1400" height="700" loading="lazy" alt="" style="--i:4">
-    <img src="reel6.jpg" width="1400" height="700" loading="lazy" alt="" style="--i:5">
+<!-- Los ocho fotogramas están recortados de forma que el emblema cae siempre
+     en el mismo punto, así que en el bucle el logo no se mueve del sitio. -->
+<div class="bucle" role="img" aria-label="El emblema de NOVA Studio pintado en el suelo, grabado en cuero, en un cartel de calle, sobre un atardecer, en un colgante, en un cristal empañado, dibujado en papel y en la pantalla de un televisor">
+    <img src="reel1.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:0">
+    <img src="reel2.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:1">
+    <img src="reel3.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:2">
+    <img src="reel4.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:3">
+    <img src="reel5.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:4">
+    <img src="reel6.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:5">
+    <img src="reel7.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:6">
+    <img src="reel8.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:7">
 </div>
 
 <div class="transicion" aria-hidden="true"></div>
