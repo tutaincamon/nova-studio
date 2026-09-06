@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>NOVA Studio · Drop 01</title>
-<meta name="description" content="Drop 01 de NOVA Studio: nuestra primera colección de camisetas. Piezas limitadas, hasta fin de existencias. Solo venta física.">
+<title>NOVA Supply Clothing · Drop 01</title>
+<meta name="description" content="Drop 01 de NOVA Supply Clothing: nuestra primera colección de camisetas. Agotada en la venta física. Apúntate a la preventa de la siguiente.">
 <meta name="theme-color" content="#ffffff">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='15' fill='%23121110'/><path d='M16 5 C16.9 12.4 19.6 15.1 27 16 C19.6 16.9 16.9 19.6 16 27 C15.1 19.6 12.4 16.9 5 16 C12.4 15.1 15.1 12.4 16 5 Z' fill='%23ffffff'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@800&family=Space+Grotesk:wght@300;400;500&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@800&family=Space+Grotesk:wght@300;400;500&family=Space+Mono:wght@400;700&family=Inter:wght@300&family=Montserrat:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
     --blanco:#ffffff;      /* la mitad clara */
@@ -17,6 +17,7 @@
     --gris:#6f6b66;
     --acento:#a4525f;      /* rosa oscuro, sacado de la propia camiseta */
     --linea:rgba(14,14,16,.16);
+    --humo:#b1aeaa;        /* el gris del cartel de 'coming soon' */
 
     --noche:#07070a;       /* la mitad oscura */
     --noche-texto:#f0ece6;
@@ -29,6 +30,11 @@
     --display:'Syne','Segoe UI',system-ui,sans-serif;
     --texto:'Space Grotesk','Segoe UI',system-ui,-apple-system,sans-serif;
     --mono:'Space Mono',ui-monospace,'Courier New',monospace;
+    /* Una grotesca ligera para el rótulo de agotado. */
+    --sans:'Inter','Helvetica Neue',Helvetica,Arial,sans-serif;
+    /* Y una geométrica, en versales y muy espaciada, para la caja de la
+       preventa: Montserrat es la que más se acerca a la de la referencia. */
+    --caja:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;
 }
 
 *{box-sizing:border-box}
@@ -104,7 +110,7 @@ main{max-width:1040px;margin:0 auto;padding:clamp(48px,9vh,92px) 22px clamp(64px
 }
 .mark{position:absolute;inset:0;width:100%;height:100%;display:block}
 
-.wordmark{                                     /* logo-nova-web.png ya viene en negro plano */
+.wordmark{                                     /* logo-supply.png ya viene en negro plano */
     width:clamp(184px,32vw,254px);height:auto;
     animation:rise .9s .18s cubic-bezier(.2,.8,.2,1) both;
 }
@@ -124,25 +130,37 @@ main{max-width:1040px;margin:0 auto;padding:clamp(48px,9vh,92px) 22px clamp(64px
 
 /* ---------- cabecera del drop ---------- */
 .intro{text-align:center;margin:clamp(48px,8vh,80px) 0 clamp(40px,6vh,60px)}
-.intro .drop{animation:rise .85s .34s cubic-bezier(.2,.8,.2,1) both}
+.intro .drop{margin-bottom:0;animation:rise .85s .34s cubic-bezier(.2,.8,.2,1) both}
 
 /* El h1 de la página es el propio logotipo: la página ya no lleva titular
    escrito, pero sigue necesitando un encabezado para lectores y buscadores. */
 h1.titulo{margin:0;line-height:0}
 
-.lede{
-    margin:0 auto;max-width:46ch;color:var(--gris);
-    font-size:clamp(14px,1.7vw,16.5px);line-height:1.75;
-    animation:rise .95s .56s cubic-bezier(.2,.8,.2,1) both;
-}
-.lede b{color:var(--tinta);font-weight:500}
-
 /* ---------- la camiseta ----------
    Las cuatro fotos vienen recortadas y pegadas sobre el mismo blanco y en la
    misma caja, así que el visor no da ningún salto al girar ni al cambiar de
    color. Sin marco: la camiseta flota sobre la página. */
-.producto{animation:rise 1s .68s cubic-bezier(.2,.8,.2,1) both}
+.producto{position:relative;animation:rise 1s .68s cubic-bezier(.2,.8,.2,1) both}
 .escaparate{position:relative;max-width:660px;margin:0 auto;padding:0 clamp(0px,5vw,72px)}
+
+/* ---------- el rótulo de agotado ----------
+   De pie y leyéndose de abajo arriba, pegado al borde izquierdo y
+   arrancando arriba del todo. Va en la grotesca ligera, en gris claro.
+   Cabe entero en el margen que ya deja el visor (el mismo hueco por donde
+   asoma la flecha), así que no llega a tocar la camiseta; y la altura del
+   texto se queda corta a propósito para morir antes de la flecha, que va
+   a media altura. */
+.agotado{
+    position:absolute;left:0;top:0;z-index:1;
+    margin:0;
+    writing-mode:vertical-rl;transform:rotate(180deg);
+    font-family:var(--sans);font-weight:300;
+    font-size:clamp(10px,2.9vw,19px);line-height:1;
+    letter-spacing:.14em;text-transform:uppercase;
+    color:var(--humo);
+    pointer-events:none;                       /* no estorba al girar la prenda */
+    -webkit-user-select:none;user-select:none;
+}
 
 .visor{
     display:block;position:relative;width:100%;max-width:520px;margin:0 auto;
@@ -207,17 +225,109 @@ h1.titulo{margin:0;line-height:0}
 .venta{margin-top:clamp(56px,10vh,100px);text-align:center}
 .rule{height:1px;border:0;margin:0 auto clamp(34px,6vh,52px);max-width:460px;background:var(--linea)}
 
-.venta h2{
-    margin:0;font-family:var(--display);font-weight:800;
-    font-size:clamp(15px,3.1vw,25px);
-    letter-spacing:.16em;text-transform:uppercase;text-indent:.16em;
+/* ---------- la caja de la preventa ----------
+   La única caja de la mitad clara: lo demás flota sobre el blanco, pero
+   esto lleva al pago y necesita leerse como un botón, no como un párrafo. */
+.preventa{
+    max-width:520px;margin:0 auto;
+    padding:clamp(28px,5.5vw,42px) clamp(20px,5vw,38px) clamp(24px,4.5vw,34px);
+    border:1px solid var(--linea);border-radius:3px;background:#fbfaf9;
 }
-.venta p{margin:22px auto 0;max-width:42ch;color:var(--gris);font-size:13.5px;line-height:1.9}
-.venta a{
-    color:var(--tinta);text-decoration:none;
-    border-bottom:1px solid var(--linea);transition:border-color .35s,color .35s;
+/* Toda la caja va en la geométrica, en versales y muy espaciada: el peso
+   lo pone el tracking, no el tamaño. */
+.preventa h2{
+    margin:0;font-family:var(--caja);font-weight:700;
+    font-size:clamp(12.5px,2.5vw,17px);line-height:1.7;
+    letter-spacing:.15em;text-transform:uppercase;text-indent:.15em;
 }
-.venta a:hover{color:var(--acento);border-bottom-color:var(--acento)}
+
+/* El precio de siempre tachado y al lado el de la preventa, que es el que
+   manda y por eso va grande. Los dos apoyados en la misma línea. */
+.precio{
+    display:flex;align-items:baseline;justify-content:center;
+    gap:clamp(12px,3vw,18px);margin:clamp(20px,3.6vw,28px) 0 0;
+    font-family:var(--caja);
+}
+.precio s{
+    font-weight:600;font-size:clamp(14px,2.8vw,17px);letter-spacing:.05em;
+    color:var(--gris);text-decoration-thickness:1px;
+}
+.precio b{
+    font-weight:700;line-height:1;
+    font-size:clamp(31px,6.6vw,44px);letter-spacing:.02em;
+}
+.plazo{
+    margin:12px 0 0;font-family:var(--caja);font-weight:700;
+    font-size:clamp(9.5px,1.9vw,11px);
+    letter-spacing:.2em;text-transform:uppercase;text-indent:.2em;
+    color:var(--acento);
+}
+
+/* ---------- talla y color ----------
+   Un formulario de verdad, por GET: lo que elijan viaja a /api/preventa en
+   la propia dirección y de ahí a Stripe. Los radios son obligatorios, así
+   que el navegador no deja pagar sin elegir — y todo esto funciona igual
+   con JavaScript apagado.
+   Los círculos van encima de su etiqueta, invisibles pero con tamaño real:
+   así siguen siendo enfocables y el aviso de "elige una opción" tiene dónde
+   aparecer. */
+.eleccion{margin:clamp(24px,4.5vw,32px) 0 0}
+.eleccion fieldset{margin:0;padding:0;border:0;min-width:0}
+.eleccion fieldset + fieldset{margin-top:16px}
+.eleccion legend{
+    display:block;width:100%;padding:0;margin:0 0 10px;
+    font-family:var(--caja);font-weight:700;font-size:9.5px;
+    letter-spacing:.22em;text-transform:uppercase;text-indent:.22em;color:var(--gris);
+}
+.opciones{display:flex;flex-wrap:wrap;justify-content:center;gap:8px}
+.opcion{position:relative;display:inline-flex}
+.opcion input{
+    position:absolute;inset:0;width:100%;height:100%;
+    margin:0;padding:0;border:0;opacity:0;
+    -webkit-appearance:none;appearance:none;cursor:pointer;
+}
+.opcion span{
+    display:inline-flex;align-items:center;justify-content:center;gap:7px;
+    min-width:44px;padding:9px 13px;
+    border:1px solid var(--linea);border-radius:100px;
+    font-family:var(--caja);font-weight:600;font-size:11.5px;
+    letter-spacing:.09em;text-indent:.09em;text-transform:uppercase;color:var(--gris);
+    transition:border-color .3s,color .3s;
+}
+.opcion:hover span{border-color:rgba(14,14,16,.45);color:var(--tinta)}
+.opcion input:checked + span{border-color:var(--tinta);color:var(--tinta)}
+.opcion input:focus-visible + span{outline:2px solid var(--acento);outline-offset:3px}
+.opcion .punto{width:11px;height:11px;flex:none}
+
+.pago{
+    display:flex;align-items:center;justify-content:center;gap:10px;
+    width:100%;margin:clamp(24px,4.5vw,32px) 0 0;padding:16px 26px;
+    background:var(--tinta);border:1px solid var(--tinta);border-radius:2px;
+    color:var(--blanco);text-decoration:none;cursor:pointer;
+    font-family:var(--caja);font-weight:700;font-size:12px;
+    letter-spacing:.2em;text-transform:uppercase;
+    transition:background .3s,border-color .3s,color .3s;
+}
+.pago svg{width:15px;height:15px;flex:none;transition:transform .3s}
+.pago:hover{background:var(--acento);border-color:var(--acento)}
+.pago:hover svg{transform:translateX(3px)}
+.pago:focus-visible{outline:2px solid var(--acento);outline-offset:3px}
+
+/* El pie sólo existe para el mensaje de vuelta del pago: mientras está
+   vacío no ocupa nada. */
+.pago-nota{margin:16px 0 0;font-family:var(--caja);font-weight:500;font-size:12.5px;line-height:1.75;color:var(--gris)}
+.pago-nota:empty{display:none}
+
+/* Cuando vuelven de pagar sobran el precio y el formulario. */
+.preventa.pagado .precio,
+.preventa.pagado .plazo,
+.preventa.pagado .eleccion{display:none}
+.preventa.pagado .pago-nota{margin-top:20px}
+.preventa.pagado .pago-nota b{
+    display:block;margin-bottom:8px;
+    font-family:var(--caja);font-weight:700;font-size:11px;
+    letter-spacing:.2em;text-transform:uppercase;color:var(--acento);
+}
 
 /* ---------- el bucle de seis fotos ----------
    Un vídeo de mentira: los seis fotogramas apilados y una única animación
@@ -274,8 +384,6 @@ h1.titulo{margin:0;line-height:0}
     text-align:center;
 }
 .oscuro .adentro{max-width:560px;margin:0 auto}
-.oscuro .lede{color:var(--noche-gris)}
-.oscuro .lede b{color:var(--noche-texto)}
 
 .oscuro h2{
     margin:0 0 20px;font-family:var(--display);font-weight:800;
@@ -381,38 +489,39 @@ footer{
 <body id="arriba">
 
 <header class="fijo" id="fijo">
-    <a class="fijo-logo" href="#arriba" aria-label="NOVA Studio · volver arriba">
-        <img src="logo-nova-web.png" width="560" height="197" alt="NOVA Studio">
+    <a class="fijo-logo" href="#arriba" aria-label="NOVA Supply Clothing · volver arriba">
+        <img src="logo-supply.png" width="760" height="267" alt="NOVA Supply Clothing">
     </a>
 </header>
 
 <main>
 
     <div class="logo">
-        <div class="mark-wrap"><img class="mark" src="logo-marca.png" width="512" height="512" alt="Emblema de NOVA Studio"></div>
-        <h1 class="titulo"><img class="wordmark" src="logo-nova-web.png" width="560" height="197" alt="NOVA Studio"></h1>
+        <div class="mark-wrap"><img class="mark" src="logo-marca.png" width="512" height="512" alt="Emblema de NOVA Supply Clothing"></div>
+        <h1 class="titulo"><img class="wordmark" src="logo-supply.png" width="760" height="267" alt="NOVA Supply Clothing"></h1>
     </div>
 
     <section class="intro">
         <p class="drop">Drop 01</p>
-        <p class="lede">Piezas limitadas, <b>hasta fin de existencias</b>.</p>
     </section>
 
     <section class="producto">
         <div class="escaparate" id="camiseta">
+            <p class="agotado">Sold out</p>
+
             <button type="button" class="flecha izq" aria-label="Ver el otro lado de la camiseta">
                 <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10.5 1.5 4 8l6.5 6.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
 
             <button type="button" class="visor" id="visor">
                 <img class="foto activa" data-color="negro" data-cara="delante" src="negro-delante.jpg"
-                     width="920" height="780" alt="Camiseta NOVA Studio negra por delante, con el emblema en el pecho">
+                     width="920" height="780" alt="Camiseta NOVA Supply Clothing negra por delante, con el emblema en el pecho">
                 <img class="foto" data-color="negro" data-cara="detras" src="negro-detras.jpg"
-                     width="920" height="780" alt="Camiseta NOVA Studio negra por detrás, con NOVA en grande">
+                     width="920" height="780" alt="Camiseta NOVA Supply Clothing negra por detrás, con NOVA en grande">
                 <img class="foto" data-color="rosa" data-cara="delante" src="rosa-delante.jpg"
-                     width="920" height="780" alt="Camiseta NOVA Studio rosa por delante, con el emblema en el pecho">
+                     width="920" height="780" alt="Camiseta NOVA Supply Clothing rosa por delante, con el emblema en el pecho">
                 <img class="foto" data-color="rosa" data-cara="detras" src="rosa-detras.jpg"
-                     width="920" height="780" alt="Camiseta NOVA Studio rosa por detrás, con NOVA en grande">
+                     width="920" height="780" alt="Camiseta NOVA Supply Clothing rosa por detrás, con NOVA en grande">
             </button>
 
             <button type="button" class="flecha der" aria-label="Ver el otro lado de la camiseta">
@@ -434,18 +543,53 @@ footer{
 
     <section class="venta">
         <hr class="rule">
-        <h2>Solo venta física</h2>
-        <p>
-            Disponibles únicamente en el salón.<br>
-            <a href="https://maps.google.com/?q=27.8398143,-15.4413670" target="_blank" rel="noopener">Av. del Atlántico 317 · Vecindario</a>
-        </p>
+        <!-- La caja es un formulario de verdad contra /api/preventa, que
+             redirige a Stripe con la talla y el color elegidos. Funciona
+             igual aunque no haya JavaScript. -->
+        <div class="preventa" id="preventa">
+            <h2>Apúntate ya a la siguiente preventa</h2>
+
+            <p class="precio">
+                <span class="sr-only">Precio normal</span><s>48&nbsp;€</s>
+                <span class="sr-only">Precio en preventa</span><b>38&nbsp;€</b>
+            </p>
+            <p class="plazo">Solo hasta el 15/09</p>
+
+            <form class="eleccion" action="/api/preventa" method="get">
+                <fieldset>
+                    <legend>Talla</legend>
+                    <div class="opciones">
+                        <label class="opcion"><input type="radio" name="talla" value="S" required><span>S</span></label>
+                        <label class="opcion"><input type="radio" name="talla" value="M"><span>M</span></label>
+                        <label class="opcion"><input type="radio" name="talla" value="L"><span>L</span></label>
+                        <label class="opcion"><input type="radio" name="talla" value="XL"><span>XL</span></label>
+                        <label class="opcion"><input type="radio" name="talla" value="XXL"><span>XXL</span></label>
+                    </div>
+                </fieldset>
+
+                <fieldset>
+                    <legend>Color</legend>
+                    <div class="opciones">
+                        <label class="opcion"><input type="radio" name="color" value="negro" required><span><i class="punto" style="--c:#2b2b2d"></i>Negro</span></label>
+                        <label class="opcion"><input type="radio" name="color" value="rosa"><span><i class="punto" style="--c:#c98f95"></i>Rosa</span></label>
+                    </div>
+                </fieldset>
+
+                <button type="submit" class="pago">
+                    <span>Reservar</span>
+                    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 8h11M9 3.5 13.5 8 9 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+            </form>
+
+            <p class="pago-nota" id="pago-nota"></p>
+        </div>
     </section>
 
 </main>
 
 <!-- Los ocho fotogramas están recortados de forma que el emblema cae siempre
      en el mismo punto, así que en el bucle el logo no se mueve del sitio. -->
-<div class="bucle" role="img" aria-label="El emblema de NOVA Studio pintado en el suelo, grabado en cuero, en un cartel de calle, sobre un atardecer, en un colgante, en un cristal empañado, dibujado en papel y en la pantalla de un televisor">
+<div class="bucle" role="img" aria-label="El emblema de NOVA Supply Clothing pintado en el suelo, grabado en cuero, en un cartel de calle, sobre un atardecer, en un colgante, en un cristal empañado, dibujado en papel y en la pantalla de un televisor">
     <img src="reel1.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:0">
     <img src="reel2.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:1">
     <img src="reel3.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:2">
@@ -472,9 +616,9 @@ footer{
 
         <button type="button" class="visor">
             <img class="foto activa" data-cara="delante" src="sud-delante.jpg" width="900" height="840" loading="lazy"
-                 alt="Sudadera NOVA Studio por delante, con cremallera y Studio y Nova en las mangas">
+                 alt="Sudadera NOVA Supply Clothing por delante, con cremallera y Studio y Nova en las mangas">
             <img class="foto" data-cara="detras" src="sud-detras.jpg" width="900" height="840" loading="lazy"
-                 alt="Sudadera NOVA Studio por detrás, con el emblema grande en la espalda">
+                 alt="Sudadera NOVA Supply Clothing por detrás, con el emblema grande en la espalda">
         </button>
 
         <button type="button" class="flecha der" aria-label="Ver el otro lado de la sudadera">
@@ -506,14 +650,13 @@ footer{
         </figure>
         <p class="coord-dato">27.8398143, −15.4413670</p>
         <p class="coord-texto">
-            Los números de la espalda no son un adorno: son el sitio exacto donde está el estudio.<br>
             <a href="https://maps.google.com/?q=27.8398143,-15.4413670" target="_blank" rel="noopener">Av. del Atlántico 317 · Vecindario</a>
         </p>
     </div>
 
 </section>
 
-<footer>NOVA Studio</footer>
+<footer>NOVA Supply Clothing</footer>
 
 <script>
 /* ---------- el logo que se queda arriba ----------
@@ -626,6 +769,31 @@ montarVisor({
 
 montarVisor({ caja:'sudadera', prenda:'Sudadera', cara:'cara-sudadera' });
 
+/* ---------- la vuelta del pago ----------
+   El botón de la caja es un enlace normal a /api/preventa, que redirige a
+   Stripe: eso funciona solo, sin JavaScript. Lo único que hace falta aquí
+   es recoger al cliente cuando Stripe lo devuelve a la web, en /?pago=ok
+   si ha pagado o en /?pago=no si se ha echado atrás. */
+(function(){
+    var caja = document.getElementById('preventa');
+    var nota = document.getElementById('pago-nota');
+    if(!caja || !nota) return;
+
+    var vuelta = /[?&]pago=(ok|no)(&|$)/.exec(location.search);
+    if(!vuelta) return;
+
+    if(history.replaceState){                    // limpia la barra de direcciones
+        history.replaceState(null, '', location.pathname + location.hash);
+    }
+
+    if(vuelta[1] === 'ok'){
+        caja.classList.add('pagado');
+        nota.innerHTML = '<b>Plaza reservada</b>Guarda el correo que te acaba de mandar Stripe: es tu resguardo. Te escribimos con los detalles antes que a nadie.';
+    }else{
+        nota.textContent = 'Pago cancelado. La plaza sigue libre, puedes reservarla cuando quieras.';
+    }
+})();
+
 /* ---------- aviso del Drop 02 ----------
    Manda el correo a /api/avisos, que lo guarda en la base de datos. La
    respuesta trae "nuevo": true si es la primera vez que se apunta, false si
@@ -681,7 +849,7 @@ montarVisor({ caja:'sudadera', prenda:'Sudadera', cara:'cara-sudadera' });
                 form.classList.add('dentro');
                 nota.className = 'nota';
                 nota.innerHTML = res.datos.nuevo
-                    ? '<b>Ya perteneces a NOVA Studio</b>Te escribimos a ' + correo +
+                    ? '<b>Ya perteneces a NOVA Supply Clothing</b>Te escribimos a ' + correo +
                       ' en cuanto el Drop 02 tenga fecha.'
                     : '<b>Ya estabas dentro</b>Ese correo ya figuraba en la lista. Te avisamos igual.';
                 return;
