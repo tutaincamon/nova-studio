@@ -329,6 +329,74 @@ h1.titulo{margin:0;line-height:0}
     letter-spacing:.2em;text-transform:uppercase;color:var(--acento);
 }
 
+/* ---------- la guía de tallas ----------
+   El enlace es un renglón discreto debajo de las tallas; el cuadro que abre
+   se planta encima de todo (capa superior del navegador) y se cierra con la
+   equis, con Esc o pulsando fuera. */
+.guia-linea{margin:12px 0 0;text-align:center}
+.guia{
+    font-family:var(--caja);font-weight:600;font-size:10px;
+    letter-spacing:.16em;text-transform:uppercase;
+    color:var(--gris);text-decoration:none;
+    border-bottom:1px solid var(--linea);padding-bottom:2px;
+    transition:color .3s,border-color .3s;
+}
+.guia:hover{color:var(--tinta);border-bottom-color:var(--tinta)}
+.guia:focus-visible{outline:2px solid var(--acento);outline-offset:3px}
+
+.tallas{
+    width:min(700px,calc(100vw - 28px));max-width:none;
+    padding:clamp(22px,4vw,32px);
+    border:1px solid var(--linea);border-radius:4px;
+    background:var(--blanco);color:var(--tinta);
+}
+.tallas::backdrop{background:rgba(14,14,16,.6)}
+.tallas-cerrar{
+    position:absolute;top:10px;right:10px;
+    width:34px;height:34px;display:flex;align-items:center;justify-content:center;
+    background:none;border:0;border-radius:50%;color:var(--gris);cursor:pointer;
+    transition:background .3s,color .3s;
+}
+.tallas-cerrar svg{width:15px;height:15px}
+.tallas-cerrar:hover{background:rgba(14,14,16,.06);color:var(--tinta)}
+.tallas-cerrar:focus-visible{outline:2px solid var(--acento);outline-offset:2px}
+
+.tallas-titulo{
+    margin:0 0 16px;text-align:center;
+    font-family:var(--caja);font-weight:700;font-size:clamp(11px,2.2vw,13px);
+    letter-spacing:.2em;text-transform:uppercase;text-indent:.2em;
+}
+.tallas-caras{display:flex;justify-content:center;gap:8px;margin-bottom:18px}
+.tallas-caras button{
+    padding:8px 18px;
+    background:none;border:1px solid var(--linea);border-radius:100px;
+    font-family:var(--caja);font-weight:600;font-size:11px;
+    letter-spacing:.09em;text-transform:uppercase;color:var(--gris);cursor:pointer;
+    transition:border-color .3s,color .3s;
+}
+.tallas-caras button[aria-pressed="true"]{border-color:var(--tinta);color:var(--tinta)}
+.tallas-caras button:focus-visible{outline:2px solid var(--acento);outline-offset:3px}
+
+/* La tabla es una imagen muy apaisada: en el móvil no se encoge hasta que
+   no se lee, se desliza a lo ancho. */
+.tallas-lienzo{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.tallas-lienzo img{display:block;width:100%;min-width:500px;height:auto;border-radius:2px}
+/* El display:block de arriba le gana al [hidden] del navegador, así que hay
+   que decirlo aquí: si no, se ven las dos tablas a la vez. */
+.tallas-lienzo img[hidden]{display:none}
+/* En pantallas estrechas la tabla no cabe y hay que deslizarla. Como en el
+   móvil no se ve barra ninguna, lo decimos — y sólo cuando hace falta. */
+.tallas-desliza{
+    display:none;margin:10px 0 0;text-align:center;
+    font-family:var(--caja);font-weight:600;font-size:9.5px;
+    letter-spacing:.16em;text-transform:uppercase;color:var(--gris);
+}
+.tallas.se-desliza .tallas-desliza{display:block}
+.tallas-pie{
+    margin:16px 0 0;text-align:center;
+    font-family:var(--caja);font-weight:500;font-size:11px;line-height:1.6;color:var(--gris);
+}
+
 /* ---------- el bucle de seis fotos ----------
    Un vídeo de mentira: los seis fotogramas apilados y una única animación
    CSS con el arranque desplazado en cada uno. Sin JavaScript. Si el
@@ -582,6 +650,9 @@ footer{
                         <label class="opcion"><input type="radio" name="talla" value="XL"><span>XL</span></label>
                         <label class="opcion"><input type="radio" name="talla" value="XXL"><span>XXL</span></label>
                     </div>
+                    <!-- Sin JavaScript el enlace abre la tabla como imagen suelta;
+                         con él se queda en la propia página, en el cuadro de abajo. -->
+                    <p class="guia-linea"><a class="guia" id="guia" href="talla-gris.jpeg">Guía de tallas</a></p>
                 </fieldset>
 
                 <fieldset>
@@ -600,6 +671,35 @@ footer{
 
             <p class="pago-nota" id="pago-nota"></p>
         </div>
+
+        <!-- Las dos tablas de medidas. Es un <dialog>: el propio navegador se
+             encarga de oscurecer el fondo, atrapar el foco y cerrarlo con Esc,
+             y el botón cierra solo por ser un form method="dialog". Las fotos
+             van en lazy, así que no pesan hasta que alguien lo abre. -->
+        <dialog class="tallas" id="tallas" aria-labelledby="tallas-titulo">
+            <form method="dialog">
+                <button class="tallas-cerrar" aria-label="Cerrar la guía de tallas">
+                    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+                </button>
+            </form>
+
+            <p class="tallas-titulo" id="tallas-titulo">Guía de tallas</p>
+
+            <div class="tallas-caras" role="group" aria-label="Prenda">
+                <button type="button" data-tabla="gris" aria-pressed="true">Gris</button>
+                <button type="button" data-tabla="rosa" aria-pressed="false">Rosa</button>
+            </div>
+
+            <div class="tallas-lienzo">
+                <img id="tabla-gris" src="talla-gris.jpeg" width="1320" height="452" loading="lazy"
+                     alt="Medidas de la camiseta gris en centímetros. Largo, pecho, hombro y manga: S 64, 60, 56 y 19. M 65, 62, 58 y 20. L 66, 64, 60 y 21. XL 67, 66, 62 y 22. XXL 68, 68, 64 y 23.">
+                <img id="tabla-rosa" src="talla-rosa.jpeg" width="1320" height="432" loading="lazy" hidden
+                     alt="Medidas de la camiseta rosa en centímetros. Largo, pecho, hombro y manga: S 70, 56, 53 y 20,8. M 72, 58, 55 y 21,5. L 74, 60, 57 y 22,2. XL 76, 62, 59 y 22,9. XXL 78, 64, 61 y 23,6.">
+            </div>
+
+            <p class="tallas-desliza" aria-hidden="true">Desliza la tabla para verla entera</p>
+            <p class="tallas-pie">Medidas en centímetros, tomadas a mano: puede haber alguna variación.</p>
+        </dialog>
     </section>
 
 </main>
@@ -833,6 +933,61 @@ montarVisor({ caja:'sudadera', prenda:'Sudadera' });
 [['camisa','Camisa'], ['tirantes','Camiseta de tirantes'],
  ['vaqueros','Vaqueros cortos'], ['short','Pantalón corto']]
 .forEach(function(p){ montarVisor({ caja:'p-' + p[0], prenda:p[1] }); });
+
+/* ---------- la guía de tallas ----------
+   Abre el cuadro con la tabla del color que tenga elegido, y deja cambiar
+   de una a otra. Si el navegador no supiera de <dialog>, no tocamos nada y
+   el enlace hace lo suyo: abrir la imagen. */
+(function(){
+    var abre  = document.getElementById('guia');
+    var caja  = document.getElementById('tallas');
+    if(!abre || !caja || !caja.showModal) return;
+
+    var tablas  = { gris: document.getElementById('tabla-gris'),
+                    rosa: document.getElementById('tabla-rosa') };
+    var botones = caja.querySelectorAll('.tallas-caras button');
+
+    var lienzo = caja.querySelector('.tallas-lienzo');
+
+    function avisaSiNoCabe(){
+        caja.classList.toggle('se-desliza', lienzo.scrollWidth > lienzo.clientWidth + 1);
+    }
+
+    function enseña(cual){
+        if(!tablas[cual]) cual = 'gris';
+        for(var c in tablas) tablas[c].hidden = (c !== cual);
+        requestAnimationFrame(avisaSiNoCabe);
+        Array.prototype.forEach.call(botones, function(b){
+            b.setAttribute('aria-pressed', b.getAttribute('data-tabla') === cual ? 'true' : 'false');
+        });
+    }
+
+    Array.prototype.forEach.call(botones, function(b){
+        b.addEventListener('click', function(){ enseña(b.getAttribute('data-tabla')); });
+    });
+
+    abre.addEventListener('click', function(e){
+        e.preventDefault();
+        var elegido = document.querySelector('.eleccion input[name="color"]:checked');
+        enseña(elegido ? elegido.value : 'gris');
+        caja.showModal();
+        requestAnimationFrame(avisaSiNoCabe);
+    });
+
+    // Esc. El <dialog> ya se cierra solo en un navegador normal, pero dentro
+    // de un visor incrustado esa vía no siempre llega, así que lo cerramos aquí.
+    caja.addEventListener('keydown', function(e){
+        if(e.key === 'Escape' && caja.open){ e.preventDefault(); caja.close(); }
+    });
+
+    // Pulsar fuera del cuadro también cierra. Comparamos con el rectángulo
+    // porque el clic en el fondo oscuro le llega al propio <dialog>.
+    caja.addEventListener('click', function(e){
+        var r = caja.getBoundingClientRect();
+        if(e.clientX < r.left || e.clientX > r.right ||
+           e.clientY < r.top  || e.clientY > r.bottom) caja.close();
+    });
+})();
 
 /* ---------- la vuelta del pago ----------
    El botón de la caja es un enlace normal a /api/preventa, que redirige a
