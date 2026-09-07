@@ -313,6 +313,20 @@ h1.titulo{margin:0;line-height:0}
 .pago:hover svg{transform:translateX(3px)}
 .pago:focus-visible{outline:2px solid var(--acento);outline-offset:3px}
 
+/* La ley pide que se pueda leer lo que se acepta antes de pagar, así que
+   los dos documentos van justo debajo del botón. */
+.pago-legal{
+    margin:14px 0 0;font-family:var(--caja);font-weight:500;
+    font-size:10.5px;line-height:1.75;color:var(--gris);
+}
+.pago-legal a{
+    color:var(--gris);text-decoration:none;
+    border-bottom:1px solid var(--linea);
+    transition:color .3s,border-color .3s;
+}
+.pago-legal a:hover{color:var(--tinta);border-bottom-color:var(--tinta)}
+.pago-legal a:focus-visible{outline:2px solid var(--acento);outline-offset:2px}
+
 /* El pie sólo existe para el mensaje de vuelta del pago: mientras está
    vacío no ocupa nada. */
 .pago-nota{margin:16px 0 0;font-family:var(--caja);font-weight:500;font-size:12.5px;line-height:1.75;color:var(--gris)}
@@ -321,7 +335,8 @@ h1.titulo{margin:0;line-height:0}
 /* Cuando vuelven de pagar sobran el precio y el formulario. */
 .preventa.pagado .precio,
 .preventa.pagado .plazo,
-.preventa.pagado .eleccion{display:none}
+.preventa.pagado .eleccion,
+.preventa.pagado .pago-legal{display:none}
 .preventa.pagado .pago-nota{margin-top:20px}
 .preventa.pagado .pago-nota b{
     display:block;margin-bottom:8px;
@@ -546,6 +561,19 @@ h1.titulo{margin:0;line-height:0}
     margin:14px 0 0;min-height:1.2em;
     font-size:11.5px;line-height:1.6;color:var(--noche-gris);
 }
+
+/* Quien deja su correo tiene que saber para qué, y a un clic el detalle. */
+.aviso-legal{
+    margin:12px 0 0;font-size:11px;line-height:1.7;color:#6b665f;
+}
+.aviso-legal a{
+    color:var(--noche-gris);text-decoration:none;
+    border-bottom:1px solid var(--noche-linea);
+    transition:color .3s,border-color .3s;
+}
+.aviso-legal a:hover{color:var(--noche-texto);border-bottom-color:var(--noche-texto)}
+.aviso-legal a:focus-visible{outline:2px solid var(--acento-noche);outline-offset:2px}
+.aviso.dentro .aviso-legal{display:none}
 .nota.error{color:#e0836b}
 
 /* Cuando el correo queda guardado, los campos sobran: se van y deja sitio
@@ -564,6 +592,19 @@ footer{
     text-align:center;padding:0 22px clamp(38px,7vh,62px);
     font-family:var(--mono);font-size:9.5px;letter-spacing:.4em;text-transform:uppercase;color:#4e4a45;
 }
+.pie-marca{margin:0}
+.pie-legal{
+    display:flex;flex-wrap:wrap;justify-content:center;gap:11px clamp(16px,4vw,26px);
+    margin-top:clamp(20px,3.4vh,28px);
+    font-family:var(--caja);font-weight:600;font-size:9px;letter-spacing:.15em;
+}
+.pie-legal a{
+    color:#6f6a64;text-decoration:none;
+    border-bottom:1px solid transparent;padding-bottom:2px;
+    transition:color .3s,border-color .3s;
+}
+.pie-legal a:hover{color:var(--noche-texto);border-bottom-color:rgba(255,255,255,.3)}
+.pie-legal a:focus-visible{outline:2px solid var(--acento-noche);outline-offset:3px}
 
 @media(prefers-reduced-motion:reduce){
     html{scroll-behavior:auto}
@@ -668,6 +709,8 @@ footer{
                     <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 8h11M9 3.5 13.5 8 9 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 </button>
             </form>
+
+            <p class="pago-legal">Al reservar aceptas las <a href="condiciones.html">condiciones de compra</a> y la <a href="privacidad.html">política de privacidad</a>.</p>
 
             <p class="pago-nota" id="pago-nota"></p>
         </div>
@@ -798,6 +841,7 @@ footer{
                 <button type="submit">Avísame</button>
             </div>
             <p class="nota" id="nota" role="status"></p>
+            <p class="aviso-legal">Solo usamos tu correo para avisarte del Drop 02, y puedes darte de baja cuando quieras. Lo contamos entero en la <a href="privacidad.html">política de privacidad</a>.</p>
         </form>
     </div>
 
@@ -817,7 +861,15 @@ footer{
 
 </section>
 
-<footer>NOVA Supply Clothing</footer>
+<footer>
+    <p class="pie-marca">NOVA Supply Clothing</p>
+    <nav class="pie-legal" aria-label="Información legal">
+        <a href="aviso-legal.html">Aviso legal</a>
+        <a href="privacidad.html">Privacidad</a>
+        <a href="cookies.html">Cookies</a>
+        <a href="condiciones.html">Condiciones de compra</a>
+    </nav>
+</footer>
 
 <script>
 /* ---------- el logo que se queda arriba ----------

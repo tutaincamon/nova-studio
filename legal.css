@@ -1,0 +1,135 @@
+/* ══════════════════════════════════════════════════════════════════════
+   Hoja común de las páginas legales: aviso legal, privacidad, cookies y
+   condiciones de compra.
+
+   Va aparte —y no incrustada como en index.html— porque son cuatro
+   páginas con la misma pinta: así se toca en un sitio y cambian las
+   cuatro. Los colores y las tipografías son los de la mitad clara de la
+   portada, para que no parezcan de otra web.
+   ══════════════════════════════════════════════════════════════════════ */
+
+:root{
+    --blanco:#ffffff;
+    --tinta:#0e0e10;
+    --gris:#6f6b66;
+    --acento:#a4525f;
+    --linea:rgba(14,14,16,.16);
+    --noche:#07070a;
+
+    --texto:'Space Grotesk','Segoe UI',system-ui,-apple-system,sans-serif;
+    --mono:'Space Mono',ui-monospace,'Courier New',monospace;
+    --caja:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;
+}
+
+*{box-sizing:border-box}
+html{background:var(--blanco);scroll-behavior:smooth}
+body{
+    margin:0;background:var(--blanco);color:var(--tinta);
+    font-family:var(--texto);font-weight:300;font-size:15px;line-height:1.8;
+    -webkit-font-smoothing:antialiased;
+}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
+/* ---------- cabecera ---------- */
+.cabeza{
+    border-bottom:1px solid var(--linea);
+    padding:clamp(26px,5vh,42px) 22px clamp(20px,4vh,30px);
+    text-align:center;
+}
+.cabeza img{width:clamp(150px,26vw,196px);height:auto;display:block;margin:0 auto}
+.cabeza a{display:inline-block;line-height:0}
+
+/* Las cuatro páginas se enlazan entre sí: quien entra en una tiene el
+   resto a mano sin volver a la portada. */
+.menu{
+    display:flex;flex-wrap:wrap;justify-content:center;
+    gap:clamp(10px,2.6vw,22px);
+    margin-top:clamp(18px,3.4vh,26px);
+}
+.menu a{
+    font-family:var(--caja);font-weight:600;font-size:9.5px;
+    letter-spacing:.16em;text-transform:uppercase;
+    color:var(--gris);text-decoration:none;
+    padding-bottom:3px;border-bottom:1px solid transparent;
+    transition:color .3s,border-color .3s;
+}
+.menu a:hover{color:var(--tinta);border-bottom-color:var(--tinta)}
+.menu a[aria-current="page"]{color:var(--tinta);border-bottom-color:var(--tinta)}
+.menu a:focus-visible{outline:2px solid var(--acento);outline-offset:3px}
+
+/* ---------- el documento ---------- */
+main{max-width:760px;margin:0 auto;padding:clamp(36px,7vh,68px) 22px clamp(56px,9vh,90px)}
+
+h1{
+    margin:0 0 10px;font-family:var(--caja);font-weight:700;
+    font-size:clamp(19px,3.6vw,27px);line-height:1.35;
+    letter-spacing:.1em;text-transform:uppercase;
+}
+.fecha{
+    margin:0 0 clamp(30px,5vh,46px);
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.22em;
+    text-transform:uppercase;color:var(--gris);
+}
+
+h2{
+    margin:clamp(34px,5.5vh,52px) 0 14px;
+    font-family:var(--caja);font-weight:700;
+    font-size:clamp(12.5px,2.2vw,15px);line-height:1.5;
+    letter-spacing:.14em;text-transform:uppercase;
+}
+h3{
+    margin:26px 0 10px;font-family:var(--caja);font-weight:600;
+    font-size:13px;letter-spacing:.04em;
+}
+p{margin:0 0 16px}
+ul,ol{margin:0 0 16px;padding-left:22px}
+li{margin-bottom:8px}
+b,strong{font-weight:500;color:var(--tinta)}
+a{color:var(--tinta);text-decoration:none;border-bottom:1px solid var(--linea);transition:color .3s,border-color .3s}
+a:hover{color:var(--acento);border-bottom-color:var(--acento)}
+a:focus-visible{outline:2px solid var(--acento);outline-offset:2px}
+
+hr{height:1px;border:0;background:var(--linea);margin:clamp(34px,5vh,50px) 0}
+
+/* ---------- tablas ---------- */
+.tabla{overflow-x:auto;margin:0 0 20px}
+table{border-collapse:collapse;width:100%;min-width:460px;font-size:13.5px}
+th,td{text-align:left;vertical-align:top;padding:11px 14px 11px 0;border-bottom:1px solid var(--linea)}
+th{
+    font-family:var(--caja);font-weight:700;font-size:9.5px;
+    letter-spacing:.14em;text-transform:uppercase;color:var(--gris);
+    border-bottom-color:var(--tinta);
+}
+
+/* ---------- avisos ---------- */
+.nota{
+    margin:0 0 20px;padding:16px 18px;
+    border:1px solid var(--linea);border-radius:3px;background:#fbfaf9;
+    font-size:13.5px;line-height:1.75;color:var(--gris);
+}
+.nota b{color:var(--tinta)}
+
+/* Lo que falta por rellenar. Se ve a la legua a propósito: mientras haya
+   uno de estos a la vista, el documento no está terminado. */
+.falta{
+    background:rgba(164,82,95,.12);
+    border-bottom:1px dashed var(--acento);
+    color:var(--acento);font-weight:500;
+    padding:0 3px;
+}
+
+/* ---------- pie ---------- */
+footer{
+    background:var(--noche);color:#4e4a45;
+    text-align:center;padding:clamp(30px,5vh,46px) 22px;
+}
+footer a{
+    color:#8d877f;border-bottom-color:rgba(255,255,255,.15);
+    font-family:var(--mono);font-size:9.5px;letter-spacing:.3em;text-transform:uppercase;
+}
+footer a:hover{color:#f0ece6;border-bottom-color:#f0ece6}
+
+@media(prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto}
+    *,*::before,*::after{transition-duration:.01ms!important}
+}
