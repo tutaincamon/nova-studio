@@ -263,6 +263,14 @@ h1.titulo{margin:0;line-height:0}
     color:var(--acento);
 }
 
+/* Lo que hay que saber antes de pagar y no cabe en el titular: cuánto
+   tarda y que no se envía a casa. */
+.recogida{
+    margin:10px auto 0;max-width:34ch;
+    font-family:var(--caja);font-weight:500;font-size:11px;line-height:1.7;
+    color:var(--gris);
+}
+
 /* ---------- talla y color ----------
    Un formulario de verdad, por GET: lo que elijan viaja a /api/preventa en
    la propia dirección y de ahí a Stripe. Los radios son obligatorios, así
@@ -680,6 +688,7 @@ footer{
                 <span class="sr-only">Precio en preventa</span><b>38&nbsp;€</b>
             </p>
             <p class="plazo">Solo hasta el 15/09</p>
+            <p class="recogida">Llega en un mes aproximadamente y se recoge en tienda, en Vecindario. No hacemos envíos.</p>
 
             <form class="eleccion" action="/api/preventa" method="get">
                 <fieldset>
