@@ -62,19 +62,47 @@ function aObjeto(v) {
     return o;
 }
 
+// Los últimos n días en Canarias, del más reciente al más antiguo. Se
+// calcula desde el mediodía para que ningún cambio de hora mueva un día.
+function ultimosDias(n) {
+    const hoy = new Date().toLocaleDateString('sv-SE', { timeZone: 'Atlantic/Canary' });
+    const base = new Date(hoy + 'T12:00:00Z').getTime();
+    const dias = [];
+    for (let i = 0; i < n; i++) dias.push(new Date(base - i * 86400000).toISOString().slice(0, 10));
+    return dias;
+}
+
+const DIAS = 14;
+
 async function leer(cred) {
+    const dias = ultimosDias(DIAS);
+    const ordenes = [
+        ['HGETALL', 'preventa:combinaciones'],
+        ['LRANGE', 'preventa:pedidos', '0', '39'],
+        ['HGETALL', 'avisos:drop02'],
+        ['GET', 'web:vistas:total']
+    ];
+    for (const d of dias) {
+        ordenes.push(['GET', 'web:vistas:' + d]);
+        ordenes.push(['PFCOUNT', 'web:unicos:' + d]);
+        ordenes.push(['GET', 'preventa:clics:' + d]);
+    }
+
     const r = await fetch(cred.url.replace(/\/+$/, '') + '/pipeline', {
         method: 'POST',
         headers: { Authorization: 'Bearer ' + cred.token, 'Content-Type': 'application/json' },
-        body: JSON.stringify([
-            ['HGETALL', 'preventa:combinaciones'],
-            ['LRANGE', 'preventa:pedidos', '0', '39'],
-            ['HGETALL', 'avisos:drop02']
-        ]),
-        signal: AbortSignal.timeout(6000)
+        body: JSON.stringify(ordenes),
+        signal: AbortSignal.timeout(8000)
     });
     if (!r.ok) throw new Error('redis ' + r.status);
     const p = await r.json();
+    const num = i => Number((p[i] && p[i].result) || 0);
+    const trafico = dias.map((dia, i) => ({
+        dia,
+        vistas: num(4 + i * 3),
+        unicos: num(5 + i * 3),
+        clics: num(6 + i * 3)
+    }));
     // La lista de avisos es correo → fecha en que se apuntó. La damos del
     // más reciente al más antiguo, que es como se mira.
     const avisos = Object.entries(aObjeto(p[2] && p[2].result))
@@ -83,11 +111,22 @@ async function leer(cred) {
     return {
         combinaciones: aObjeto(p[0] && p[0].result),
         pedidos: ((p[1] && p[1].result) || []).map(f => { try { return JSON.parse(f); } catch { return null; } }).filter(Boolean),
-        avisos
+        avisos,
+        vistasTotal: num(3),
+        trafico
     };
 }
 
 const escapa = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// "dom 7/9"
+function nombreDia(dia) {
+    try {
+        return new Date(dia + 'T12:00:00Z').toLocaleDateString('es-ES', {
+            timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'numeric'
+        }).replace(',', '');
+    } catch { return dia; }
+}
 
 function cuando(iso) {
     try {
@@ -135,6 +174,26 @@ function pagina(datos) {
           escapa(datos.avisos.map(a => a.correo).join(', ')) + '</textarea></details>'
         : '<p class="vacio-correos">Todavía no se ha apuntado nadie</p>';
 
+    // Tráfico: sólo los días que tienen algo, para no enseñar catorce ceros
+    // el primer día. Si no hay nada todavía, no se pinta la sección.
+    const conAlgo = datos.trafico.filter(d => d.vistas || d.unicos || d.clics);
+    const sumaVistas = conAlgo.reduce((s, d) => s + d.vistas, 0);
+    const sumaUnicos = conAlgo.reduce((s, d) => s + d.unicos, 0);
+    const sumaClics = conAlgo.reduce((s, d) => s + d.clics, 0);
+    const conversion = sumaUnicos ? Math.round(sumaClics / sumaUnicos * 100) : null;
+
+    const trafico = conAlgo.length ? `
+<h2>Últimos días</h2>
+<table class="dias">
+  <thead><tr><th></th><th>visitas</th><th>personas</th><th>clicks</th></tr></thead>
+  <tbody>${conAlgo.map(d => '<tr><th>' + escapa(nombreDia(d.dia)) + '</th>' +
+      [d.vistas, d.unicos, d.clics].map(v => '<td class="' + (v ? '' : 'cero') + '">' + v + '</td>').join('') +
+      '</tr>').join('')}</tbody>
+  <tfoot><tr><th>total</th><td>${sumaVistas}</td><td>${sumaUnicos}</td><td>${sumaClics}</td></tr></tfoot>
+</table>
+${conversion !== null ? '<p class="conversion">De cada 100 personas que entran, <b>' + conversion + '</b> pulsan Reservar</p>' : ''}
+` : '';
+
     return `<!DOCTYPE html>
 <html lang="es"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -151,8 +210,16 @@ body{margin:0;background:#fff;color:#0e0e10;padding:26px 18px 60px;
 main{max-width:520px;margin:0 auto}
 .marca{display:block;width:44px;margin:0 auto 22px}
 h1{margin:0;text-align:center;font-weight:700;font-size:12px;letter-spacing:.22em;text-transform:uppercase;text-indent:.22em}
-.total{margin:6px 0 0;text-align:center;font-weight:700;font-size:52px;letter-spacing:-.02em;line-height:1.1}
-.total-pie{margin:0 0 4px;text-align:center;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:#6f6b66}
+.cifras{display:flex;justify-content:center;gap:clamp(26px,10vw,58px);margin-top:8px}
+.cifras>div{text-align:center}
+.total{margin:0;font-weight:700;font-size:46px;letter-spacing:-.02em;line-height:1.1}
+.total-pie{margin:2px 0 0;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:#6f6b66}
+.apunte{margin:14px 0 0;text-align:center;font-size:11px;letter-spacing:.06em;color:#6f6b66}
+table.dias td,table.dias th{padding:9px 4px}
+table.dias tbody th{font-size:11px;font-weight:600;color:#6f6b66;text-transform:capitalize}
+table.dias td{font-size:15px}
+.conversion{margin:14px 0 0;text-align:center;font-size:11.5px;line-height:1.7;color:#6f6b66}
+.conversion b{font-weight:700;color:#0e0e10;font-size:14px}
 .ojo{margin:24px 0 30px;padding:13px 15px;border:1px solid rgba(164,82,95,.35);border-radius:3px;
      background:rgba(164,82,95,.06);font-size:11.5px;line-height:1.7;color:#8a4551}
 .ojo b{font-weight:700}
@@ -188,8 +255,11 @@ textarea{width:100%;padding:10px 12px;border:1px solid rgba(14,14,16,.18);border
 
 <img class="marca" src="/icono.png" alt="">
 <h1>Preventa · Drop 01</h1>
-<p class="total">${total}</p>
-<p class="total-pie">${total === 1 ? 'click' : 'clicks'}${masPedida && masPedida[1] ? ' · la más pedida, ' + masPedida[0] : ''}</p>
+<div class="cifras">
+  <div><p class="total">${total}</p><p class="total-pie">${total === 1 ? 'click' : 'clicks'}</p></div>
+  <div><p class="total">${datos.vistasTotal}</p><p class="total-pie">${datos.vistasTotal === 1 ? 'visita' : 'visitas'}</p></div>
+</div>
+${masPedida && masPedida[1] ? '<p class="apunte">La talla más pedida es la ' + masPedida[0] + '</p>' : ''}
 
 <p class="ojo"><b>Esto cuenta quién ha pulsado Reservar</b>, no quién ha pagado.
 Si alguien se echó atrás en Stripe, sigue contado aquí. Para lo cobrado de
@@ -200,6 +270,8 @@ verdad, mira los pagos en Stripe.</p>
   <tbody>${filas}</tbody>
   <tfoot><tr><th>total</th>${COLORES.map(c => '<td>' + porColor(c) + '</td>').join('')}<td>${total}</td></tr></tfoot>
 </table>
+
+${trafico}
 
 <h2>Últimos clicks</h2>
 <ul>${ultimos}</ul>

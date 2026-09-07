@@ -118,7 +118,10 @@ async function apuntar(pedido) {
             ['LPUSH', 'preventa:pedidos', fila],
             ['HINCRBY', 'preventa:tallas', pedido.talla, 1],
             ['HINCRBY', 'preventa:colores', pedido.color, 1],
-            ['HINCRBY', 'preventa:combinaciones', pedido.talla + '-' + pedido.color, 1]
+            ['HINCRBY', 'preventa:combinaciones', pedido.talla + '-' + pedido.color, 1],
+            // Uno por día, para poder ponerlo al lado de las visitas y ver
+            // cuánta de la gente que entra acaba pulsando.
+            ['INCR', 'preventa:clics:' + new Date().toLocaleDateString('sv-SE', { timeZone: 'Atlantic/Canary' })]
         ]),
         // Si la base se atasca, no dejamos al cliente esperando: se pierde
         // el apunte, no la venta.

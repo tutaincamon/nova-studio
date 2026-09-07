@@ -998,6 +998,17 @@ montarVisor({ caja:'sudadera', prenda:'Sudadera' });
  ['vaqueros','Vaqueros cortos'], ['short','Pantalón corto']]
 .forEach(function(p){ montarVisor({ caja:'p-' + p[0], prenda:p[1] }); });
 
+/* ---------- contar la visita ----------
+   Una llamada y ya. El servidor apunta una visita del día y una huella
+   anónima para no contar dos veces a la misma persona; en tu navegador no
+   se guarda nada, ni cookie ni nada parecido. Si falla, da igual: la
+   página no depende de esto. */
+(function(){
+    // El .catch hace falta: un try no atrapa una promesa rechazada, y sin él
+    // un fallo de red dejaría un error suelto en la consola del visitante.
+    try{ fetch('/api/visita', { method:'POST', keepalive:true, cache:'no-store' }).catch(function(){}); }catch(e){}
+})();
+
 /* ---------- la guía de tallas ----------
    Abre el cuadro con la tabla del color que tenga elegido, y deja cambiar
    de una a otra. Si el navegador no supiera de <dialog>, no tocamos nada y
