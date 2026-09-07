@@ -5,6 +5,21 @@
   "cleanUrls": true,
   "trailingSlash": false,
   "redirects": [
-    { "source": "/camisetas", "destination": "/", "permanent": false }
+    {
+      "source": "/camisetas",
+      "destination": "/",
+      "permanent": false
+    },
+    {
+      "source": "/:ruta*",
+      "has": [
+        {
+          "type": "host",
+          "value": "nova-studio-peach.vercel.app"
+        }
+      ],
+      "destination": "https://www.novasupply.es/:ruta*",
+      "permanent": false
+    }
   ]
 }
