@@ -11,14 +11,14 @@
       "permanent": false
     },
     {
-      "source": "/:ruta*",
+      "source": "/(.*)",
       "has": [
         {
           "type": "host",
           "value": "nova-studio-peach.vercel.app"
         }
       ],
-      "destination": "https://www.novasupply.es/:ruta*",
+      "destination": "https://www.novasupply.es/$1",
       "permanent": false
     }
   ]
