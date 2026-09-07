@@ -15,9 +15,11 @@
    clave mal, lo mismo — no dice "clave incorrecta", que sería confirmar que
    hay algo detrás.
 
-   NO ENSEÑA NINGÚN CORREO. De la lista de avisos del Drop 02 sólo sale
-   cuántos hay apuntados; las direcciones se quedan en la base de datos,
-   que es donde tienen que estar.
+   SÍ ENSEÑA LOS CORREOS de quien se apuntó a los avisos del Drop 02, pero
+   plegados: hay que desplegar la lista a propósito para verlos. Son datos
+   personales, así que quien tenga este enlace tiene acceso a ellos —y por
+   eso la clave hay que tratarla como una contraseña, no como un enlace más
+   que se reenvía por WhatsApp—.
    ══════════════════════════════════════════════════════════════════════════ */
 
 const TALLAS = ['S', 'M', 'L', 'XL', '2XL'];
@@ -67,16 +69,21 @@ async function leer(cred) {
         body: JSON.stringify([
             ['HGETALL', 'preventa:combinaciones'],
             ['LRANGE', 'preventa:pedidos', '0', '39'],
-            ['HLEN', 'avisos:drop02']
+            ['HGETALL', 'avisos:drop02']
         ]),
         signal: AbortSignal.timeout(6000)
     });
     if (!r.ok) throw new Error('redis ' + r.status);
     const p = await r.json();
+    // La lista de avisos es correo → fecha en que se apuntó. La damos del
+    // más reciente al más antiguo, que es como se mira.
+    const avisos = Object.entries(aObjeto(p[2] && p[2].result))
+        .map(([correo, fecha]) => ({ correo, fecha }))
+        .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
     return {
         combinaciones: aObjeto(p[0] && p[0].result),
         pedidos: ((p[1] && p[1].result) || []).map(f => { try { return JSON.parse(f); } catch { return null; } }).filter(Boolean),
-        avisos: Number((p[2] && p[2].result) || 0)
+        avisos
     };
 }
 
@@ -111,7 +118,22 @@ function pagina(datos) {
             '<li><b>' + escapa(p.talla) + '</b> ' + escapa(p.color) +
             '<i>' + escapa(cuando(p.fecha)) + '</i>' +
             '<span>' + escapa(p.ref || '') + '</span></li>').join('')
-        : '<li class="vacio">Todavía no hay ninguna reserva</li>';
+        : '<li class="vacio">Todavía no ha pulsado nadie</li>';
+
+    // Los correos van plegados: son datos personales y no tienen por qué
+    // quedarse a la vista de quien pase por detrás.
+    const correos = datos.avisos.length
+        ? '<details><summary>Ver los ' + datos.avisos.length + ' correos</summary>' +
+          '<p class="ojo-datos">Son datos personales de gente real. No reenvíes esta pantalla ' +
+          'ni pegues la lista en ningún sitio que no sea el correo con el que les escribas, y ' +
+          'mándalo en copia oculta.</p>' +
+          '<ul class="correos">' + datos.avisos.map(a =>
+              '<li>' + escapa(a.correo) + '<i>' + escapa(cuando(a.fecha)) + '</i></li>').join('') +
+          '</ul>' +
+          '<p class="etiqueta-copia">Todos juntos, para pegarlos en copia oculta</p>' +
+          '<textarea readonly rows="3" onclick="this.select()">' +
+          escapa(datos.avisos.map(a => a.correo).join(', ')) + '</textarea></details>'
+        : '<p class="vacio-correos">Todavía no se ha apuntado nadie</p>';
 
     return `<!DOCTYPE html>
 <html lang="es"><head><meta charset="UTF-8">
@@ -149,13 +171,25 @@ li b{font-weight:700;min-width:30px}
 li i{font-style:normal;color:#6f6b66;margin-left:auto;font-size:11px}
 li span{color:#c9c5c0;font-size:10px;letter-spacing:.06em}
 li.vacio{color:#6f6b66;justify-content:center;padding:22px 0}
+details{margin-top:4px}
+summary{cursor:pointer;padding:11px 0;font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+        font-weight:700;color:#0e0e10;border-bottom:1px solid rgba(14,14,16,.12)}
+summary::marker{color:#c9c5c0}
+.ojo-datos{margin:14px 0 4px;padding:12px 14px;border-radius:3px;background:rgba(14,14,16,.04);
+           font-size:11px;line-height:1.7;color:#6f6b66}
+ul.correos li{font-size:12.5px;word-break:break-all}
+ul.correos li i{white-space:nowrap}
+.etiqueta-copia{margin:18px 0 6px;font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:#a9a5a0}
+textarea{width:100%;padding:10px 12px;border:1px solid rgba(14,14,16,.18);border-radius:3px;
+         background:#fbfaf9;color:#6f6b66;font-family:inherit;font-size:11px;line-height:1.6;resize:vertical}
+.vacio-correos{margin:0;padding:18px 0;text-align:center;font-size:12px;color:#6f6b66}
 .pie{margin:32px 0 0;text-align:center;font-size:10px;line-height:1.9;letter-spacing:.06em;color:#a9a5a0}
 </style></head><body><main>
 
 <img class="marca" src="/icono.png" alt="">
 <h1>Preventa · Drop 01</h1>
 <p class="total">${total}</p>
-<p class="total-pie">${total === 1 ? 'reserva' : 'reservas'}${masPedida && masPedida[1] ? ' · la más pedida, ' + masPedida[0] : ''}</p>
+<p class="total-pie">${total === 1 ? 'click' : 'clicks'}${masPedida && masPedida[1] ? ' · la más pedida, ' + masPedida[0] : ''}</p>
 
 <p class="ojo"><b>Esto cuenta quién ha pulsado Reservar</b>, no quién ha pagado.
 Si alguien se echó atrás en Stripe, sigue contado aquí. Para lo cobrado de
@@ -167,11 +201,13 @@ verdad, mira los pagos en Stripe.</p>
   <tfoot><tr><th>total</th>${COLORES.map(c => '<td>' + porColor(c) + '</td>').join('')}<td>${total}</td></tr></tfoot>
 </table>
 
-<h2>Últimas reservas</h2>
+<h2>Últimos clicks</h2>
 <ul>${ultimos}</ul>
 
-<p class="pie">${datos.avisos} apuntados a los avisos del Drop 02<br>
-Actualizado ${cuando(new Date().toISOString())} · recarga para ver lo nuevo</p>
+<h2>Avisos del Drop 02 · ${datos.avisos.length}</h2>
+${correos}
+
+<p class="pie">Actualizado ${cuando(new Date().toISOString())} · recarga para ver lo nuevo</p>
 
 </main></body></html>`;
 }
