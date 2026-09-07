@@ -409,6 +409,23 @@ h1.titulo{margin:0;line-height:0}
 .oscuro .ficha{border-top-color:var(--noche-linea);color:var(--noche-texto)}
 .oscuro .ficha i{color:var(--acento-noche)}
 
+/* ---------- el resto de prendas del Drop 02 ----------
+   Una rejilla que se acomoda sola: cuatro en fila cuando cabe, dos cuando
+   no. Cada una gira igual que la sudadera, pero sin flechas: la tarjeta es
+   pequeña y el propio recorte ya invita a pulsarla. */
+.prendas{
+    display:grid;grid-template-columns:repeat(2,1fr);
+    gap:clamp(14px,3.2vw,30px);
+    max-width:1000px;margin:clamp(40px,7vh,68px) auto 0;
+}
+@media(min-width:760px){.prendas{grid-template-columns:repeat(4,1fr)}}
+.prenda{margin:0}
+.prenda .visor{max-width:none;aspect-ratio:1}
+.prenda .ficha{
+    max-width:none;margin-top:11px;padding-top:10px;
+    gap:8px;font-size:9px;letter-spacing:.16em;
+}
+
 /* ---------- las coordenadas ---------- */
 .coords{padding-top:clamp(8px,2vh,20px)}
 .coord-foto{
@@ -514,10 +531,10 @@ footer{
             </button>
 
             <button type="button" class="visor" id="visor">
-                <img class="foto activa" data-color="negro" data-cara="delante" src="negro-delante.jpg"
-                     width="920" height="780" alt="Camiseta NOVA Supply Clothing negra por delante, con el emblema en el pecho">
-                <img class="foto" data-color="negro" data-cara="detras" src="negro-detras.jpg"
-                     width="920" height="780" alt="Camiseta NOVA Supply Clothing negra por detrás, con NOVA en grande">
+                <img class="foto activa" data-color="gris" data-cara="delante" src="gris-delante.jpg"
+                     width="920" height="780" alt="Camiseta NOVA Supply Clothing gris por delante, con el emblema en el pecho">
+                <img class="foto" data-color="gris" data-cara="detras" src="gris-detras.jpg"
+                     width="920" height="780" alt="Camiseta NOVA Supply Clothing gris por detrás, con NOVA en grande">
                 <img class="foto" data-color="rosa" data-cara="delante" src="rosa-delante.jpg"
                      width="920" height="780" alt="Camiseta NOVA Supply Clothing rosa por delante, con el emblema en el pecho">
                 <img class="foto" data-color="rosa" data-cara="detras" src="rosa-detras.jpg"
@@ -529,14 +546,14 @@ footer{
             </button>
         </div>
 
-        <p class="ficha" aria-live="polite"><span id="nombre-color">Negro lavado</span><i id="nombre-cara">Delante</i></p>
+        <p class="ficha" aria-live="polite"><span id="nombre-color">Gris lavado</span></p>
 
         <div class="selector" id="colores" role="group" aria-label="Color de la camiseta">
-            <button type="button" class="swatch" data-color="negro" aria-pressed="true">
-                <span class="punto" style="--c:#2b2b2d"></span>Negro
+            <button type="button" class="swatch" data-color="gris" aria-pressed="true">
+                <span class="punto" style="--c:#7b7676"></span>Gris
             </button>
             <button type="button" class="swatch" data-color="rosa" aria-pressed="false">
-                <span class="punto" style="--c:#c98f95"></span>Rosa
+                <span class="punto" style="--c:#e79aba"></span>Rosa
             </button>
         </div>
     </section>
@@ -570,8 +587,8 @@ footer{
                 <fieldset>
                     <legend>Color</legend>
                     <div class="opciones">
-                        <label class="opcion"><input type="radio" name="color" value="negro" required><span><i class="punto" style="--c:#2b2b2d"></i>Negro</span></label>
-                        <label class="opcion"><input type="radio" name="color" value="rosa"><span><i class="punto" style="--c:#c98f95"></i>Rosa</span></label>
+                        <label class="opcion"><input type="radio" name="color" value="gris" required><span><i class="punto" style="--c:#7b7676"></i>Gris</span></label>
+                        <label class="opcion"><input type="radio" name="color" value="rosa"><span><i class="punto" style="--c:#e79aba"></i>Rosa</span></label>
                     </div>
                 </fieldset>
 
@@ -626,7 +643,51 @@ footer{
         </button>
     </div>
 
-    <p class="ficha" aria-live="polite"><span>Sudadera</span><i id="cara-sudadera">Delante</i></p>
+    <p class="ficha"><span>Sudadera</span></p>
+
+    <!-- El resto del drop. Cada prenda es el mismo visor de siempre, sin
+         flechas: se le da la vuelta pulsando encima (o pasando el ratón). -->
+    <div class="prendas">
+        <article class="prenda" id="p-camisa">
+            <button type="button" class="visor">
+                <img class="foto activa" data-cara="delante" src="d2-camisa-delante.jpg" width="560" height="560" loading="lazy"
+                     alt="Camisa de NOVA Supply Clothing, camisa de manga corta gris con el emblema en el pecho">
+                <img class="foto" data-cara="detras" src="d2-camisa-detras.jpg" width="560" height="560" loading="lazy"
+                     alt="Camisa de NOVA Supply Clothing, camisa de manga corta gris con NOVA en grande en la espalda">
+            </button>
+            <p class="ficha"><span>Camisa</span></p>
+        </article>
+
+        <article class="prenda" id="p-tirantes">
+            <button type="button" class="visor">
+                <img class="foto activa" data-cara="delante" src="d2-tirantes-delante.jpg" width="560" height="560" loading="lazy"
+                     alt="Camiseta de tirantes de NOVA Supply Clothing, camiseta de tirantes blanca con el emblema en el pecho">
+                <img class="foto" data-cara="detras" src="d2-tirantes-detras.jpg" width="560" height="560" loading="lazy"
+                     alt="Camiseta de tirantes de NOVA Supply Clothing, camiseta de tirantes blanca lisa por detrás">
+            </button>
+            <p class="ficha"><span>Tirantes</span></p>
+        </article>
+
+        <article class="prenda" id="p-vaqueros">
+            <button type="button" class="visor">
+                <img class="foto activa" data-cara="delante" src="d2-vaqueros-delante.jpg" width="560" height="560" loading="lazy"
+                     alt="Vaqueros cortos de NOVA Supply Clothing, pantalón vaquero corto claro por delante">
+                <img class="foto" data-cara="detras" src="d2-vaqueros-detras.jpg" width="560" height="560" loading="lazy"
+                     alt="Vaqueros cortos de NOVA Supply Clothing, pantalón vaquero corto claro con el emblema en el bolsillo">
+            </button>
+            <p class="ficha"><span>Vaqueros</span></p>
+        </article>
+
+        <article class="prenda" id="p-short">
+            <button type="button" class="visor">
+                <img class="foto activa" data-cara="delante" src="d2-short-delante.jpg" width="560" height="560" loading="lazy"
+                     alt="Pantalón corto de NOVA Supply Clothing, pantalón corto beige con NOVA en la pernera">
+                <img class="foto" data-cara="detras" src="d2-short-detras.jpg" width="560" height="560" loading="lazy"
+                     alt="Pantalón corto de NOVA Supply Clothing, pantalón corto beige con el emblema en el bolsillo">
+            </button>
+            <p class="ficha"><span>Short</span></p>
+        </article>
+    </div>
 
     <div class="adentro">
         <form class="aviso" id="aviso" novalidate>
@@ -763,11 +824,15 @@ function montarVisor(cfg){
 
 montarVisor({
     caja:'camiseta', prenda:'Camiseta',
-    cara:'nombre-cara', color:'nombre-color', selector:'colores',
-    colorInicial:'negro', colores:{ negro:'Negro lavado', rosa:'Rosa lavado' }
+    color:'nombre-color', selector:'colores',
+    colorInicial:'gris', colores:{ gris:'Gris lavado', rosa:'Rosa lavado' }
 });
 
-montarVisor({ caja:'sudadera', prenda:'Sudadera', cara:'cara-sudadera' });
+montarVisor({ caja:'sudadera', prenda:'Sudadera' });
+
+[['camisa','Camisa'], ['tirantes','Camiseta de tirantes'],
+ ['vaqueros','Vaqueros cortos'], ['short','Pantalón corto']]
+.forEach(function(p){ montarVisor({ caja:'p-' + p[0], prenda:p[1] }); });
 
 /* ---------- la vuelta del pago ----------
    El botón de la caja es un enlace normal a /api/preventa, que redirige a

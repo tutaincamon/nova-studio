@@ -30,11 +30,11 @@
       o a /?pago=no y la web le da el mensaje que toca.
 
    LA TALLA Y EL COLOR se eligen en la web, antes de venir aquí, y llegan
-   en la dirección (?talla=M&color=negro). Van a dos sitios:
+   en la dirección (?talla=M&color=gris). Van a dos sitios:
 
      1) a Stripe, pegados al cobro —
         · con enlace de pago → en «Referencia del cliente», como
-          talla-M_color-negro_ref-a3f9c1
+          talla-M_color-gris_ref-a3f9c1
         · con clave + precio → en los metadatos, cada uno en su campo
      2) a la base de datos, para poder contarlos. Ver LA LIBRETA, más abajo.
 
@@ -53,9 +53,9 @@ const SESIONES = 'https://api.stripe.com/v1/checkout/sessions';
 // Lo que se puede pedir. Si algún día cambian las tallas o los colores,
 // hay que tocarlo en los dos sitios: aquí y en el formulario de index.html.
 const TALLAS = ['S', 'M', 'L', 'XL', 'XXL'];
-const COLORES = ['negro', 'rosa'];
+const COLORES = ['gris', 'rosa'];
 
-// Talla y color llegan en la propia dirección (?talla=M&color=negro), que
+// Talla y color llegan en la propia dirección (?talla=M&color=gris), que
 // es lo que manda el formulario de la caja. No nos fiamos de lo que venga:
 // si no está en las listas, no vale.
 function eleccion(req) {
