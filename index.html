@@ -257,8 +257,14 @@ h1.titulo{margin:0;line-height:0}
     font-weight:700;line-height:1;
     font-size:clamp(31px,6.6vw,44px);letter-spacing:.02em;
 }
+/* El ahorro, en voz baja: es un dato, no un reclamo. */
+.ahorro{
+    margin:7px 0 0;font-family:var(--caja);font-weight:600;
+    font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;text-indent:.18em;
+    color:var(--gris);
+}
 .plazo{
-    margin:12px 0 0;font-family:var(--caja);font-weight:700;
+    margin:9px 0 0;font-family:var(--caja);font-weight:700;
     font-size:clamp(9.5px,1.9vw,11px);
     letter-spacing:.2em;text-transform:uppercase;text-indent:.2em;
     color:var(--acento);
@@ -345,6 +351,7 @@ h1.titulo{margin:0;line-height:0}
 
 /* Cuando vuelven de pagar sobran el precio y el formulario. */
 .preventa.pagado .precio,
+.preventa.pagado .ahorro,
 .preventa.pagado .plazo,
 .preventa.pagado .eleccion,
 .preventa.pagado .pago-legal{display:none}
@@ -687,9 +694,10 @@ footer{
             <h2>Apúntate ya a la siguiente preventa</h2>
 
             <p class="precio">
-                <span class="sr-only">Precio normal</span><s>48&nbsp;€</s>
+                <span class="sr-only">Precio normal</span><s>47,50&nbsp;€</s>
                 <span class="sr-only">Precio en preventa</span><b>38&nbsp;€</b>
             </p>
+            <p class="ahorro">Te ahorras 9,50&nbsp;€</p>
             <p class="plazo">Solo hasta el 15/09</p>
             <p class="recogida">Recogida en Vecindario · Sin envíos · Llega en un mes</p>
 
