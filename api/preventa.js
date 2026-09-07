@@ -27,7 +27,7 @@
 const ENLACES = {
     'S-gris':   'https://book.stripe.com/5kQaEY5AbgTF4ci03C7IY05',
     'S-rosa':   'https://book.stripe.com/dRm3cwd2DdHtfV0g2A7IY06',
-    'M-gris':   'https://book.stripe.com/4gM6oId2D46T9wC3fO7IY07',
+    'M-gris':   'https://book.stripe.com/3cI6oI4w746T6kq8A87IY0f',
     'M-rosa':   'https://book.stripe.com/3cIfZi1jV46T24a2bK7IY08',
     'L-gris':   'https://book.stripe.com/bJe6oI5Ab6f124a5nW7IY09',
     'L-rosa':   'https://book.stripe.com/dRmfZi4w7eLx10603C7IY0a',
