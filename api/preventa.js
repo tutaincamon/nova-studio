@@ -1,70 +1,52 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   GET /api/preventa   ·   la puerta al pago de la preventa (Stripe)
+   GET /api/preventa?talla=M&color=gris   ·   la puerta al pago (Stripe)
    ──────────────────────────────────────────────────────────────────────────
-   La caja de la web es un enlace normal a esta dirección, y esta función
-   contesta con una redirección a Stripe. Así el pago se abre igual aunque el
-   navegador no ejecute JavaScript, y la clave de Stripe no baja nunca al
-   cliente: se queda aquí, en el servidor.
+   La caja de la web es un formulario normal contra esta dirección. Aquí
+   miramos qué talla y qué color han elegido, lo apuntamos en la libreta y
+   redirigimos al enlace de pago que le toca. Al ser una redirección de
+   verdad, el pago se abre igual aunque el navegador no ejecute JavaScript.
 
-   Se configura en Vercel → Settings → Environment Variables. Hay dos
-   caminos, y con cualquiera de los dos la caja de la web se enciende sola:
+   HAY UN ENLACE POR CADA TALLA Y COLOR: diez en total, en la tabla de aquí
+   abajo. Son enlaces públicos de Stripe —los mismos que se mandan por
+   WhatsApp—, no claves secretas, así que viven en el código y no en una
+   variable de entorno: se ven de un vistazo y se cambian sin entrar en el
+   panel de Vercel.
 
-   1) EL FÁCIL · un enlace de pago ya hecho
-      En el panel de Stripe → Enlaces de pago → creas el producto con su
-      precio y copias el enlace que te da (https://buy.stripe.com/...):
+   PARA CAMBIAR PRECIOS O AÑADIR UNA TALLA:
+     1. Se rehace el enlace en Stripe → Enlaces de pago.
+     2. Se pega aquí, en ENLACES.
+     3. Si es una talla nueva, se añade también al formulario de index.html.
+   Esta tabla manda: si una combinación no está aquí, no se puede pagar.
 
-          STRIPE_LINK = https://buy.stripe.com/xxxxxxxxxxxx
-
-      El precio, las tallas, cuántas unidades puede llevarse cada uno y si
-      hay que pedirle la dirección de envío se cambian desde Stripe, sin
-      tocar la web. Si además quieres que vuelva a la página al terminar,
-      en el enlace pon como página de confirmación:
-          https://TU-DOMINIO/?pago=ok#preventa
-
-   2) EL COMPLETO · una sesión de pago nueva por cada clic
-
-          STRIPE_SECRET_KEY = sk_live_...   (Desarrolladores → Claves de API)
-          STRIPE_PRICE_ID   = price_...     (el precio dentro del catálogo)
-
-      Aquí la vuelta ya está puesta: Stripe devuelve al cliente a /?pago=ok
-      o a /?pago=no y la web le da el mensaje que toca.
-
-   LA TALLA Y EL COLOR se eligen en la web, antes de venir aquí, y llegan
-   en la dirección (?talla=M&color=gris). Van a dos sitios:
-
-     1) a Stripe, pegados al cobro —
-        · con enlace de pago → en «Referencia del cliente», como
-          talla-M_color-gris_ref-a3f9c1
-        · con clave + precio → en los metadatos, cada uno en su campo
-     2) a la base de datos, para poder contarlos. Ver LA LIBRETA, más abajo.
-
-   Si cambias las tallas o los colores, tócalos en los dos sitios: en la
-   lista de aquí abajo y en el formulario de index.html.
-
-   Mientras no haya ninguna de las dos cosas, quien pulse la caja no verá un
-   error de Vercel: le sale una página con el aire de la web diciendo que la
-   preventa todavía no está abierta, y un enlace para volver.
-
-   La clave secreta NUNCA va en el código: sólo en las variables de Vercel.
+   LA VUELTA A LA WEB es opcional y se configura en cada enlace, dentro de
+   Stripe, poniendo como página de confirmación:
+       https://novasupply.es/?pago=ok#preventa
+   Si no se pone, Stripe enseña su propia pantalla de "gracias" y ya está.
    ══════════════════════════════════════════════════════════════════════════ */
 
-const SESIONES = 'https://api.stripe.com/v1/checkout/sessions';
+const ENLACES = {
+    'S-gris':   'https://book.stripe.com/5kQaEY5AbgTF4ci03C7IY05',
+    'S-rosa':   'https://book.stripe.com/dRm3cwd2DdHtfV0g2A7IY06',
+    'M-gris':   'https://book.stripe.com/4gM6oId2D46T9wC3fO7IY07',
+    'M-rosa':   'https://book.stripe.com/3cIfZi1jV46T24a2bK7IY08',
+    'L-gris':   'https://book.stripe.com/bJe6oI5Ab6f124a5nW7IY09',
+    'L-rosa':   'https://book.stripe.com/dRmfZi4w7eLx10603C7IY0a',
+    'XL-gris':  'https://book.stripe.com/9B66oI4w7avh4cieYw7IY0b',
+    'XL-rosa':  'https://book.stripe.com/5kQ14oe6H8n91062bK7IY0c',
+    '2XL-gris': 'https://book.stripe.com/7sYbJ2bYzdHt8sy6s07IY0d',
+    '2XL-rosa': 'https://book.stripe.com/7sYfZiaUv8n97oug2A7IY0e'
+};
 
-// Lo que se puede pedir. Si algún día cambian las tallas o los colores,
-// hay que tocarlo en los dos sitios: aquí y en el formulario de index.html.
-const TALLAS = ['S', 'M', 'L', 'XL', 'XXL'];
-const COLORES = ['gris', 'rosa'];
-
-// Talla y color llegan en la propia dirección (?talla=M&color=gris), que
-// es lo que manda el formulario de la caja. No nos fiamos de lo que venga:
-// si no está en las listas, no vale.
+// Talla y color llegan en la propia dirección, que es lo que manda el
+// formulario de la caja. No nos fiamos de lo que venga: si la combinación no
+// está en la tabla, no hay pago.
 function eleccion(req) {
     let q;
     try { q = new URL(req.url || '/', 'http://n').searchParams; } catch { return null; }
     const talla = String(q.get('talla') || '').trim().toUpperCase();
     const color = String(q.get('color') || '').trim().toLowerCase();
-    if (!TALLAS.includes(talla) || !COLORES.includes(color)) return null;
-    return { talla, color };
+    const enlace = ENLACES[talla + '-' + color];
+    return enlace ? { talla, color, enlace } : null;
 }
 
 /* ── LA LIBRETA ───────────────────────────────────────────────────────────
@@ -79,9 +61,9 @@ function eleccion(req) {
 
    OJO CON LO QUE CUENTA: esto se apunta al pulsar Reservar, o sea que son
    intenciones, no cobros. Quien se eche atrás en Stripe queda apuntado
-   igual. La lista de los que han pagado de verdad es la de Stripe, y cada
-   cobro lleva su talla y su color; la referencia de seis letras es la que
-   une una fila con el otro. */
+   igual. La lista de los que han pagado de verdad es la de Stripe, donde
+   cada enlace ya lleva su talla y su color en el nombre del producto; la
+   referencia de seis letras es la que une una fila con el otro. */
 
 // Los mismos nombres de variables que busca api/avisos.js: si la base ya
 // está enchufada para los avisos, esto funciona sin tocar nada.
@@ -146,66 +128,6 @@ async function apuntar(pedido) {
     return true;
 }
 
-// El enlace de pago, si lo hay. Sólo se acepta por https: esta dirección
-// redirige a donde diga la variable, y una variable mal puesta no puede
-// convertir la web en un trampolín a cualquier sitio.
-function enlace() {
-    const url = String(process.env.STRIPE_LINK || process.env.STRIPE_PAYMENT_LINK || '').trim();
-    return /^https:\/\/[^\s]+$/.test(url) ? url : '';
-}
-
-// Cuál de los dos caminos está configurado, si es que hay alguno.
-function camino() {
-    const e = process.env;
-    if (enlace()) return 'enlace';
-    if (e.STRIPE_SECRET_KEY && e.STRIPE_PRICE_ID) return 'checkout';
-    return null;
-}
-
-// El dominio por el que ha entrado el cliente, para devolverlo a la misma
-// web (en Vercel la petición llega por un proxy, de ahí las x-forwarded-*).
-function origen(req) {
-    const proto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
-    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
-    return host ? proto + '://' + host : '';
-}
-
-async function sesionDePago(req, pedido) {
-    const raiz = origen(req);
-    const campos = new URLSearchParams({
-        mode: 'payment',
-        'line_items[0][price]': process.env.STRIPE_PRICE_ID,
-        'line_items[0][quantity]': '1',
-        success_url: raiz + '/?pago=ok#preventa',
-        cancel_url: raiz + '/?pago=no#preventa',
-        // La talla y el color quedan pegados al pago: en el panel de Stripe
-        // salen tanto en la sesión como en el cobro, que es donde se miran
-        // luego para preparar el pedido.
-        'metadata[talla]': pedido.talla,
-        'metadata[color]': pedido.color,
-        'metadata[ref]': pedido.ref,
-        'payment_intent_data[metadata][talla]': pedido.talla,
-        'payment_intent_data[metadata][color]': pedido.color,
-        'payment_intent_data[metadata][ref]': pedido.ref,
-        client_reference_id: pedido.ref
-    });
-
-    const r = await fetch(SESIONES, {
-        method: 'POST',
-        headers: {
-            Authorization: 'Bearer ' + process.env.STRIPE_SECRET_KEY,
-            'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        body: campos.toString()
-    });
-
-    const datos = await r.json().catch(() => ({}));
-    if (!r.ok || !datos.url) {
-        throw new Error((datos.error && datos.error.message) || 'stripe ' + r.status);
-    }
-    return datos.url;
-}
-
 // Si alguien llega aquí sin JavaScript y el pago no se puede abrir, mejor
 // una página con el mismo aire que la web que el error pelado de Vercel.
 function pagina(res, codigo, mensaje) {
@@ -225,15 +147,14 @@ function pagina(res, codigo, mensaje) {
 }
 
 module.exports = async (req, res) => {
-    const via = camino();
-
-    if (!via) {
-        console.error('Preventa sin configurar: falta STRIPE_LINK (o STRIPE_SECRET_KEY + STRIPE_PRICE_ID)');
+    if (!Object.keys(ENLACES).length) {
+        console.error('Preventa cerrada: la tabla ENLACES está vacía');
         return pagina(res, 503, 'La preventa todavía no está abierta. Déjanos tu correo en la web y te avisamos.');
     }
 
-    // Sin talla y color no se paga. El formulario ya los exige, así que aquí
-    // sólo caen las direcciones escritas a mano: los devolvemos a la caja.
+    // Sin una talla y un color de la tabla no se paga. El formulario ya los
+    // exige, así que aquí sólo caen las direcciones escritas a mano o una
+    // combinación que ya no existe: los devolvemos a la caja.
     const pedido = eleccion(req);
     if (!pedido) {
         res.writeHead(303, { Location: '/#preventa', 'Cache-Control': 'no-store' });
@@ -242,33 +163,24 @@ module.exports = async (req, res) => {
 
     pedido.ref = referencia();
 
+    // La referencia viaja pegada al cobro: en el panel de Stripe sale en
+    // "Referencia del cliente", y es lo que permite casarlo con la libreta.
+    // La talla y el color no hace falta mandarlos: cada enlace ya es de una
+    // talla y un color concretos, así que Stripe los sabe por el producto.
+    let destino = pedido.enlace;
     try {
-        let destino;
-        if (via === 'enlace') {
-            // En un enlace de pago la talla y el color no caben como tales,
-            // así que viajan en client_reference_id: en el panel de Stripe
-            // aparece junto al cobro, en "Referencia del cliente".
-            const u = new URL(enlace());
-            u.searchParams.set(
-                'client_reference_id',
-                'talla-' + pedido.talla + '_color-' + pedido.color + '_ref-' + pedido.ref
-            );
-            destino = u.toString();
-        } else {
-            destino = await sesionDePago(req, pedido);
-        }
+        const u = new URL(pedido.enlace);
+        u.searchParams.set('client_reference_id', 'ref-' + pedido.ref);
+        destino = u.toString();
+    } catch { /* si el enlace estuviera mal escrito, mejor ir tal cual */ }
 
-        // La libreta es un extra: si falla, la venta sigue adelante igual.
-        try {
-            await apuntar(pedido);
-        } catch (e) {
-            console.error('No se pudo apuntar la reserva ' + pedido.ref + ':', e.message);
-        }
-
-        res.writeHead(303, { Location: destino, 'Cache-Control': 'no-store' });
-        return res.end();
+    // La libreta es un extra: si falla, la venta sigue adelante igual.
+    try {
+        await apuntar(pedido);
     } catch (e) {
-        console.error('No se pudo abrir el pago:', e.message);
-        return pagina(res, 502, 'El pago no responde ahora mismo. Inténtalo otra vez en un rato.');
+        console.error('No se pudo apuntar la reserva ' + pedido.ref + ':', e.message);
     }
+
+    res.writeHead(303, { Location: destino, 'Cache-Control': 'no-store' });
+    return res.end();
 };
