@@ -1083,7 +1083,9 @@ montarVisor({ caja:'sudadera', prenda:'Sudadera' });
 
     if(vuelta[1] === 'ok'){
         caja.classList.add('pagado');
-        nota.innerHTML = '<b>Plaza reservada</b>Guarda el correo que te acaba de mandar Stripe: es tu resguardo. Te escribimos con los detalles antes que a nadie.';
+        nota.innerHTML = '<b>Plaza reservada</b>Te acaba de llegar el resguardo por correo: guárdalo, es lo que tienes que enseñar al recogerla. ' +
+                          'La camiseta llega en <b>un mes aproximadamente</b> y te escribimos en cuanto esté. ' +
+                          'Se recoge en Av. del Atlántico 317, Vecindario, de 10:00 a 18:00.';
     }else{
         nota.textContent = 'Pago cancelado. La plaza sigue libre, puedes reservarla cuando quieras.';
     }
