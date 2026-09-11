@@ -95,7 +95,7 @@ body{
 /* ══════════════════════════════════════════════════════════════
    MITAD CLARA · Drop 01
    ══════════════════════════════════════════════════════════════ */
-main{max-width:1040px;margin:0 auto;padding:clamp(48px,9vh,92px) 22px clamp(64px,10vh,104px)}
+main{max-width:1040px;margin:0 auto;padding:clamp(48px,9vh,92px) 22px clamp(36px,5vh,56px)}
 
 .logo{display:flex;flex-direction:column;align-items:center;gap:24px}
 
@@ -222,18 +222,31 @@ h1.titulo{margin:0;line-height:0}
 }
 .swatch[aria-pressed="true"] .punto{box-shadow:0 0 0 1px rgba(14,14,16,.2) inset,0 0 0 2px var(--blanco),0 0 0 3px var(--tinta)}
 
-/* ---------- venta física ---------- */
-.venta{margin-top:clamp(56px,10vh,100px);text-align:center}
-.rule{height:1px;border:0;margin:0 auto clamp(34px,6vh,52px);max-width:460px;background:var(--linea)}
+/* ---------- venta física ----------
+   Pegada a la camiseta: el botón de la preventa es lo siguiente que se ve
+   después de los colores, sin raya de por medio. */
+.venta{margin-top:clamp(30px,5vh,48px);text-align:center}
 
 /* ---------- la caja de la preventa ----------
-   La única caja de la mitad clara: lo demás flota sobre el blanco, pero
-   esto lleva al pago y necesita leerse como un botón, no como un párrafo. */
-.preventa{
-    max-width:520px;margin:0 auto;
+   Plegada no es más que el botón negro; abierta, la única caja de la mitad
+   clara: lo demás flota sobre el blanco, pero esto lleva al pago y necesita
+   leerse como un botón, no como un párrafo. */
+.preventa{max-width:520px;margin:0 auto}
+.preventa[open]{
     padding:clamp(28px,5.5vw,42px) clamp(20px,5vw,38px) clamp(24px,4.5vw,34px);
     border:1px solid var(--linea);border-radius:3px;background:#fbfaf9;
 }
+
+/* El renglón que la abre. Cerrado es el botón de siempre; abierto pasa a ser
+   el titular de la caja, que además sirve para volver a plegarla. Quitamos
+   el triangulito del navegador: el botón ya dice de sobra lo que hace. */
+.preventa-abre{display:block;cursor:pointer;list-style:none}
+.preventa-abre::-webkit-details-marker{display:none}
+.preventa-abre:focus-visible{outline:2px solid var(--acento);outline-offset:3px}
+.preventa[open] .cerrada,
+.preventa:not([open]) .abierta{display:none}
+.preventa[open] h2{transition:color .3s}
+.preventa[open] .preventa-abre:hover h2{color:var(--acento)}
 /* Toda la caja va en la geométrica, en versales y muy espaciada: el peso
    lo pone el tracking, no el tamaño. */
 .preventa h2{
@@ -316,18 +329,24 @@ h1.titulo{margin:0;line-height:0}
 .opcion input:focus-visible + span{outline:2px solid var(--acento);outline-offset:3px}
 .opcion .punto{width:11px;height:11px;flex:none}
 
-.pago{
+/* El mismo botón negro para las dos cosas: abrir la caja y pagar. */
+.pago,
+.preventa .cerrada{
     display:flex;align-items:center;justify-content:center;gap:10px;
-    width:100%;margin:clamp(24px,4.5vw,32px) 0 0;padding:16px 26px;
+    width:100%;padding:16px 26px;
     background:var(--tinta);border:1px solid var(--tinta);border-radius:2px;
     color:var(--blanco);text-decoration:none;cursor:pointer;
     font-family:var(--caja);font-weight:700;font-size:12px;
     letter-spacing:.2em;text-transform:uppercase;
     transition:background .3s,border-color .3s,color .3s;
 }
-.pago svg{width:15px;height:15px;flex:none;transition:transform .3s}
-.pago:hover{background:var(--acento);border-color:var(--acento)}
-.pago:hover svg{transform:translateX(3px)}
+.pago{margin:clamp(24px,4.5vw,32px) 0 0}
+.pago svg,
+.preventa .cerrada svg{width:15px;height:15px;flex:none;transition:transform .3s}
+.pago:hover,
+.preventa-abre:hover .cerrada{background:var(--acento);border-color:var(--acento)}
+.pago:hover svg,
+.preventa-abre:hover .cerrada svg{transform:translateX(3px)}
 .pago:focus-visible{outline:2px solid var(--acento);outline-offset:3px}
 
 /* La ley pide que se pueda leer lo que se acepta antes de pagar, así que
@@ -349,10 +368,13 @@ h1.titulo{margin:0;line-height:0}
 .pago-nota{margin:16px 0 0;font-family:var(--caja);font-weight:500;font-size:12.5px;line-height:1.75;color:var(--gris)}
 .pago-nota:empty{display:none}
 
-/* Cuando vuelven de pagar sobran el precio y el formulario. */
+/* Cuando vuelven de pagar sobran el precio, el formulario y el botón que
+   abría la caja: lo único que queda por leer es el resguardo. */
+.preventa.pagado .preventa-abre,
 .preventa.pagado .precio,
 .preventa.pagado .ahorro,
 .preventa.pagado .plazo,
+.preventa.pagado .recogida,          /* el resguardo ya dice dónde y cuándo */
 .preventa.pagado .eleccion,
 .preventa.pagado .pago-legal{display:none}
 .preventa.pagado .pago-nota{margin-top:20px}
@@ -435,8 +457,9 @@ h1.titulo{margin:0;line-height:0}
    CSS con el arranque desplazado en cada uno. Sin JavaScript. Si el
    navegador no anima (o piden menos movimiento) se queda quieto en el
    primero, que es el único con opacidad 1 de base.
-   Va fuera de <main> para llegar de borde a borde sin trucos de 100vw,
-   que con la barra de desplazamiento visible desbordan a lo ancho. */
+   Va al final del todo, justo encima del pie, y fuera de <main> para llegar
+   de borde a borde sin trucos de 100vw, que con la barra de desplazamiento
+   visible desbordan a lo ancho. */
 /* Proporción fija 3:2, la misma que traen los fotogramas: así no se recorta
    nada y la banda crece con la ventana en vez de quedarse en una tira.
    El mínimo evita que en el móvil sea un hilo; el máximo, que en pantallas
@@ -444,7 +467,9 @@ h1.titulo{margin:0;line-height:0}
 .bucle{
     position:relative;width:100%;
     aspect-ratio:3/2;min-height:280px;max-height:86vh;
-    overflow:hidden;background:#f2f0ed;
+    overflow:hidden;background:var(--noche);   /* el fondo que tiene debajo,
+                                                  para que no dé un fogonazo
+                                                  claro mientras carga */
 }
 .bucle img{
     position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
@@ -466,11 +491,13 @@ h1.titulo{margin:0;line-height:0}
 
 /* ══════════════════════════════════════════════════════════════
    LA TRANSICIÓN · de blanco a noche
-   Larga y con los pasos puestos a mano: la interpolación directa
-   entre blanco y negro cae demasiado rápido en la parte oscura.
+   Los pasos van puestos a mano: la interpolación directa entre
+   blanco y negro cae demasiado rápido en la parte oscura. De alto,
+   lo justo para que el degradado se lea: cuanto menos mida, antes
+   asoma el Drop 02, que es a lo que se viene.
    ══════════════════════════════════════════════════════════════ */
 .transicion{
-    height:clamp(320px,50vh,580px);
+    height:clamp(200px,30vh,380px);
     background:linear-gradient(to bottom,
         #ffffff 0%, #f6f6f6 12%, #e4e4e4 25%, #c4c4c5 39%,
         #969698 54%, #5f5f64 70%, #2b2b31 86%, #07070a 100%);
@@ -605,9 +632,10 @@ h1.titulo{margin:0;line-height:0}
     color:var(--acento-noche);
 }
 
+/* Ahora el pie viene detrás del bucle, así que se despega de él por arriba. */
 footer{
     background:var(--noche);
-    text-align:center;padding:0 22px clamp(38px,7vh,62px);
+    text-align:center;padding:clamp(34px,6vh,56px) 22px clamp(38px,7vh,62px);
     font-family:var(--mono);font-size:9.5px;letter-spacing:.4em;text-transform:uppercase;color:#4e4a45;
 }
 .pie-marca{margin:0}
@@ -686,12 +714,20 @@ footer{
     </section>
 
     <section class="venta">
-        <hr class="rule">
         <!-- La caja es un formulario de verdad contra /api/preventa, que
              redirige a Stripe con la talla y el color elegidos. Funciona
-             igual aunque no haya JavaScript. -->
-        <div class="preventa" id="preventa">
-            <h2>Apúntate ya a la siguiente preventa</h2>
+             igual aunque no haya JavaScript.
+             Va plegada detrás de un botón para que la portada se vea limpia
+             y se llegue antes al Drop 02; al abrirla sale todo tal cual:
+             precio, talla, color y pago. Es un <details>, así que abre y
+             cierra sin JavaScript, igual que el formulario de dentro. -->
+        <details class="preventa" id="preventa">
+            <summary class="preventa-abre">
+                <span class="cerrada">Reservar en preventa
+                    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 8h11M9 3.5 13.5 8 9 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </span>
+                <h2 class="abierta">Apúntate ya a la siguiente preventa</h2>
+            </summary>
 
             <p class="precio">
                 <span class="sr-only">Precio normal</span><s>47,50&nbsp;€</s>
@@ -733,7 +769,7 @@ footer{
             <p class="pago-legal">Al reservar aceptas las <a href="condiciones.html">condiciones de compra</a> y la <a href="privacidad.html">política de privacidad</a>.</p>
 
             <p class="pago-nota" id="pago-nota"></p>
-        </div>
+        </details>
 
         <!-- Las dos tablas de medidas. Es un <dialog>: el propio navegador se
              encarga de oscurecer el fondo, atrapar el foco y cerrarlo con Esc,
@@ -766,19 +802,6 @@ footer{
     </section>
 
 </main>
-
-<!-- Los ocho fotogramas están recortados de forma que el emblema cae siempre
-     en el mismo punto, así que en el bucle el logo no se mueve del sitio. -->
-<div class="bucle" role="img" aria-label="El emblema de NOVA Supply Clothing pintado en el suelo, grabado en cuero, en un cartel de calle, sobre un atardecer, en un colgante, en un cristal empañado, dibujado en papel y en la pantalla de un televisor">
-    <img src="reel1.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:0">
-    <img src="reel2.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:1">
-    <img src="reel3.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:2">
-    <img src="reel4.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:3">
-    <img src="reel5.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:4">
-    <img src="reel6.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:5">
-    <img src="reel7.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:6">
-    <img src="reel8.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:7">
-</div>
 
 <div class="transicion" aria-hidden="true"></div>
 
@@ -880,6 +903,20 @@ footer{
     </div>
 
 </section>
+
+<!-- El bucle cierra la página, ya en la mitad oscura. Los ocho fotogramas
+     están recortados de forma que el emblema cae siempre en el mismo punto,
+     así que el logo no se mueve del sitio. -->
+<div class="bucle" role="img" aria-label="El emblema de NOVA Supply Clothing pintado en el suelo, grabado en cuero, en un cartel de calle, sobre un atardecer, en un colgante, en un cristal empañado, dibujado en papel y en la pantalla de un televisor">
+    <img src="reel1.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:0">
+    <img src="reel2.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:1">
+    <img src="reel3.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:2">
+    <img src="reel4.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:3">
+    <img src="reel5.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:4">
+    <img src="reel6.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:5">
+    <img src="reel7.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:6">
+    <img src="reel8.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:7">
+</div>
 
 <footer>
     <p class="pie-marca">NOVA Supply Clothing</p>
@@ -1088,6 +1125,8 @@ montarVisor({ caja:'sudadera', prenda:'Sudadera' });
     if(history.replaceState){                    // limpia la barra de direcciones
         history.replaceState(null, '', location.pathname + location.hash);
     }
+
+    caja.open = true;        // la caja viene plegada: sin esto no se lee nada
 
     if(vuelta[1] === 'ok'){
         caja.classList.add('pagado');
