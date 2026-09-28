@@ -255,8 +255,8 @@ h1.titulo{margin:0;line-height:0}
     letter-spacing:.15em;text-transform:uppercase;text-indent:.15em;
 }
 
-/* El precio de siempre tachado y al lado el de la preventa, que es el que
-   manda y por eso va grande. Los dos apoyados en la misma línea. */
+/* El precio, grande. Si vuelve una oferta, el de siempre va en un <s> al
+   lado, más pequeño y apoyado en la misma línea. */
 .precio{
     display:flex;align-items:baseline;justify-content:center;
     gap:clamp(12px,3vw,18px);margin:clamp(20px,3.6vw,28px) 0 0;
@@ -726,15 +726,12 @@ footer{
                 <span class="cerrada">Reservar en preventa
                     <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 8h11M9 3.5 13.5 8 9 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 </span>
-                <h2 class="abierta">Apúntate ya a la siguiente preventa</h2>
+                <h2 class="abierta">Apúntate ya a la preventa</h2>
             </summary>
 
             <p class="precio">
-                <span class="sr-only">Precio normal</span><s>47,50&nbsp;€</s>
-                <span class="sr-only">Precio en preventa</span><b>38&nbsp;€</b>
+                <span class="sr-only">Precio</span><b>47,50&nbsp;€</b>
             </p>
-            <p class="ahorro">Te ahorras 9,50&nbsp;€</p>
-            <p class="plazo">Solo hasta el 15/09</p>
             <p class="recogida">Recogida en Vecindario · Sin envíos · Llega en un mes</p>
 
             <form class="eleccion" action="/api/preventa" method="get">
