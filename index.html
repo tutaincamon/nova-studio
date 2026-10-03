@@ -457,7 +457,7 @@ h1.titulo{margin:0;line-height:0}
    CSS con el arranque desplazado en cada uno. Sin JavaScript. Si el
    navegador no anima (o piden menos movimiento) se queda quieto en el
    primero, que es el único con opacidad 1 de base.
-   Va al final del todo, justo encima del pie, y fuera de <main> para llegar
+   Va al principio del todo, antes del logo, y fuera de <main> para llegar
    de borde a borde sin trucos de 100vw, que con la barra de desplazamiento
    visible desbordan a lo ancho. */
 /* Proporción fija 3:2, la misma que traen los fotogramas: así no se recorta
@@ -494,7 +494,7 @@ h1.titulo{margin:0;line-height:0}
    Los pasos van puestos a mano: la interpolación directa entre
    blanco y negro cae demasiado rápido en la parte oscura. De alto,
    lo justo para que el degradado se lea: cuanto menos mida, antes
-   asoma el Drop 02, que es a lo que se viene.
+   asoma la mitad oscura, que es donde está la marca.
    ══════════════════════════════════════════════════════════════ */
 .transicion{
     height:clamp(200px,30vh,380px);
@@ -504,7 +504,7 @@ h1.titulo{margin:0;line-height:0}
 }
 
 /* ══════════════════════════════════════════════════════════════
-   MITAD OSCURA · coordenadas y Drop 02
+   MITAD OSCURA · la marca y las coordenadas
    ══════════════════════════════════════════════════════════════ */
 .oscuro{
     background:var(--noche);color:var(--noche-texto);
@@ -537,22 +537,59 @@ h1.titulo{margin:0;line-height:0}
 .oscuro .ficha{border-top-color:var(--noche-linea);color:var(--noche-texto)}
 .oscuro .ficha i{color:var(--acento-noche)}
 
-/* ---------- el resto de prendas del Drop 02 ----------
-   Una rejilla que se acomoda sola: cuatro en fila cuando cabe, dos cuando
-   no. Cada una gira igual que la sudadera, pero sin flechas: la tarjeta es
-   pequeña y el propio recorte ya invita a pulsarla. */
-.prendas{
-    display:grid;grid-template-columns:repeat(2,1fr);
-    gap:clamp(14px,3.2vw,30px);
-    max-width:1000px;margin:clamp(40px,7vh,68px) auto 0;
+/* ---------- la rejilla del drop ----------
+   Al estilo de las tiendas de streetwear: fichas pegadas unas a otras, con
+   apenas 3 px de aire, foto vertical 4:5 y el texto pequeño debajo. Las
+   fotos van en «contain» y no en «cover»: son prendas, y recortarlas sería
+   enseñar media camiseta. El hueco que sobra lo rellena el mismo blanco de
+   la página, así que no se nota. */
+.catalogo{
+    display:grid;
+    grid-template-columns:repeat(2,1fr);
+    gap:14px 3px;
+    margin:clamp(30px,5vh,52px) 0 0;
 }
-@media(min-width:760px){.prendas{grid-template-columns:repeat(4,1fr)}}
-.prenda{margin:0}
-.prenda .visor{max-width:none;aspect-ratio:1}
-.prenda .ficha{
-    max-width:none;margin-top:11px;padding-top:10px;
-    gap:8px;font-size:9px;letter-spacing:.16em;
+@media(min-width:620px){ .catalogo{grid-template-columns:repeat(3,1fr)} }
+@media(min-width:980px){ .catalogo{grid-template-columns:repeat(4,1fr)} }
+
+.art{position:relative;margin:0;display:flex;flex-direction:column}
+
+/* el sello de la esquina, como el «NUEVO» de las tiendas */
+.sello{
+    position:absolute;top:0;left:0;z-index:2;margin:0;
+    padding:6px 9px;
+    font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--tinta);background:rgba(255,255,255,.82);
 }
+
+/* el visor manda aquí sobre el de la ficha grande: proporción de catálogo */
+.catalogo .visor{
+    max-width:none;width:100%;aspect-ratio:4/5;
+    /* Cada foto trae su propio fondo horneado: las camisetas en blanco y el
+       resto en negro. Si la ficha no lo copia, la prenda flota dentro de un
+       rectángulo de otro color. Así el encaje no se ve. */
+    background:var(--fondo-art,#fff);
+}
+.art--claro{--fondo-art:#ffffff}
+.art--noche{--fondo-art:#070709}
+.catalogo .visor img{object-fit:contain;padding:6%}
+
+.art-nombre{
+    margin:10px 0 0;
+    font-size:12px;font-weight:400;letter-spacing:.02em;
+    color:var(--tinta);
+}
+.art-precio{margin:3px 0 0;font-size:12px;color:var(--tinta)}
+.art-precio.proximo{color:var(--suave,#8a8a8a)}
+
+.art-cta{
+    align-self:flex-start;margin-top:7px;
+    font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--tinta);text-decoration:none;
+    border-bottom:1px solid var(--linea);padding-bottom:2px;
+    transition:border-color .25s ease,color .25s ease;
+}
+.art-cta:hover{color:var(--acento);border-bottom-color:var(--acento)}
 
 /* ---------- las coordenadas ---------- */
 .coords{padding-top:clamp(8px,2vh,20px)}
@@ -666,6 +703,22 @@ footer{
     </a>
 </header>
 
+<!-- El bucle ABRE la página: es lo primero que se ve, a sangre y por
+     encima del logo. Los ocho fotogramas están recortados de forma que el
+     emblema cae siempre en el mismo punto, así que no se mueve del sitio.
+     Va fuera de <main> para llegar de borde a borde sin trucos de 100vw,
+     que con la barra de desplazamiento visible desbordan a lo ancho. -->
+<div class="bucle" role="img" aria-label="El emblema de NOVA Supply Clothing pintado en el suelo, grabado en cuero, en un cartel de calle, sobre un atardecer, en un colgante, en un cristal empañado, dibujado en papel y en la pantalla de un televisor">
+    <img src="reel1.jpg" width="1080" height="720" alt="" style="--i:0">
+    <img src="reel2.jpg" width="1080" height="720" alt="" style="--i:1">
+    <img src="reel3.jpg" width="1080" height="720" alt="" style="--i:2">
+    <img src="reel4.jpg" width="1080" height="720" alt="" style="--i:3">
+    <img src="reel5.jpg" width="1080" height="720" alt="" style="--i:4">
+    <img src="reel6.jpg" width="1080" height="720" alt="" style="--i:5">
+    <img src="reel7.jpg" width="1080" height="720" alt="" style="--i:6">
+    <img src="reel8.jpg" width="1080" height="720" alt="" style="--i:7">
+</div>
+
 <main>
 
     <div class="logo">
@@ -677,40 +730,101 @@ footer{
         <p class="drop">Drop 01</p>
     </section>
 
-    <section class="producto">
-        <div class="escaparate" id="camiseta">
-            <p class="agotado">Sold out</p>
+    <!-- ══════════════════════════════════════════════════════════════
+         EL DROP ENTERO · rejilla a sangre
+         Todas las prendas en una sola cuadrícula apretada, al estilo de las
+         tiendas de streetwear: foto vertical 4:5, separación mínima y texto
+         pequeño debajo. Cada ficha enseña el delante y gira al detrás con el
+         ratón encima o pulsando, igual que antes.
+         ══════════════════════════════════════════════════════════════ -->
+    <section class="catalogo" aria-label="Prendas del Drop 01">
 
-            <button type="button" class="flecha izq" aria-label="Ver el otro lado de la camiseta">
-                <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10.5 1.5 4 8l6.5 6.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </button>
-
-            <button type="button" class="visor" id="visor">
+        <article class="art art--claro" id="camiseta">
+            <p class="sello">Drop 01</p>
+            <button type="button" class="visor">
                 <img class="foto activa" data-color="gris" data-cara="delante" src="gris-delante.jpg"
                      width="920" height="780" alt="Camiseta NOVA Supply Clothing gris por delante, con el emblema en el pecho">
                 <img class="foto" data-color="gris" data-cara="detras" src="gris-detras.jpg"
                      width="920" height="780" alt="Camiseta NOVA Supply Clothing gris por detrás, con NOVA en grande">
-                <img class="foto" data-color="rosa" data-cara="delante" src="rosa-delante.jpg"
+            </button>
+            <h3 class="art-nombre">Camiseta · Gris lavado</h3>
+            <p class="art-precio">47,50 €</p>
+            <a class="art-cta" href="#preventa">Reservar</a>
+        </article>
+
+        <article class="art art--claro" id="camiseta-rosa">
+            <p class="sello">Drop 01</p>
+            <button type="button" class="visor">
+                <img class="foto activa" data-color="rosa" data-cara="delante" src="rosa-delante.jpg"
                      width="920" height="780" alt="Camiseta NOVA Supply Clothing rosa por delante, con el emblema en el pecho">
                 <img class="foto" data-color="rosa" data-cara="detras" src="rosa-detras.jpg"
                      width="920" height="780" alt="Camiseta NOVA Supply Clothing rosa por detrás, con NOVA en grande">
             </button>
+            <h3 class="art-nombre">Camiseta · Rosa lavado</h3>
+            <p class="art-precio">47,50 €</p>
+            <a class="art-cta" href="#preventa">Reservar</a>
+        </article>
 
-            <button type="button" class="flecha der" aria-label="Ver el otro lado de la camiseta">
-                <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 1.5 12 8l-6.5 6.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <article class="art art--noche" id="sudadera">
+            <p class="sello">Drop 01</p>
+            <button type="button" class="visor">
+                <img class="foto activa" data-cara="delante" src="sud-delante.jpg" width="900" height="840" loading="lazy"
+                     alt="Sudadera NOVA Supply Clothing por delante, con cremallera y Studio y Nova en las mangas">
+                <img class="foto" data-cara="detras" src="sud-detras.jpg" width="900" height="840" loading="lazy"
+                     alt="Sudadera NOVA Supply Clothing por detrás, con el emblema grande en la espalda">
             </button>
-        </div>
+            <h3 class="art-nombre">Sudadera</h3>
+            <p class="art-precio proximo">Próximamente</p>
+        </article>
 
-        <p class="ficha" aria-live="polite"><span id="nombre-color">Gris lavado</span></p>
+        <article class="art art--noche" id="p-camisa">
+            <p class="sello">Drop 01</p>
+            <button type="button" class="visor">
+                <img class="foto activa" data-cara="delante" src="d2-camisa-delante.jpg" width="560" height="560" loading="lazy"
+                     alt="Camisa de NOVA Supply Clothing, camisa de manga corta gris con el emblema en el pecho">
+                <img class="foto" data-cara="detras" src="d2-camisa-detras.jpg" width="560" height="560" loading="lazy"
+                     alt="Camisa de NOVA Supply Clothing, camisa de manga corta gris con NOVA en grande en la espalda">
+            </button>
+            <h3 class="art-nombre">Camisa</h3>
+            <p class="art-precio proximo">Próximamente</p>
+        </article>
 
-        <div class="selector" id="colores" role="group" aria-label="Color de la camiseta">
-            <button type="button" class="swatch" data-color="gris" aria-pressed="true">
-                <span class="punto" style="--c:#7b7676"></span>Gris
+        <article class="art art--noche" id="p-tirantes">
+            <p class="sello">Drop 01</p>
+            <button type="button" class="visor">
+                <img class="foto activa" data-cara="delante" src="d2-tirantes-delante.jpg" width="560" height="560" loading="lazy"
+                     alt="Camiseta de tirantes de NOVA Supply Clothing, blanca con el emblema en el pecho">
+                <img class="foto" data-cara="detras" src="d2-tirantes-detras.jpg" width="560" height="560" loading="lazy"
+                     alt="Camiseta de tirantes de NOVA Supply Clothing, blanca lisa por detrás">
             </button>
-            <button type="button" class="swatch" data-color="rosa" aria-pressed="false">
-                <span class="punto" style="--c:#e79aba"></span>Rosa
+            <h3 class="art-nombre">Tirantes</h3>
+            <p class="art-precio proximo">Próximamente</p>
+        </article>
+
+        <article class="art art--noche" id="p-vaqueros">
+            <p class="sello">Drop 01</p>
+            <button type="button" class="visor">
+                <img class="foto activa" data-cara="delante" src="d2-vaqueros-delante.jpg" width="560" height="560" loading="lazy"
+                     alt="Vaqueros cortos de NOVA Supply Clothing, pantalón vaquero corto claro por delante">
+                <img class="foto" data-cara="detras" src="d2-vaqueros-detras.jpg" width="560" height="560" loading="lazy"
+                     alt="Vaqueros cortos de NOVA Supply Clothing, pantalón vaquero corto claro con el emblema en el bolsillo">
             </button>
-        </div>
+            <h3 class="art-nombre">Vaqueros</h3>
+            <p class="art-precio proximo">Próximamente</p>
+        </article>
+
+        <article class="art art--noche" id="p-short">
+            <p class="sello">Drop 01</p>
+            <button type="button" class="visor">
+                <img class="foto activa" data-cara="delante" src="d2-short-delante.jpg" width="560" height="560" loading="lazy"
+                     alt="Pantalón corto de NOVA Supply Clothing, beige con NOVA en la pernera">
+                <img class="foto" data-cara="detras" src="d2-short-detras.jpg" width="560" height="560" loading="lazy"
+                     alt="Pantalón corto de NOVA Supply Clothing, beige con el emblema en el bolsillo">
+            </button>
+            <h3 class="art-nombre">Short</h3>
+            <p class="art-precio proximo">Próximamente</p>
+        </article>
+
     </section>
 
     <section class="venta">
@@ -718,7 +832,7 @@ footer{
              redirige a Stripe con la talla y el color elegidos. Funciona
              igual aunque no haya JavaScript.
              Va plegada detrás de un botón para que la portada se vea limpia
-             y se llegue antes al Drop 02; al abrirla sale todo tal cual:
+             y se llegue antes al resto; al abrirla sale todo tal cual:
              precio, talla, color y pago. Es un <details>, así que abre y
              cierra sin JavaScript, igual que el formulario de dentro. -->
         <details class="preventa" id="preventa">
@@ -805,71 +919,8 @@ footer{
 <section class="oscuro">
 
     <div class="adentro">
-        <p class="drop">Drop 02</p>
-        <h2>Coming soon</h2>
-    </div>
-
-    <div class="escaparate" id="sudadera">
-        <button type="button" class="flecha izq" aria-label="Ver el otro lado de la sudadera">
-            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10.5 1.5 4 8l6.5 6.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-
-        <button type="button" class="visor">
-            <img class="foto activa" data-cara="delante" src="sud-delante.jpg" width="900" height="840" loading="lazy"
-                 alt="Sudadera NOVA Supply Clothing por delante, con cremallera y Studio y Nova en las mangas">
-            <img class="foto" data-cara="detras" src="sud-detras.jpg" width="900" height="840" loading="lazy"
-                 alt="Sudadera NOVA Supply Clothing por detrás, con el emblema grande en la espalda">
-        </button>
-
-        <button type="button" class="flecha der" aria-label="Ver el otro lado de la sudadera">
-            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 1.5 12 8l-6.5 6.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-    </div>
-
-    <p class="ficha"><span>Sudadera</span></p>
-
-    <!-- El resto del drop. Cada prenda es el mismo visor de siempre, sin
-         flechas: se le da la vuelta pulsando encima (o pasando el ratón). -->
-    <div class="prendas">
-        <article class="prenda" id="p-camisa">
-            <button type="button" class="visor">
-                <img class="foto activa" data-cara="delante" src="d2-camisa-delante.jpg" width="560" height="560" loading="lazy"
-                     alt="Camisa de NOVA Supply Clothing, camisa de manga corta gris con el emblema en el pecho">
-                <img class="foto" data-cara="detras" src="d2-camisa-detras.jpg" width="560" height="560" loading="lazy"
-                     alt="Camisa de NOVA Supply Clothing, camisa de manga corta gris con NOVA en grande en la espalda">
-            </button>
-            <p class="ficha"><span>Camisa</span></p>
-        </article>
-
-        <article class="prenda" id="p-tirantes">
-            <button type="button" class="visor">
-                <img class="foto activa" data-cara="delante" src="d2-tirantes-delante.jpg" width="560" height="560" loading="lazy"
-                     alt="Camiseta de tirantes de NOVA Supply Clothing, camiseta de tirantes blanca con el emblema en el pecho">
-                <img class="foto" data-cara="detras" src="d2-tirantes-detras.jpg" width="560" height="560" loading="lazy"
-                     alt="Camiseta de tirantes de NOVA Supply Clothing, camiseta de tirantes blanca lisa por detrás">
-            </button>
-            <p class="ficha"><span>Tirantes</span></p>
-        </article>
-
-        <article class="prenda" id="p-vaqueros">
-            <button type="button" class="visor">
-                <img class="foto activa" data-cara="delante" src="d2-vaqueros-delante.jpg" width="560" height="560" loading="lazy"
-                     alt="Vaqueros cortos de NOVA Supply Clothing, pantalón vaquero corto claro por delante">
-                <img class="foto" data-cara="detras" src="d2-vaqueros-detras.jpg" width="560" height="560" loading="lazy"
-                     alt="Vaqueros cortos de NOVA Supply Clothing, pantalón vaquero corto claro con el emblema en el bolsillo">
-            </button>
-            <p class="ficha"><span>Vaqueros</span></p>
-        </article>
-
-        <article class="prenda" id="p-short">
-            <button type="button" class="visor">
-                <img class="foto activa" data-cara="delante" src="d2-short-delante.jpg" width="560" height="560" loading="lazy"
-                     alt="Pantalón corto de NOVA Supply Clothing, pantalón corto beige con NOVA en la pernera">
-                <img class="foto" data-cara="detras" src="d2-short-detras.jpg" width="560" height="560" loading="lazy"
-                     alt="Pantalón corto de NOVA Supply Clothing, pantalón corto beige con el emblema en el bolsillo">
-            </button>
-            <p class="ficha"><span>Short</span></p>
-        </article>
+        <p class="drop">La marca</p>
+        <h2>Hecho en Vecindario</h2>
     </div>
 
     <div class="adentro">
@@ -881,7 +932,7 @@ footer{
                 <button type="submit">Avísame</button>
             </div>
             <p class="nota" id="nota" role="status"></p>
-            <p class="aviso-legal">Solo usamos tu correo para avisarte del Drop 02, y puedes darte de baja cuando quieras. Lo contamos entero en la <a href="privacidad.html">política de privacidad</a>.</p>
+            <p class="aviso-legal">Solo usamos tu correo para avisarte de los próximos drops, y puedes darte de baja cuando quieras. Lo contamos entero en la <a href="privacidad.html">política de privacidad</a>.</p>
         </form>
     </div>
 
@@ -901,19 +952,7 @@ footer{
 
 </section>
 
-<!-- El bucle cierra la página, ya en la mitad oscura. Los ocho fotogramas
-     están recortados de forma que el emblema cae siempre en el mismo punto,
-     así que el logo no se mueve del sitio. -->
-<div class="bucle" role="img" aria-label="El emblema de NOVA Supply Clothing pintado en el suelo, grabado en cuero, en un cartel de calle, sobre un atardecer, en un colgante, en un cristal empañado, dibujado en papel y en la pantalla de un televisor">
-    <img src="reel1.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:0">
-    <img src="reel2.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:1">
-    <img src="reel3.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:2">
-    <img src="reel4.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:3">
-    <img src="reel5.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:4">
-    <img src="reel6.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:5">
-    <img src="reel7.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:6">
-    <img src="reel8.jpg" width="1080" height="720" loading="lazy" alt="" style="--i:7">
-</div>
+
 
 <footer>
     <p class="pie-marca">NOVA Supply Clothing</p>
@@ -1028,17 +1067,17 @@ function montarVisor(cfg){
     pintar();
 }
 
-montarVisor({
-    caja:'camiseta', prenda:'Camiseta',
-    color:'nombre-color', selector:'colores',
-    colorInicial:'gris', colores:{ gris:'Gris lavado', rosa:'Rosa lavado' }
-});
-
-montarVisor({ caja:'sudadera', prenda:'Sudadera' });
-
-[['camisa','Camisa'], ['tirantes','Camiseta de tirantes'],
- ['vaqueros','Vaqueros cortos'], ['short','Pantalón corto']]
-.forEach(function(p){ montarVisor({ caja:'p-' + p[0], prenda:p[1] }); });
+/* Todas las prendas del drop usan el mismo visor: enseñan el delante y
+   giran al detrás al pasar el ratón o al pulsar. Los colores de la camiseta
+   ya no son un selector, cada uno tiene su propia ficha en la rejilla. */
+[['camiseta',      'Camiseta gris lavado'],
+ ['camiseta-rosa', 'Camiseta rosa lavado'],
+ ['sudadera',      'Sudadera'],
+ ['p-camisa',      'Camisa'],
+ ['p-tirantes',    'Camiseta de tirantes'],
+ ['p-vaqueros',    'Vaqueros cortos'],
+ ['p-short',       'Pantalón corto']]
+.forEach(function(p){ montarVisor({ caja:p[0], prenda:p[1] }); });
 
 /* ---------- contar la visita ----------
    Una llamada y ya. El servidor apunta una visita del día y una huella
@@ -1135,7 +1174,7 @@ montarVisor({ caja:'sudadera', prenda:'Sudadera' });
     }
 })();
 
-/* ---------- aviso del Drop 02 ----------
+/* ---------- aviso de próximos drops ----------
    Manda el correo a /api/avisos, que lo guarda en la base de datos. La
    respuesta trae "nuevo": true si es la primera vez que se apunta, false si
    ese correo ya estaba en la lista. De ahí salen los dos mensajes. */
@@ -1191,7 +1230,7 @@ montarVisor({ caja:'sudadera', prenda:'Sudadera' });
                 nota.className = 'nota';
                 nota.innerHTML = res.datos.nuevo
                     ? '<b>Ya perteneces a NOVA Supply Clothing</b>Te escribimos a ' + correo +
-                      ' en cuanto el Drop 02 tenga fecha.'
+                      ' en cuanto haya novedades del próximo drop.'
                     : '<b>Ya estabas dentro</b>Ese correo ya figuraba en la lista. Te avisamos igual.';
                 return;
             }
