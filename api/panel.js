@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   GET /api/panel?clave=...   ·   el resumen de la preventa, para el taller
+   GET /api/panel?clave=...   ·   el resumen de las reservas, para el taller
    ──────────────────────────────────────────────────────────────────────────
    Una sola página con lo único que hace falta saber para encargar género:
    cuántas piezas de cada talla y cada color se han reservado. Sin consolas,
@@ -154,10 +154,16 @@ function pagina(datos) {
 
     const ultimos = datos.pedidos.length
         ? datos.pedidos.slice(0, 20).map(p =>
-            '<li><b>' + escapa(p.talla) + '</b> ' + escapa(p.color) +
-            '<i>' + escapa(cuando(p.fecha)) + '</i>' +
-            '<span>' + escapa(p.ref || '') + '</span></li>').join('')
-        : '<li class="vacio">Todavía no ha pulsado nadie</li>';
+            '<li class="reserva">' +
+              '<span class="ref">' + escapa(p.ref || '') + '</span>' +
+              '<b>' + escapa(p.talla) + '</b> ' + escapa(p.color) +
+              '<i>' + escapa(cuando(p.fecha)) + '</i>' +
+              '<span class="quien">' + escapa(p.nombre || '') +
+                (p.tel ? ' · <a href="tel:' + escapa(p.tel) + '">' + escapa(p.tel) + '</a>' : '') +
+                (p.correo ? ' · <a href="mailto:' + escapa(p.correo) + '">' + escapa(p.correo) + '</a>' : '') +
+              '</span>' +
+            '</li>').join('')
+        : '<li class="vacio">Todavía no ha apartado nadie</li>';
 
     // Los correos van plegados: son datos personales y no tienen por qué
     // quedarse a la vista de quien pase por detrás.
@@ -185,7 +191,7 @@ function pagina(datos) {
     const trafico = conAlgo.length ? `
 <h2>Últimos días</h2>
 <table class="dias">
-  <thead><tr><th></th><th>visitas</th><th>personas</th><th>clicks</th></tr></thead>
+  <thead><tr><th></th><th>visitas</th><th>personas</th><th>reservas</th></tr></thead>
   <tbody>${conAlgo.map(d => '<tr><th>' + escapa(nombreDia(d.dia)) + '</th>' +
       [d.vistas, d.unicos, d.clics].map(v => '<td class="' + (v ? '' : 'cero') + '">' + v + '</td>').join('') +
       '</tr>').join('')}</tbody>
@@ -238,6 +244,10 @@ li b{font-weight:700;min-width:30px}
 li i{font-style:normal;color:#6f6b66;margin-left:auto;font-size:11px}
 li span{color:#c9c5c0;font-size:10px;letter-spacing:.06em}
 li.vacio{color:#6f6b66;justify-content:center;padding:22px 0}
+li.reserva{flex-wrap:wrap}
+li.reserva .ref{color:#6f6b66;font-size:10px;letter-spacing:.08em;margin-right:8px}
+li.reserva .quien{flex-basis:100%;margin-top:4px;color:#c9c5c0;font-size:11px;letter-spacing:0}
+li.reserva .quien a{color:#c9c5c0}
 details{margin-top:4px}
 summary{cursor:pointer;padding:11px 0;font-size:11px;letter-spacing:.14em;text-transform:uppercase;
         font-weight:700;color:#0e0e10;border-bottom:1px solid rgba(14,14,16,.12)}
@@ -256,14 +266,14 @@ textarea{width:100%;padding:10px 12px;border:1px solid rgba(14,14,16,.18);border
 <img class="marca" src="/icono.png" alt="">
 <h1>Preventa · Drop 01</h1>
 <div class="cifras">
-  <div><p class="total">${total}</p><p class="total-pie">${total === 1 ? 'click' : 'clicks'}</p></div>
+  <div><p class="total">${total}</p><p class="total-pie">${total === 1 ? 'reserva' : 'reservas'}</p></div>
   <div><p class="total">${datos.vistasTotal}</p><p class="total-pie">${datos.vistasTotal === 1 ? 'visita' : 'visitas'}</p></div>
 </div>
 ${masPedida && masPedida[1] ? '<p class="apunte">La talla más pedida es la ' + masPedida[0] + '</p>' : ''}
 
-<p class="ojo"><b>Esto cuenta quién ha pulsado Reservar</b>, no quién ha pagado.
-Si alguien se echó atrás en Stripe, sigue contado aquí. Para lo cobrado de
-verdad, mira los pagos en Stripe.</p>
+<p class="ojo"><b>Esto cuenta prendas apartadas</b>, no vendidas. Se cobra en el
+local al recoger, así que una reserva sólo se convierte en venta cuando el
+cliente aparece y paga. Las que caducan sin recoger siguen contadas aquí.</p>
 
 <table>
   <thead><tr><th></th>${COLORES.map(c => '<th>' + c + '</th>').join('')}<th>total</th></tr></thead>
@@ -273,7 +283,8 @@ verdad, mira los pagos en Stripe.</p>
 
 ${trafico}
 
-<h2>Últimos clicks</h2>
+<h2>Últimas reservas</h2>
+<p class="ojo-datos">Son datos personales de gente real: úsalos sólo para avisarles de la recogida. No enseñes esta pantalla a nadie ni la fotografíes.</p>
 <ul>${ultimos}</ul>
 
 <h2>Avisos del Drop 02 · ${datos.avisos.length}</h2>

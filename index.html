@@ -295,10 +295,9 @@ h1.titulo{margin:0;line-height:0}
 }
 
 /* ---------- talla y color ----------
-   Un formulario de verdad, por GET: lo que elijan viaja a /api/preventa en
-   la propia dirección y de ahí a Stripe. Los radios son obligatorios, así
-   que el navegador no deja pagar sin elegir — y todo esto funciona igual
-   con JavaScript apagado.
+   Los radios de talla y color del formulario de reserva. Las tallas que no
+   hay se dejan a la vista pero deshabilitadas, para que se vea que existen.
+   Aquí no se paga: lo que viaja a /api/reserva son los datos del cliente.
    Los círculos van encima de su etiqueta, invisibles pero con tamaño real:
    así siguen siendo enfocables y el aviso de "elige una opción" tiene dónde
    aparecer. */
@@ -384,6 +383,59 @@ h1.titulo{margin:0;line-height:0}
     font-family:var(--caja);font-weight:700;font-size:11px;
     letter-spacing:.2em;text-transform:uppercase;color:var(--acento);
 }
+
+
+/* ---------- apartar para recoger en tienda ----------
+   Reaprovecha casi todo lo que tenía la caja de preventa; lo único nuevo son
+   los tres campos de texto y el aviso de que la talla está agotada. */
+.reserva{max-width:520px;margin:0 auto;text-align:center}
+.reserva h2{
+    margin:0;font-family:var(--titulo);font-weight:400;
+    font-size:clamp(23px,4.6vw,32px);line-height:1.15;letter-spacing:.01em;
+}
+.reserva-como{
+    margin:12px auto 0;max-width:42ch;
+    font-family:var(--caja);font-weight:500;font-size:12.5px;line-height:1.75;color:var(--gris);
+}
+
+/* la talla que no hay se ve, pero no se puede elegir */
+.opcion input:disabled + span{opacity:.38;text-decoration:line-through;cursor:not-allowed}
+.opcion input:disabled{cursor:not-allowed}
+
+.campos-cliente{margin-top:20px;display:grid;gap:12px;text-align:left}
+.campo{display:block}
+.campo span{
+    display:block;margin-bottom:6px;
+    font-family:var(--caja);font-weight:600;font-size:10px;
+    letter-spacing:.16em;text-transform:uppercase;color:var(--gris);
+}
+.campo input{
+    width:100%;padding:12px 14px;
+    border:1px solid var(--linea);border-radius:2px;background:var(--blanco);
+    font-family:var(--caja);font-weight:500;font-size:14px;color:var(--tinta);
+    transition:border-color .3s;
+}
+.campo input::placeholder{color:#b4b4b4}
+.campo input:focus{outline:none;border-color:var(--tinta)}
+.campo input:focus-visible{outline:2px solid var(--acento);outline-offset:2px}
+.campo input.mal{border-color:#c0392b}
+
+/* la confirmación, cuando la reserva entra */
+.reserva-ok{max-width:520px;margin:0 auto;text-align:center}
+.reserva-ok-marca{
+    margin:0;font-family:var(--titulo);font-weight:400;
+    font-size:clamp(26px,5vw,38px);letter-spacing:.02em;
+}
+.reserva-ok-ref{
+    margin:14px 0 0;font-family:var(--caja);font-weight:600;font-size:13px;
+    letter-spacing:.1em;text-transform:uppercase;color:var(--gris);
+}
+.reserva-ok-ref b{color:var(--tinta)}
+.reserva-ok-texto{
+    margin:16px auto 0;max-width:44ch;
+    font-family:var(--caja);font-weight:500;font-size:13px;line-height:1.8;color:var(--gris);
+}
+.reserva-ok-texto b{color:var(--tinta)}
 
 /* ---------- la guía de tallas ----------
    El enlace es un renglón discreto debajo de las tallas; el cuadro que abre
@@ -813,10 +865,80 @@ footer{
 
     <section class="venta">
         <!-- Aquí vivía la caja de preventa, que llevaba a los enlaces de pago
-             de Stripe. Retirada a petición: ahora el catálogo sólo informa del
-             estado de cada prenda. Queda la guía de tallas, que no formaba
-             parte del cobro y sigue siendo útil para elegir. -->
-        <p class="guia-linea"><a class="guia" id="guia" href="talla-gris.jpeg">Guía de tallas</a></p>
+             de Stripe. Ahora no se cobra por la web: se aparta la prenda con
+             los datos del cliente y se paga al recogerla en la tienda.
+             El formulario manda a /api/reserva, que la apunta en la libreta. -->
+        <div class="reserva" id="reserva">
+            <h2>Apártala y págala en tienda</h2>
+            <p class="reserva-como">Por la web no se cobra nada. Déjanos tus datos, te guardamos
+                la prenda y la pagas cuando pases a recogerla.</p>
+
+            <p class="precio"><span class="sr-only">Precio</span><b>47,50&nbsp;€</b></p>
+            <p class="recogida">Av. del Atlántico 317 · Vecindario · Se paga al recoger</p>
+
+            <form class="eleccion" id="form-reserva" novalidate>
+                <fieldset>
+                    <legend>Talla</legend>
+                    <div class="opciones">
+                        <!-- Agotadas: se ven, para que se sepa que existen, pero no se pueden
+                             elegir. Cuando entre género se les quita el disabled, y en
+                             api/reserva.js se añade la talla a la lista TALLAS. -->
+                        <label class="opcion"><input type="radio" name="talla" value="S" disabled><span>S</span></label>
+                        <label class="opcion"><input type="radio" name="talla" value="M" disabled><span>M</span></label>
+                        <label class="opcion"><input type="radio" name="talla" value="L" required><span>L</span></label>
+                        <label class="opcion"><input type="radio" name="talla" value="XL"><span>XL</span></label>
+                        <label class="opcion"><input type="radio" name="talla" value="XXL"><span>XXL</span></label>
+                    </div>
+                    <p class="guia-linea"><a class="guia" id="guia" href="talla-gris.jpeg">Guía de tallas</a></p>
+                </fieldset>
+
+                <fieldset>
+                    <legend>Color</legend>
+                    <div class="opciones">
+                        <label class="opcion"><input type="radio" name="color" value="gris" disabled><span><i class="punto" style="--c:#7b7676"></i>Gris · agotado</span></label>
+                        <label class="opcion"><input type="radio" name="color" value="rosa" checked required><span><i class="punto" style="--c:#e79aba"></i>Rosa</span></label>
+                    </div>
+                </fieldset>
+
+                <fieldset class="campos-cliente">
+                    <legend>Tus datos</legend>
+                    <label class="campo">
+                        <span>Nombre y apellidos</span>
+                        <input type="text" name="nombre" autocomplete="name" required
+                               maxlength="80" placeholder="Airam Santana">
+                    </label>
+                    <label class="campo">
+                        <span>Teléfono</span>
+                        <input type="tel" name="tel" inputmode="tel" autocomplete="tel" required
+                               maxlength="24" placeholder="600 123 456">
+                    </label>
+                    <label class="campo">
+                        <span>Correo electrónico</span>
+                        <input type="email" name="correo" inputmode="email" autocomplete="email" required
+                               maxlength="160" placeholder="tunombre@gmail.com">
+                    </label>
+                </fieldset>
+
+                <button type="submit" class="pago">
+                    Apartar la mía
+                    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 8h11M9 3.5 13.5 8 9 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+            </form>
+
+            <p class="pago-nota" id="reserva-aviso" role="status"></p>
+            <p class="pago-legal">Al apartarla aceptas las <a href="condiciones.html">condiciones</a>
+                y la <a href="privacidad.html">política de privacidad</a>. Usamos tus datos sólo
+                para guardarte la prenda y avisarte de la recogida.</p>
+        </div>
+
+        <!-- La confirmación sustituye al formulario cuando la reserva entra bien. -->
+        <div class="reserva-ok" id="reserva-ok" hidden>
+            <p class="reserva-ok-marca">Apartada</p>
+            <p class="reserva-ok-ref">Tu referencia: <b id="reserva-ref"></b></p>
+            <p class="reserva-ok-texto">Te la guardamos <b>siete días</b>. Pásate por
+                Av. del Atlántico 317, Vecindario, di tu referencia y la pagas allí mismo.
+                Si no puedes venir en ese plazo, escríbenos y la guardamos más tiempo.</p>
+        </div>
 
         <!-- Las dos tablas de medidas. Es un <dialog>: el propio navegador se
              encarga de oscurecer el fondo, atrapar el foco y cerrarlo con Esc,
@@ -1078,6 +1200,72 @@ function montarVisor(cfg){
         var r = caja.getBoundingClientRect();
         if(e.clientX < r.left || e.clientX > r.right ||
            e.clientY < r.top  || e.clientY > r.bottom) caja.close();
+    });
+})();
+
+
+/* ---------- apartar para recoger en tienda ----------
+   Manda los datos a /api/reserva, que los apunta. No hay pago: el cliente
+   paga en la tienda al recogerla. Si algo falla se dice y el formulario se
+   queda como estaba, para no perder lo que ya había escrito. */
+(function(){
+    var form = document.getElementById('form-reserva');
+    var aviso = document.getElementById('reserva-aviso');
+    var caja  = document.getElementById('reserva');
+    var hecho = document.getElementById('reserva-ok');
+    if(!form || !aviso || !caja || !hecho) return;
+
+    var ES_CORREO = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+    var ES_TEL    = /^[+()\d][\d\s()+.-]{7,19}$/;
+
+    function valor(n){ var c = form.elements[n]; return c ? String(c.value || '').trim() : ''; }
+    function elegido(n){ var c = form.querySelector('input[name="'+n+'"]:checked'); return c ? c.value : ''; }
+
+    function falla(msg, campo){
+        aviso.textContent = msg;
+        if(campo){ campo.classList.add('mal'); campo.focus(); }
+        return false;
+    }
+
+    form.addEventListener('submit', function(e){
+        e.preventDefault();
+        Array.prototype.forEach.call(form.querySelectorAll('.mal'), function(c){ c.classList.remove('mal'); });
+        aviso.textContent = '';
+
+        var datos = {
+            nombre: valor('nombre'), tel: valor('tel'), correo: valor('correo'),
+            talla: elegido('talla'), color: elegido('color')
+        };
+
+        if(!datos.talla)                   return falla('Elige una talla.');
+        if(datos.nombre.length < 2)        return falla('Dinos tu nombre.', form.elements.nombre);
+        if(!ES_TEL.test(datos.tel))        return falla('Ese teléfono no parece correcto.', form.elements.tel);
+        if(!ES_CORREO.test(datos.correo))  return falla('Ese correo no parece correcto.', form.elements.correo);
+
+        var boton = form.querySelector('button[type=submit]');
+        boton.disabled = true;
+        aviso.textContent = 'Apartándola…';
+
+        fetch('/api/reserva', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(datos)
+        })
+        .then(function(r){ return r.json().then(function(d){ return { ok:r.ok, datos:d }; }); })
+        .then(function(res){
+            if(res.ok && res.datos && res.datos.ok){
+                document.getElementById('reserva-ref').textContent = res.datos.ref;
+                caja.hidden = true;
+                hecho.hidden = false;
+                hecho.scrollIntoView({ behavior:'smooth', block:'center' });
+                return;
+            }
+            throw new Error((res.datos && res.datos.error) || 'fallo');
+        })
+        .catch(function(){
+            boton.disabled = false;
+            aviso.textContent = 'No hemos podido apartarla. Inténtalo otra vez o escríbenos.';
+        });
     });
 })();
 
