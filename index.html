@@ -14,6 +14,7 @@
 <style>
 :root{
     --blanco:#ffffff;      /* la mitad clara */
+    --gris-ficha:#ebebeb;  /* el fondo de las fotos del catálogo */
     --tinta:#0e0e10;
     --gris:#6f6b66;
     --acento:#a4525f;      /* rosa oscuro, sacado de la propia camiseta */
@@ -555,6 +556,7 @@ h1.titulo{margin:0;line-height:0}
 .art{position:relative;margin:0;display:flex;flex-direction:column}
 
 /* el sello de la esquina, como el «NUEVO» de las tiendas */
+.sello--fin{background:var(--tinta);color:var(--blanco)}
 .sello{
     position:absolute;top:0;left:0;z-index:2;margin:0;
     padding:6px 9px;
@@ -565,13 +567,11 @@ h1.titulo{margin:0;line-height:0}
 /* el visor manda aquí sobre el de la ficha grande: proporción de catálogo */
 .catalogo .visor{
     max-width:none;width:100%;aspect-ratio:4/5;
-    /* Cada foto trae su propio fondo horneado: las camisetas en blanco y el
-       resto en negro. Si la ficha no lo copia, la prenda flota dentro de un
-       rectángulo de otro color. Así el encaje no se ve. */
-    background:var(--fondo-art,#fff);
+    /* El fondo de las fotos se repintó a este mismo gris, así que la prenda
+       se apoya en el tono de la ficha sin costura. Es algo más oscuro que el
+       blanco de la página para que cada prenda se recorte sobre ella. */
+    background:var(--gris-ficha);
 }
-.art--claro{--fondo-art:#ffffff}
-.art--noche{--fondo-art:#070709}
 .catalogo .visor img{object-fit:contain;padding:6%}
 
 .art-nombre{
@@ -580,16 +580,7 @@ h1.titulo{margin:0;line-height:0}
     color:var(--tinta);
 }
 .art-precio{margin:3px 0 0;font-size:12px;color:var(--tinta)}
-.art-precio.proximo{color:var(--suave,#8a8a8a)}
 
-.art-cta{
-    align-self:flex-start;margin-top:7px;
-    font-size:10px;letter-spacing:.16em;text-transform:uppercase;
-    color:var(--tinta);text-decoration:none;
-    border-bottom:1px solid var(--linea);padding-bottom:2px;
-    transition:border-color .25s ease,color .25s ease;
-}
-.art-cta:hover{color:var(--acento);border-bottom-color:var(--acento)}
 
 /* ---------- las coordenadas ---------- */
 .coords{padding-top:clamp(8px,2vh,20px)}
@@ -739,8 +730,8 @@ footer{
          ══════════════════════════════════════════════════════════════ -->
     <section class="catalogo" aria-label="Prendas del Drop 01">
 
-        <article class="art art--claro" id="camiseta">
-            <p class="sello">Drop 01</p>
+        <article class="art" id="camiseta">
+            <p class="sello sello--fin">Sold out</p>
             <button type="button" class="visor">
                 <img class="foto activa" data-color="gris" data-cara="delante" src="gris-delante.jpg"
                      width="920" height="780" alt="Camiseta NOVA Supply Clothing gris por delante, con el emblema en el pecho">
@@ -749,11 +740,10 @@ footer{
             </button>
             <h3 class="art-nombre">Camiseta · Gris lavado</h3>
             <p class="art-precio">47,50 €</p>
-            <a class="art-cta" href="#preventa">Reservar</a>
         </article>
 
-        <article class="art art--claro" id="camiseta-rosa">
-            <p class="sello">Drop 01</p>
+        <article class="art" id="camiseta-rosa">
+            <p class="sello">Quedan L · XL · XXL</p>
             <button type="button" class="visor">
                 <img class="foto activa" data-color="rosa" data-cara="delante" src="rosa-delante.jpg"
                      width="920" height="780" alt="Camiseta NOVA Supply Clothing rosa por delante, con el emblema en el pecho">
@@ -762,11 +752,10 @@ footer{
             </button>
             <h3 class="art-nombre">Camiseta · Rosa lavado</h3>
             <p class="art-precio">47,50 €</p>
-            <a class="art-cta" href="#preventa">Reservar</a>
         </article>
 
-        <article class="art art--noche" id="sudadera">
-            <p class="sello">Drop 01</p>
+        <article class="art" id="sudadera">
+            <p class="sello">Próximamente</p>
             <button type="button" class="visor">
                 <img class="foto activa" data-cara="delante" src="sud-delante.jpg" width="900" height="840" loading="lazy"
                      alt="Sudadera NOVA Supply Clothing por delante, con cremallera y Studio y Nova en las mangas">
@@ -774,11 +763,10 @@ footer{
                      alt="Sudadera NOVA Supply Clothing por detrás, con el emblema grande en la espalda">
             </button>
             <h3 class="art-nombre">Sudadera</h3>
-            <p class="art-precio proximo">Próximamente</p>
         </article>
 
-        <article class="art art--noche" id="p-camisa">
-            <p class="sello">Drop 01</p>
+        <article class="art" id="p-camisa">
+            <p class="sello">Próximamente</p>
             <button type="button" class="visor">
                 <img class="foto activa" data-cara="delante" src="d2-camisa-delante.jpg" width="560" height="560" loading="lazy"
                      alt="Camisa de NOVA Supply Clothing, camisa de manga corta gris con el emblema en el pecho">
@@ -786,11 +774,10 @@ footer{
                      alt="Camisa de NOVA Supply Clothing, camisa de manga corta gris con NOVA en grande en la espalda">
             </button>
             <h3 class="art-nombre">Camisa</h3>
-            <p class="art-precio proximo">Próximamente</p>
         </article>
 
-        <article class="art art--noche" id="p-tirantes">
-            <p class="sello">Drop 01</p>
+        <article class="art" id="p-tirantes">
+            <p class="sello">Próximamente</p>
             <button type="button" class="visor">
                 <img class="foto activa" data-cara="delante" src="d2-tirantes-delante.jpg" width="560" height="560" loading="lazy"
                      alt="Camiseta de tirantes de NOVA Supply Clothing, blanca con el emblema en el pecho">
@@ -798,11 +785,10 @@ footer{
                      alt="Camiseta de tirantes de NOVA Supply Clothing, blanca lisa por detrás">
             </button>
             <h3 class="art-nombre">Tirantes</h3>
-            <p class="art-precio proximo">Próximamente</p>
         </article>
 
-        <article class="art art--noche" id="p-vaqueros">
-            <p class="sello">Drop 01</p>
+        <article class="art" id="p-vaqueros">
+            <p class="sello">Próximamente</p>
             <button type="button" class="visor">
                 <img class="foto activa" data-cara="delante" src="d2-vaqueros-delante.jpg" width="560" height="560" loading="lazy"
                      alt="Vaqueros cortos de NOVA Supply Clothing, pantalón vaquero corto claro por delante">
@@ -810,11 +796,10 @@ footer{
                      alt="Vaqueros cortos de NOVA Supply Clothing, pantalón vaquero corto claro con el emblema en el bolsillo">
             </button>
             <h3 class="art-nombre">Vaqueros</h3>
-            <p class="art-precio proximo">Próximamente</p>
         </article>
 
-        <article class="art art--noche" id="p-short">
-            <p class="sello">Drop 01</p>
+        <article class="art" id="p-short">
+            <p class="sello">Próximamente</p>
             <button type="button" class="visor">
                 <img class="foto activa" data-cara="delante" src="d2-short-delante.jpg" width="560" height="560" loading="lazy"
                      alt="Pantalón corto de NOVA Supply Clothing, beige con NOVA en la pernera">
@@ -822,65 +807,16 @@ footer{
                      alt="Pantalón corto de NOVA Supply Clothing, beige con el emblema en el bolsillo">
             </button>
             <h3 class="art-nombre">Short</h3>
-            <p class="art-precio proximo">Próximamente</p>
         </article>
 
     </section>
 
     <section class="venta">
-        <!-- La caja es un formulario de verdad contra /api/preventa, que
-             redirige a Stripe con la talla y el color elegidos. Funciona
-             igual aunque no haya JavaScript.
-             Va plegada detrás de un botón para que la portada se vea limpia
-             y se llegue antes al resto; al abrirla sale todo tal cual:
-             precio, talla, color y pago. Es un <details>, así que abre y
-             cierra sin JavaScript, igual que el formulario de dentro. -->
-        <details class="preventa" id="preventa">
-            <summary class="preventa-abre">
-                <span class="cerrada">Reservar en preventa
-                    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 8h11M9 3.5 13.5 8 9 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </span>
-                <h2 class="abierta">Apúntate ya a la preventa</h2>
-            </summary>
-
-            <p class="precio">
-                <span class="sr-only">Precio</span><b>47,50&nbsp;€</b>
-            </p>
-            <p class="recogida">Recogida en Vecindario · Sin envíos · Llega en un mes</p>
-
-            <form class="eleccion" action="/api/preventa" method="get">
-                <fieldset>
-                    <legend>Talla</legend>
-                    <div class="opciones">
-                        <label class="opcion"><input type="radio" name="talla" value="S" required><span>S</span></label>
-                        <label class="opcion"><input type="radio" name="talla" value="M"><span>M</span></label>
-                        <label class="opcion"><input type="radio" name="talla" value="L"><span>L</span></label>
-                        <label class="opcion"><input type="radio" name="talla" value="XL"><span>XL</span></label>
-                        <label class="opcion"><input type="radio" name="talla" value="2XL"><span>2XL</span></label>
-                    </div>
-                    <!-- Sin JavaScript el enlace abre la tabla como imagen suelta;
-                         con él se queda en la propia página, en el cuadro de abajo. -->
-                    <p class="guia-linea"><a class="guia" id="guia" href="talla-gris.jpeg">Guía de tallas</a></p>
-                </fieldset>
-
-                <fieldset>
-                    <legend>Color</legend>
-                    <div class="opciones">
-                        <label class="opcion"><input type="radio" name="color" value="gris" required><span><i class="punto" style="--c:#7b7676"></i>Gris</span></label>
-                        <label class="opcion"><input type="radio" name="color" value="rosa"><span><i class="punto" style="--c:#e79aba"></i>Rosa</span></label>
-                    </div>
-                </fieldset>
-
-                <button type="submit" class="pago">
-                    <span>Reservar</span>
-                    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 8h11M9 3.5 13.5 8 9 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </button>
-            </form>
-
-            <p class="pago-legal">Al reservar aceptas las <a href="condiciones.html">condiciones de compra</a> y la <a href="privacidad.html">política de privacidad</a>.</p>
-
-            <p class="pago-nota" id="pago-nota"></p>
-        </details>
+        <!-- Aquí vivía la caja de preventa, que llevaba a los enlaces de pago
+             de Stripe. Retirada a petición: ahora el catálogo sólo informa del
+             estado de cada prenda. Queda la guía de tallas, que no formaba
+             parte del cobro y sigue siendo útil para elegir. -->
+        <p class="guia-linea"><a class="guia" id="guia" href="talla-gris.jpeg">Guía de tallas</a></p>
 
         <!-- Las dos tablas de medidas. Es un <dialog>: el propio navegador se
              encarga de oscurecer el fondo, atrapar el foco y cerrarlo con Esc,
@@ -1143,35 +1079,6 @@ function montarVisor(cfg){
         if(e.clientX < r.left || e.clientX > r.right ||
            e.clientY < r.top  || e.clientY > r.bottom) caja.close();
     });
-})();
-
-/* ---------- la vuelta del pago ----------
-   El botón de la caja es un enlace normal a /api/preventa, que redirige a
-   Stripe: eso funciona solo, sin JavaScript. Lo único que hace falta aquí
-   es recoger al cliente cuando Stripe lo devuelve a la web, en /?pago=ok
-   si ha pagado o en /?pago=no si se ha echado atrás. */
-(function(){
-    var caja = document.getElementById('preventa');
-    var nota = document.getElementById('pago-nota');
-    if(!caja || !nota) return;
-
-    var vuelta = /[?&]pago=(ok|no)(&|$)/.exec(location.search);
-    if(!vuelta) return;
-
-    if(history.replaceState){                    // limpia la barra de direcciones
-        history.replaceState(null, '', location.pathname + location.hash);
-    }
-
-    caja.open = true;        // la caja viene plegada: sin esto no se lee nada
-
-    if(vuelta[1] === 'ok'){
-        caja.classList.add('pagado');
-        nota.innerHTML = '<b>Plaza reservada</b>Te acaba de llegar el resguardo por correo: guárdalo, es lo que tienes que enseñar al recogerla. ' +
-                          'La camiseta llega en <b>un mes aproximadamente</b> y te escribimos en cuanto esté. ' +
-                          'Se recoge en Av. del Atlántico 317, Vecindario, de 10:00 a 18:00.';
-    }else{
-        nota.textContent = 'Pago cancelado. La plaza sigue libre, puedes reservarla cuando quieras.';
-    }
 })();
 
 /* ---------- aviso de próximos drops ----------
