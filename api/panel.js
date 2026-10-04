@@ -15,15 +15,38 @@
    clave mal, lo mismo — no dice "clave incorrecta", que sería confirmar que
    hay algo detrás.
 
-   SÍ ENSEÑA LOS CORREOS de quien se apuntó a los avisos del Drop 02, pero
-   plegados: hay que desplegar la lista a propósito para verlos. Son datos
+   SÍ ENSEÑA LOS CORREOS de quien se apuntó a la lista desde la ventana de
+   la web, pero plegados: hay que desplegar la lista a propósito para verlos. Son datos
    personales, así que quien tenga este enlace tiene acceso a ellos —y por
    eso la clave hay que tratarla como una contraseña, no como un enlace más
    que se reenvía por WhatsApp—.
    ══════════════════════════════════════════════════════════════════════════ */
 
-const TALLAS = ['S', 'M', 'L', 'XL', '2XL'];
-const COLORES = ['gris', 'rosa'];
+// Las filas y columnas salen de lo que hay en la base, no de una lista fija:
+// si mañana se abre otra talla u otro color, aparece aquí sin tocar nada.
+// Siempre están las tallas que se pueden apartar hoy (las de api/reserva.js)
+// y los dos colores del drop, aunque vayan a cero.
+const EN_VENTA = ['L', 'XL', 'XXL'];
+const COLORES_BASE = ['gris', 'rosa'];
+const ORDEN_TALLAS = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL'];
+// «2XL» es como se llamaba la XXL en la preventa de septiembre. Es la misma
+// talla, así que se cuenta y se enseña como XXL.
+const talla = t => { const x = String(t || '').toUpperCase(); return x === '2XL' ? 'XXL' : x; };
+
+function cuadro(combinaciones) {
+    const n = {}, tallas = new Set(EN_VENTA), colores = new Set(COLORES_BASE);
+    for (const [clave, v] of Object.entries(combinaciones || {})) {
+        const i = clave.lastIndexOf('-');
+        if (i < 1) continue;
+        const t = talla(clave.slice(0, i)), c = clave.slice(i + 1).toLowerCase();
+        const cuantas = Number(v) || 0;
+        if (!cuantas) continue;
+        n[t + '-' + c] = (n[t + '-' + c] || 0) + cuantas;
+        tallas.add(t); colores.add(c);
+    }
+    const orden = t => { const i = ORDEN_TALLAS.indexOf(t); return i < 0 ? 99 : i; };
+    return { n, tallas: [...tallas].sort((a, b) => orden(a) - orden(b)), colores: [...colores] };
+}
 
 // Los mismos nombres de variables que buscan las otras dos funciones.
 function credenciales() {
@@ -78,7 +101,7 @@ async function leer(cred) {
     const dias = ultimosDias(DIAS);
     const ordenes = [
         ['HGETALL', 'preventa:combinaciones'],
-        ['LRANGE', 'preventa:pedidos', '0', '39'],
+        ['LRANGE', 'preventa:pedidos', '0', '-1'],
         ['HGETALL', 'avisos:drop02'],
         ['GET', 'web:vistas:total']
     ];
@@ -138,7 +161,8 @@ function cuando(iso) {
 }
 
 function pagina(datos) {
-    const n = (t, c) => Number(datos.combinaciones[t + '-' + c] || 0);
+    const { n: cuenta, tallas: TALLAS, colores: COLORES } = cuadro(datos.combinaciones);
+    const n = (t, c) => Number(cuenta[t + '-' + c] || 0);
     const porTalla = t => COLORES.reduce((s, c) => s + n(t, c), 0);
     const porColor = c => TALLAS.reduce((s, t) => s + n(t, c), 0);
     const total = TALLAS.reduce((s, t) => s + porTalla(t), 0);
@@ -153,15 +177,17 @@ function pagina(datos) {
     }).join('');
 
     const ultimos = datos.pedidos.length
-        ? datos.pedidos.slice(0, 20).map(p =>
+        ? datos.pedidos.map(p =>
             '<li class="reserva">' +
               '<span class="ref">' + escapa(p.ref || '') + '</span>' +
-              '<b>' + escapa(p.talla) + '</b> ' + escapa(p.color) +
+              '<b>' + escapa(talla(p.talla)) + '</b> ' + escapa(p.color) +
               '<i>' + escapa(cuando(p.fecha)) + '</i>' +
-              '<span class="quien">' + escapa(p.nombre || '') +
-                (p.tel ? ' · <a href="tel:' + escapa(p.tel) + '">' + escapa(p.tel) + '</a>' : '') +
-                (p.correo ? ' · <a href="mailto:' + escapa(p.correo) + '">' + escapa(p.correo) + '</a>' : '') +
-              '</span>' +
+              (p.nombre || p.tel || p.correo
+                ? '<span class="quien">' + escapa(p.nombre || '') +
+                    (p.tel ? ' · <a href="tel:' + escapa(p.tel) + '">' + escapa(p.tel) + '</a>' : '') +
+                    (p.correo ? ' · <a href="mailto:' + escapa(p.correo) + '">' + escapa(p.correo) + '</a>' : '') +
+                  '</span>'
+                : '<span class="quien sin">De la preventa con Stripe: sin datos de contacto</span>') +
             '</li>').join('')
         : '<li class="vacio">Todavía no ha apartado nadie</li>';
 
@@ -197,14 +223,14 @@ function pagina(datos) {
       '</tr>').join('')}</tbody>
   <tfoot><tr><th>total</th><td>${sumaVistas}</td><td>${sumaUnicos}</td><td>${sumaClics}</td></tr></tfoot>
 </table>
-${conversion !== null ? '<p class="conversion">De cada 100 personas que entran, <b>' + conversion + '</b> pulsan Reservar</p>' : ''}
+${conversion !== null ? '<p class="conversion">De cada 100 personas que entran, <b>' + conversion + '</b> apartan una prenda</p>' : ''}
 ` : '';
 
     return `<!DOCTYPE html>
 <html lang="es"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
-<title>Preventa · NOVA Supply Clothing</title>
+<title>Reservas · NOVA Supply Clothing</title>
 <link rel="icon" type="image/png" href="/icono.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -246,8 +272,11 @@ li span{color:#c9c5c0;font-size:10px;letter-spacing:.06em}
 li.vacio{color:#6f6b66;justify-content:center;padding:22px 0}
 li.reserva{flex-wrap:wrap}
 li.reserva .ref{color:#6f6b66;font-size:10px;letter-spacing:.08em;margin-right:8px}
-li.reserva .quien{flex-basis:100%;margin-top:4px;color:#c9c5c0;font-size:11px;letter-spacing:0}
-li.reserva .quien a{color:#c9c5c0}
+/* nombre, teléfono y correo: es lo que hace falta para avisar de la recogida, así que se lee bien */
+li.reserva .quien{flex-basis:100%;margin-top:4px;color:#4a4744;font-size:12px;letter-spacing:0}
+li.reserva .quien a{color:#0e0e10;text-underline-offset:2px}
+li.reserva .quien.sin{font-style:italic;font-size:11px;color:#b5b1ac}
+.nota-lista{margin:-4px 0 6px;font-size:11px;line-height:1.6;color:#a9a5a0}
 details{margin-top:4px}
 summary{cursor:pointer;padding:11px 0;font-size:11px;letter-spacing:.14em;text-transform:uppercase;
         font-weight:700;color:#0e0e10;border-bottom:1px solid rgba(14,14,16,.12)}
@@ -264,7 +293,7 @@ textarea{width:100%;padding:10px 12px;border:1px solid rgba(14,14,16,.18);border
 </style></head><body><main>
 
 <img class="marca" src="/icono.png" alt="">
-<h1>Preventa · Drop 01</h1>
+<h1>Reservas · Drop 01</h1>
 <div class="cifras">
   <div><p class="total">${total}</p><p class="total-pie">${total === 1 ? 'reserva' : 'reservas'}</p></div>
   <div><p class="total">${datos.vistasTotal}</p><p class="total-pie">${datos.vistasTotal === 1 ? 'visita' : 'visitas'}</p></div>
@@ -283,11 +312,12 @@ cliente aparece y paga. Las que caducan sin recoger siguen contadas aquí.</p>
 
 ${trafico}
 
-<h2>Últimas reservas</h2>
+<h2>Reservas · ${datos.pedidos.length}</h2>
 <p class="ojo-datos">Son datos personales de gente real: úsalos sólo para avisarles de la recogida. No enseñes esta pantalla a nadie ni la fotografíes.</p>
 <ul>${ultimos}</ul>
 
-<h2>Avisos del Drop 02 · ${datos.avisos.length}</h2>
+<h2>Lista de correo · ${datos.avisos.length}</h2>
+<p class="nota-lista">Quien se apunta desde la ventana que sale al entrar en la web.</p>
 ${correos}
 
 <p class="pie">Actualizado ${cuando(new Date().toISOString())} · recarga para ver lo nuevo</p>

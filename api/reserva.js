@@ -20,7 +20,7 @@
    ══════════════════════════════════════════════════════════════════════════ */
 
 // Lo que de verdad se puede apartar hoy. Si entra más género, se toca aquí
-// y en el formulario de index.html, y nada más.
+// y en prendas.js, y nada más: el panel saca las tallas y colores de la base.
 const TALLAS  = ['L', 'XL', 'XXL'];
 const COLORES = ['rosa'];
 

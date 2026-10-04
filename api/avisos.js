@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   POST /api/avisos   ·   guarda un correo para avisar del Drop 02
+   POST /api/avisos   ·   guarda un correo de la lista (la ventana de la web)
    ──────────────────────────────────────────────────────────────────────────
    Vercel convierte cualquier archivo de esta carpeta api/ en una función sin
    servidor. Esta habla con Upstash Redis por HTTP, así que no hace falta
@@ -10,8 +10,10 @@
    duplica — y HSET nos dice si era nuevo (1) o ya estaba (0), que es
    justo lo que la web necesita para dar un mensaje u otro.
 
-   Para verlos: en Vercel, pestaña Storage → tu base → Data Browser →
-   clave "avisos:drop02".
+   Para verlos: el panel (/api/panel con su clave), o en Vercel, pestaña
+   Storage → tu base → Data Browser → clave "avisos:drop02". La clave
+   conserva el nombre de cuando era el aviso del Drop 02 para no perder los
+   correos que ya había; ahora es la lista general.
    ══════════════════════════════════════════════════════════════════════════ */
 
 const CLAVE = 'avisos:drop02';
