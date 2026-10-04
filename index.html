@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icono.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@800&family=Space+Grotesk:wght@300;400;500&family=Space+Mono:wght@400;700&family=Inter:wght@300&family=Montserrat:wght@500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500&family=Space+Mono:wght@400;700&family=Inter:wght@300&family=Montserrat:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
     --blanco:#ffffff;      /* la mitad clara */
@@ -28,9 +28,8 @@
     --noche-linea:rgba(255,255,255,.15);
     --acento-noche:#d99aa2;
 
-    /* Syne para los rótulos cortos en mayúsculas, Space Grotesk para el
-       texto y Space Mono para lo técnico: etiquetas, coordenadas y fichas. */
-    --display:'Syne','Segoe UI',system-ui,sans-serif;
+    /* Space Grotesk para el texto y Space Mono para lo técnico: etiquetas,
+       coordenadas y fichas. */
     --texto:'Space Grotesk','Segoe UI',system-ui,-apple-system,sans-serif;
     --mono:'Space Mono',ui-monospace,'Courier New',monospace;
     /* Una grotesca ligera para el rótulo de agotado. */
@@ -559,7 +558,7 @@ h1.titulo{margin:0;line-height:0}
 }
 
 /* ══════════════════════════════════════════════════════════════
-   MITAD OSCURA · la marca y las coordenadas
+   MITAD OSCURA · las coordenadas
    ══════════════════════════════════════════════════════════════ */
 .oscuro{
     background:var(--noche);color:var(--noche-texto);
@@ -567,12 +566,6 @@ h1.titulo{margin:0;line-height:0}
     text-align:center;
 }
 .oscuro .adentro{max-width:560px;margin:0 auto}
-
-.oscuro h2{
-    margin:0 0 20px;font-family:var(--display);font-weight:800;
-    font-size:clamp(22px,4.4vw,38px);line-height:1.05;letter-spacing:.02em;
-    text-transform:uppercase;
-}
 
 .etiqueta{
     margin:0 0 20px;font-family:var(--mono);font-size:10px;
@@ -655,65 +648,102 @@ h1.titulo{margin:0;line-height:0}
 }
 .coord-texto a:hover{color:#ffc879;border-bottom-color:rgba(240,165,60,.5)}
 
-.corte{height:1px;border:0;margin:clamp(56px,9vh,96px) auto clamp(44px,7vh,76px);max-width:420px;background:var(--noche-linea)}
-
-/* ---------- aviso por correo ---------- */
-.aviso{margin:clamp(28px,5vh,44px) auto 0;max-width:420px}
-/* con el título encima, el campo va pegado a él: son la misma pieza */
-.oscuro h2 + .aviso{margin-top:clamp(18px,3vh,26px)}
-.campos{display:flex;gap:10px}
-@media(max-width:460px){.campos{flex-direction:column}}
-
-.aviso input{
-    flex:1;min-width:0;
-    background:rgba(255,255,255,.04);
-    border:1px solid var(--noche-linea);border-radius:2px;
-    padding:13px 15px;
-    color:var(--noche-texto);font-family:var(--texto);font-weight:300;font-size:14px;
-    transition:border-color .3s,background .3s;
+/* ---------- la ventana de la lista ----------
+   Sale al entrar en la web. No lleva aspa en la esquina: se cierra con
+   «No, gracias», en pequeño debajo del botón (o con Esc). En pantallas
+   anchas la foto va a la izquierda; en el móvil, arriba, en franja. */
+.unete{
+    width:min(780px, calc(100% - 32px));max-width:none;
+    max-height:calc(100% - 32px);
+    padding:0;border:0;background:none;overflow:visible;
+    color:var(--tinta);
 }
-.aviso input::placeholder{color:#5f5a54}
-.aviso input:focus{outline:none;border-color:var(--acento-noche);background:rgba(255,255,255,.06)}
+.unete::backdrop{background:rgba(7,7,10,.62)}
+.unete[open]{animation:unete-entra .5s cubic-bezier(.2,.8,.2,1) both}
+.unete[open]::backdrop{animation:unete-velo .5s ease both}
+@keyframes unete-entra{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+@keyframes unete-velo{from{opacity:0}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){ .unete[open],.unete[open]::backdrop{animation:none} }
+/* con la ventana abierta, la página de detrás no se mueve */
+html.con-ventana{overflow:hidden}
 
-.aviso button{
-    background:var(--noche-texto);border:1px solid var(--noche-texto);border-radius:2px;
-    padding:13px 24px;
-    color:var(--noche);font-family:var(--mono);font-weight:700;
-    font-size:10px;letter-spacing:.24em;text-transform:uppercase;
-    cursor:pointer;white-space:nowrap;
-    transition:background .3s,border-color .3s,color .3s;
+.unete-caja{
+    display:grid;grid-template-columns:1fr;
+    max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow:auto;
+    background:var(--blanco);
 }
-.aviso button:hover{background:var(--acento-noche);border-color:var(--acento-noche)}
-.aviso button:focus-visible{outline:2px solid var(--acento-noche);outline-offset:3px}
-
-.nota{
-    margin:14px 0 0;min-height:1.2em;
-    font-size:11.5px;line-height:1.6;color:var(--noche-gris);
+.unete-foto{position:relative;height:clamp(140px,30vh,240px);background:var(--gris-ficha);overflow:hidden}
+.unete-foto img{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:cover;object-position:50% 40%}
+.unete-cuerpo{padding:26px 24px 20px;text-align:center}
+@media (min-width:720px){
+    .unete-caja{grid-template-columns:5fr 6fr}
+    .unete-foto{height:auto;min-height:min(540px, calc(100vh - 32px))}
+    .unete-cuerpo{display:flex;flex-direction:column;justify-content:center;padding:52px 48px 36px}
 }
 
-/* Quien deja su correo tiene que saber para qué, y a un clic el detalle. */
-.aviso-legal{
-    margin:12px 0 0;font-size:11px;line-height:1.7;color:#6b665f;
+.unete-antetitulo{
+    margin:0;padding-left:.32em;
+    font-family:var(--mono);font-size:10px;letter-spacing:.32em;text-transform:uppercase;color:var(--gris);
 }
-.aviso-legal a{
-    color:var(--noche-gris);text-decoration:none;
-    border-bottom:1px solid var(--noche-linea);
-    transition:color .3s,border-color .3s;
+.unete-titulo{
+    margin:14px 0 0;font-family:var(--caja);font-weight:700;
+    font-size:clamp(16px,2.1vw,19px);line-height:1.4;letter-spacing:.14em;text-transform:uppercase;
 }
-.aviso-legal a:hover{color:var(--noche-texto);border-bottom-color:var(--noche-texto)}
-.aviso-legal a:focus-visible{outline:2px solid var(--acento-noche);outline-offset:2px}
-.aviso.dentro .aviso-legal{display:none}
-.nota.error{color:#e0836b}
+.unete-titulo:focus{outline:none}
+.unete-texto{
+    margin:12px auto 0;max-width:34ch;
+    font-family:var(--caja);font-weight:500;font-size:13px;line-height:1.7;color:var(--gris);
+}
 
-/* Cuando el correo queda guardado, los campos sobran: se van y deja sitio
-   al mensaje de bienvenida. */
-.aviso.dentro .campos{display:none}
-.aviso.dentro .nota{font-size:12.5px;line-height:1.8}
-.aviso.dentro .nota b{
-    display:block;margin-bottom:8px;
-    font-family:var(--mono);font-weight:700;
-    font-size:12px;letter-spacing:.26em;text-transform:uppercase;
-    color:var(--acento-noche);
+.unete-form{margin:24px 0 0}
+.unete-form input{
+    display:block;width:100%;box-sizing:border-box;
+    padding:14px 15px;border:1px solid var(--linea);border-radius:0;background:var(--blanco);
+    /* 16 px: con menos, el iPhone hace zoom al tocar el campo */
+    font-family:var(--caja);font-weight:500;font-size:16px;color:var(--tinta);text-align:center;
+    transition:border-color .25s;
+}
+.unete-form input::placeholder{color:#a8a39d}
+.unete-form input:focus{outline:none;border-color:var(--tinta)}
+.unete-nota{margin:10px 0 0;font-family:var(--caja);font-weight:500;font-size:12px;line-height:1.6;color:var(--gris)}
+.unete-nota:empty{margin:0}
+.unete-nota.error{color:#b14a3e}
+.unete-si{
+    display:block;width:100%;margin:10px 0 0;padding:15px 20px;
+    background:var(--tinta);border:1px solid var(--tinta);border-radius:0;color:var(--blanco);
+    font-family:var(--caja);font-weight:700;font-size:11px;letter-spacing:.24em;text-transform:uppercase;
+    cursor:pointer;transition:background .25s,border-color .25s;
+}
+.unete-si:hover{background:var(--acento);border-color:var(--acento)}
+.unete-si:disabled{opacity:.55;cursor:default}
+.unete-si:focus-visible,.unete-no:focus-visible{outline:2px solid var(--acento);outline-offset:3px}
+
+/* la salida, pequeña y debajo del botón: no hay aspa */
+.unete-no{
+    display:block;margin:12px auto 0;padding:6px 10px;
+    background:none;border:0;cursor:pointer;
+    font-family:var(--caja);font-weight:500;font-size:11.5px;letter-spacing:.03em;
+    color:var(--gris);text-decoration:underline;text-underline-offset:3px;
+    transition:color .25s;
+}
+.unete-no:hover{color:var(--tinta)}
+
+.unete-legal{
+    margin:14px auto 0;max-width:40ch;
+    font-family:var(--caja);font-weight:500;font-size:10.5px;line-height:1.65;color:#8f8a84;
+}
+.unete-legal a{color:inherit;text-underline-offset:2px}
+.unete-legal a:hover{color:var(--tinta)}
+
+/* ya dentro: se van el campo, el botón y la letra pequeña, y queda la bienvenida */
+.unete.dentro .unete-texto,
+.unete.dentro .unete-form input,
+.unete.dentro .unete-si,
+.unete.dentro .unete-legal{display:none}
+.unete.dentro .unete-nota{margin:0;font-size:13px;line-height:1.75;color:var(--tinta)}
+.unete-nota b{
+    display:block;margin-bottom:6px;
+    font-weight:700;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--acento);
 }
 
 /* Ahora el pie viene detrás del bucle, así que se despega de él por arriba. */
@@ -723,6 +753,17 @@ footer{
     font-family:var(--mono);font-size:9.5px;letter-spacing:.4em;text-transform:uppercase;color:#4e4a45;
 }
 .pie-marca{margin:0}
+/* Instagram: el logo y la cuenta. En el móvil, el enlace abre la app. */
+.pie-redes{margin:clamp(18px,3vh,24px) 0 0}
+.pie-insta{
+    display:inline-flex;align-items:center;gap:10px;
+    color:var(--noche-texto);text-decoration:none;
+    font-size:11px;letter-spacing:.12em;text-transform:none;
+    transition:color .3s;
+}
+.pie-insta svg{flex:none}
+.pie-insta:hover{color:var(--acento-noche)}
+.pie-insta:focus-visible{outline:2px solid var(--acento-noche);outline-offset:4px}
 .pie-legal{
     display:flex;flex-wrap:wrap;justify-content:center;gap:11px clamp(16px,4vw,26px);
     margin-top:clamp(20px,3.4vh,28px);
@@ -869,22 +910,6 @@ footer{
 
 <section class="oscuro">
 
-    <div class="adentro">
-        <h2 id="unete">Únete a NOVA&nbsp;Studio</h2>
-        <form class="aviso" id="aviso" novalidate aria-labelledby="unete">
-            <label class="sr-only" for="correo">Tu correo electrónico</label>
-            <div class="campos">
-                <input id="correo" name="correo" type="email" inputmode="email" autocomplete="email"
-                       placeholder="tu@correo.com" required>
-                <button type="submit">Avísame</button>
-            </div>
-            <p class="nota" id="nota" role="status"></p>
-            <p class="aviso-legal">Solo usamos tu correo para avisarte de los próximos drops, y puedes darte de baja cuando quieras. Lo contamos entero en la <a href="privacidad.html">política de privacidad</a>.</p>
-        </form>
-    </div>
-
-    <hr class="corte">
-
     <div class="adentro coords">
         <p class="etiqueta">Las coordenadas</p>
         <figure class="coord-foto">
@@ -903,6 +928,17 @@ footer{
 
 <footer>
     <p class="pie-marca">NOVA Supply Clothing</p>
+    <p class="pie-redes">
+        <a class="pie-insta" href="https://www.instagram.com/novastudio.gc/" target="_blank" rel="noopener">
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">
+                <rect x="2.5" y="2.5" width="19" height="19" rx="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/>
+                <circle cx="12" cy="12" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/>
+                <circle cx="17.4" cy="6.6" r="1.15" fill="currentColor"/>
+            </svg>
+            <span class="sr-only">Instagram</span>
+            <span>@novastudio.gc</span>
+        </a>
+    </p>
     <nav class="pie-legal" aria-label="Información legal">
         <a href="aviso-legal.html">Aviso legal</a>
         <a href="privacidad.html">Privacidad</a>
@@ -910,6 +946,32 @@ footer{
         <a href="condiciones.html">Condiciones de compra</a>
     </nav>
 </footer>
+
+<!-- ---------- la ventana de la lista ----------
+     Sale al entrar en la web (lo decide el script de abajo). Sin aspa: se
+     cierra con «No, gracias» o con Esc. La foto no se pide hasta que va a
+     salir, por eso lleva data-src. -->
+<dialog class="unete" id="unete" aria-labelledby="unete-titulo" aria-describedby="unete-texto">
+    <div class="unete-caja">
+        <div class="unete-foto">
+            <img data-src="mucho-web.jpg" width="760" height="1350" alt="">
+        </div>
+        <div class="unete-cuerpo">
+            <p class="unete-antetitulo">Próximo drop</p>
+            <h2 class="unete-titulo" id="unete-titulo" tabindex="-1">Únete a NOVA&nbsp;Supply&nbsp;Studio</h2>
+            <p class="unete-texto" id="unete-texto">Déjanos tu correo y te avisamos antes que a nadie cuando salga lo siguiente.</p>
+            <form class="unete-form" id="unete-form" novalidate>
+                <label class="sr-only" for="unete-correo">Tu correo electrónico</label>
+                <input id="unete-correo" name="correo" type="email" inputmode="email" autocomplete="email"
+                       placeholder="tu@correo.com" required>
+                <p class="unete-nota" id="unete-nota" role="status"></p>
+                <button type="submit" class="unete-si">Unirse</button>
+            </form>
+            <button type="button" class="unete-no" id="unete-no">No, gracias</button>
+            <p class="unete-legal">Solo usamos tu correo para avisarte de los próximos drops, y puedes darte de baja cuando quieras. Lo contamos entero en la <a href="privacidad.html">política de privacidad</a>.</p>
+        </div>
+    </div>
+</dialog>
 
 <script>
 /* ---------- la marca de arriba ----------
@@ -971,43 +1033,93 @@ footer{
     try{ fetch('/api/visita', { method:'POST', keepalive:true, cache:'no-store' }).catch(function(){}); }catch(e){}
 })();
 
-/* ---------- aviso de próximos drops ----------
-   Manda el correo a /api/avisos, que lo guarda en la base de datos. La
-   respuesta trae "nuevo": true si es la primera vez que se apunta, false si
-   ese correo ya estaba en la lista. De ahí salen los dos mensajes. */
+/* ---------- la ventana de la lista ----------
+   Sale cada vez que alguien entra en la web desde fuera (un enlace, una red
+   social, la dirección escrita a mano), en cuanto ha cargado su foto. No
+   sale al moverse por dentro, al recargar ni al volver atrás. Para saberlo
+   no guarda nada en el navegador: lo deduce de cómo se ha llegado a la
+   página, y así la política de cookies sigue siendo cierta.
+   Con #unete en la dirección se abre siempre: así enlazan las fichas
+   agotadas o por salir. El correo va a /api/avisos, como antes. */
 (function(){
-    var form = document.getElementById('aviso');
-    var nota = document.getElementById('nota');
-    if(!form || !nota) return;
+    var caja = document.getElementById('unete');
+    if(!caja || typeof caja.showModal !== 'function') return;
 
-    var boton   = form.querySelector('button');
-    var textoOk = boton ? boton.textContent : 'Avísame';
+    var form   = document.getElementById('unete-form');
+    var campo  = document.getElementById('unete-correo');
+    var nota   = document.getElementById('unete-nota');
+    var boton  = form.querySelector('.unete-si');
+    var no     = document.getElementById('unete-no');
+    var titulo = document.getElementById('unete-titulo');
+    var foto   = caja.querySelector('img');
     var esCorreo = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
     var enviando = false;
 
+    // ¿se acaba de entrar en la web, o se viene de otra página de ella?
+    function esEntrada(){
+        var nav = performance.getEntriesByType ? performance.getEntriesByType('navigation')[0] : null;
+        if(nav && nav.type !== 'navigate') return false;   // recargar o ir atrás no es entrar
+        if(!document.referrer) return true;                 // escrita a mano, desde una app...
+        try{ return new URL(document.referrer).origin !== location.origin; }
+        catch(e){ return true; }
+    }
+
+    function abre(){
+        if(caja.open) return;
+        caja.showModal();
+        document.documentElement.classList.add('con-ventana');
+        // el foco al título y no al campo: en el móvil no salta el teclado de golpe
+        titulo.focus({ preventScroll:true });
+    }
+    // se suelta la página al momento al pulsar, sin esperar al evento close
+    // (el navegador lo retrasa si la pestaña no está a la vista); con Esc
+    // llegan cancel y close, y hacen lo mismo
+    function alCerrar(){
+        document.documentElement.classList.remove('con-ventana');
+        if(location.hash === '#unete') history.replaceState(null, '', location.pathname + location.search);
+    }
+    caja.addEventListener('cancel', alCerrar);
+    caja.addEventListener('close', alCerrar);
+    no.addEventListener('click', function(){ if(caja.open) caja.close(); alCerrar(); });
+
+    // la foto se pide solo si la ventana va a salir, y se abre cuando ya está
+    function lanza(espera){
+        var hecho = false;
+        function ya(){ if(!hecho){ hecho = true; abre(); } }
+        setTimeout(function(){
+            if(!foto.getAttribute('src')) foto.src = foto.getAttribute('data-src');
+            if(foto.complete && foto.naturalWidth) return ya();
+            foto.addEventListener('load', ya);
+            foto.addEventListener('error', ya);
+            setTimeout(ya, 3500);                            // si tarda, sale igual
+        }, espera);
+    }
+    if(location.hash === '#unete') lanza(0);
+    else if(esEntrada()) lanza(1200);
+    addEventListener('hashchange', function(){ if(location.hash === '#unete') lanza(0); });
+
     function fallo(mensaje){
-        nota.className = 'nota error';
+        nota.className = 'unete-nota error';
         nota.textContent = mensaje;
-        form.correo.focus();
+        campo.focus();
     }
 
     form.addEventListener('submit', function(e){
         e.preventDefault();
         if(enviando) return;
 
-        var correo = form.correo.value.trim();
-
-        if(!correo)               return fallo('Escribe tu correo.');
+        var correo = campo.value.trim();
+        if(!correo)                return fallo('Escribe tu correo.');
         if(!esCorreo.test(correo)) return fallo('Ese correo no parece válido.');
 
         enviando = true;
-        nota.className = 'nota';
+        nota.className = 'unete-nota';
         nota.textContent = 'Guardando…';
-        if(boton){ boton.disabled = true; boton.textContent = 'Enviando'; }
+        boton.disabled = true; boton.textContent = 'Enviando';
 
         function recuperar(){
             enviando = false;
-            if(boton){ boton.disabled = false; boton.textContent = textoOk; }
+            boton.disabled = false; boton.textContent = 'Unirse';
         }
 
         fetch('/api/avisos', {
@@ -1023,22 +1135,25 @@ footer{
         })
         .then(function(res){
             if(res.datos && res.datos.ok){
-                form.classList.add('dentro');
-                nota.className = 'nota';
+                caja.classList.add('dentro');
+                nota.className = 'unete-nota';
+                // el correo lo escribe el visitante: entra como texto, nunca como HTML
                 var titular = document.createElement('b');
-                titular.textContent = res.datos.nuevo ? 'Ya perteneces a NOVA Studio' : 'Ya estabas dentro';
+                titular.textContent = res.datos.nuevo ? 'Ya perteneces a NOVA\u00a0Supply\u00a0Studio' : 'Ya estabas dentro';
                 nota.textContent = '';
                 nota.appendChild(titular);
                 nota.appendChild(document.createTextNode(res.datos.nuevo
                     ? 'Te escribimos a ' + correo + ' en cuanto haya novedades del próximo drop.'
                     : 'Ese correo ya figuraba en la lista. Te avisamos igual.'));
+                no.textContent = 'Cerrar';
+                no.focus();
                 return;
             }
             recuperar();
             var motivo = res.datos && res.datos.error;
-            if(motivo === 'correo')      fallo('Ese correo no parece válido.');
+            if(motivo === 'correo')        fallo('Ese correo no parece válido.');
             else if(motivo === 'sin-base') fallo('El aviso no está operativo todavía. Vuelve a intentarlo en un rato.');
-            else                          fallo('No hemos podido guardarlo. Inténtalo de nuevo en un momento.');
+            else                           fallo('No hemos podido guardarlo. Inténtalo de nuevo en un momento.');
         })
         .catch(function(){
             recuperar();

@@ -157,6 +157,8 @@ legend{padding:0;font-size:10px;font-weight:600;letter-spacing:.16em;text-transf
 /* cuando no se puede apartar */
 .cerrado{margin-top:clamp(24px,4vw,34px);padding-top:clamp(22px,4vw,30px);border-top:1px solid var(--linea)}
 .cerrado p{margin:0;font-size:13.5px;line-height:1.8;color:var(--gris);max-width:44ch}
+/* abre en la portada la ventana de la lista (index.html#unete) */
+.cerrado .boton{text-decoration:none}
 
 /* confirmación */
 .hecho{text-align:center;padding:clamp(30px,6vw,56px) 0}
@@ -185,6 +187,14 @@ dialog.tallas::backdrop{background:rgba(14,14,16,.6)}
 footer{border-top:1px solid var(--linea);padding:28px 20px;text-align:center}
 footer a{margin:0 10px;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--gris);text-decoration:none}
 footer a:hover{color:var(--tinta)}
+/* Instagram: el logo y la cuenta, encima de los enlaces del pie */
+.pie-redes{margin:0 0 16px}
+footer .pie-insta{
+    display:inline-flex;align-items:center;gap:9px;margin:0;
+    font-size:11px;letter-spacing:.08em;text-transform:none;color:var(--tinta);
+}
+footer .pie-insta svg{flex:none}
+footer .pie-insta:hover{color:var(--acento)}
 
 @media(prefers-reduced-motion:reduce){*{transition-duration:.01ms!important}}
 </style>
@@ -264,6 +274,7 @@ footer a:hover{color:var(--tinta)}
 
             <div class="cerrado" id="cerrado" hidden>
                 <p id="cerrado-texto"></p>
+                <a class="boton" href="index.html#unete">Unirse a la lista</a>
             </div>
         </div>
     </div>
@@ -297,6 +308,17 @@ footer a:hover{color:var(--tinta)}
 </main>
 
 <footer>
+    <p class="pie-redes">
+        <a class="pie-insta" href="https://www.instagram.com/novastudio.gc/" target="_blank" rel="noopener">
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">
+                <rect x="2.5" y="2.5" width="19" height="19" rx="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/>
+                <circle cx="12" cy="12" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/>
+                <circle cx="17.4" cy="6.6" r="1.15" fill="currentColor"/>
+            </svg>
+            <span class="sr-only">Instagram</span>
+            <span>@novastudio.gc</span>
+        </a>
+    </p>
     <a href="index.html">Drop 01</a>
     <a href="aviso-legal.html">Aviso legal</a>
     <a href="privacidad.html">Privacidad</a>

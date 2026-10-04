@@ -65,8 +65,8 @@
     if (p.estado !== 'disponible' || !p.tallas.length) {
         $('cerrado').hidden = false;
         $('cerrado-texto').textContent = p.estado === 'agotado'
-            ? 'Esta se ha agotado. Déjanos tu correo en la portada y te avisamos si vuelve a entrar.'
-            : 'Todavía no ha salido. Déjanos tu correo en la portada y serás de los primeros en saberlo.';
+            ? 'Esta se ha agotado. Únete a la lista y te avisamos si vuelve a entrar.'
+            : 'Todavía no ha salido. Únete a la lista y serás de los primeros en saberlo.';
         return;
     }
 
