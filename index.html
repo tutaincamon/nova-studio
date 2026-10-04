@@ -659,6 +659,8 @@ h1.titulo{margin:0;line-height:0}
 
 /* ---------- aviso por correo ---------- */
 .aviso{margin:clamp(28px,5vh,44px) auto 0;max-width:420px}
+/* con el título encima, el campo va pegado a él: son la misma pieza */
+.oscuro h2 + .aviso{margin-top:clamp(18px,3vh,26px)}
 .campos{display:flex;gap:10px}
 @media(max-width:460px){.campos{flex-direction:column}}
 
@@ -868,7 +870,8 @@ footer{
 <section class="oscuro">
 
     <div class="adentro">
-        <form class="aviso" id="aviso" novalidate>
+        <h2 id="unete">Únete a NOVA&nbsp;Studio</h2>
+        <form class="aviso" id="aviso" novalidate aria-labelledby="unete">
             <label class="sr-only" for="correo">Tu correo electrónico</label>
             <div class="campos">
                 <input id="correo" name="correo" type="email" inputmode="email" autocomplete="email"
@@ -1022,10 +1025,13 @@ footer{
             if(res.datos && res.datos.ok){
                 form.classList.add('dentro');
                 nota.className = 'nota';
-                nota.innerHTML = res.datos.nuevo
-                    ? '<b>Ya perteneces a NOVA Supply Clothing</b>Te escribimos a ' + correo +
-                      ' en cuanto haya novedades del próximo drop.'
-                    : '<b>Ya estabas dentro</b>Ese correo ya figuraba en la lista. Te avisamos igual.';
+                var titular = document.createElement('b');
+                titular.textContent = res.datos.nuevo ? 'Ya perteneces a NOVA Studio' : 'Ya estabas dentro';
+                nota.textContent = '';
+                nota.appendChild(titular);
+                nota.appendChild(document.createTextNode(res.datos.nuevo
+                    ? 'Te escribimos a ' + correo + ' en cuanto haya novedades del próximo drop.'
+                    : 'Ese correo ya figuraba en la lista. Te avisamos igual.'));
                 return;
             }
             recuperar();
