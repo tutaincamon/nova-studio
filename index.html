@@ -97,7 +97,7 @@ body{
 /* ══════════════════════════════════════════════════════════════
    MITAD CLARA · Drop 01
    ══════════════════════════════════════════════════════════════ */
-main{max-width:1040px;margin:0 auto;padding:clamp(48px,9vh,92px) 22px clamp(36px,5vh,56px)}
+main{max-width:1040px;margin:0 auto;padding:0 22px clamp(36px,5vh,56px)}
 
 .logo{display:flex;flex-direction:column;align-items:center;gap:24px}
 
@@ -132,7 +132,8 @@ main{max-width:1040px;margin:0 auto;padding:clamp(48px,9vh,92px) 22px clamp(36px
 .oscuro .drop::before,.oscuro .drop::after{background:var(--noche-linea)}
 
 /* ---------- cabecera del drop ---------- */
-.intro{text-align:center;margin:clamp(48px,8vh,80px) 0 clamp(40px,6vh,60px)}
+/* pegado al bucle, y un poco más cerca aún de la rejilla, que es lo que encabeza */
+.intro{text-align:center;margin:clamp(26px,4.5vh,40px) 0 clamp(20px,3.5vh,30px)}
 .intro .drop{margin-bottom:0;animation:rise .85s .34s cubic-bezier(.2,.8,.2,1) both}
 
 /* El h1 de la página es el propio logotipo: la página ya no lleva titular
@@ -595,7 +596,7 @@ h1.titulo{margin:0;line-height:0}
     display:grid;
     grid-template-columns:repeat(2,1fr);
     gap:14px 3px;
-    margin:clamp(30px,5vh,52px) 0 0;
+    margin:0;
 }
 @media(min-width:620px){ .catalogo{grid-template-columns:repeat(3,1fr)} }
 @media(min-width:980px){ .catalogo{grid-template-columns:repeat(4,1fr)} }
@@ -753,15 +754,14 @@ footer{
     font-family:var(--mono);font-size:9.5px;letter-spacing:.4em;text-transform:uppercase;color:#4e4a45;
 }
 .pie-marca{margin:0}
-/* Instagram: el logo y la cuenta. En el móvil, el enlace abre la app. */
-.pie-redes{margin:clamp(18px,3vh,24px) 0 0}
+/* Instagram: solo el logo. En el móvil, el enlace abre la app. El relleno
+   agranda la zona que se puede tocar sin agrandar el dibujo. */
+.pie-redes{margin:clamp(14px,2.4vh,20px) 0 0}
 .pie-insta{
-    display:inline-flex;align-items:center;gap:10px;
-    color:var(--noche-texto);text-decoration:none;
-    font-size:11px;letter-spacing:.12em;text-transform:none;
+    display:inline-flex;padding:7px;
+    color:var(--noche-texto);
     transition:color .3s;
 }
-.pie-insta svg{flex:none}
 .pie-insta:hover{color:var(--acento-noche)}
 .pie-insta:focus-visible{outline:2px solid var(--acento-noche);outline-offset:4px}
 .pie-legal{
@@ -929,14 +929,12 @@ footer{
 <footer>
     <p class="pie-marca">NOVA Supply Clothing</p>
     <p class="pie-redes">
-        <a class="pie-insta" href="https://www.instagram.com/novastudio.gc/" target="_blank" rel="noopener">
-            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">
+        <a class="pie-insta" href="https://www.instagram.com/novastudio.gc/" target="_blank" rel="noopener" aria-label="Instagram de NOVA Studio">
+            <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" focusable="false">
                 <rect x="2.5" y="2.5" width="19" height="19" rx="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/>
                 <circle cx="12" cy="12" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/>
                 <circle cx="17.4" cy="6.6" r="1.15" fill="currentColor"/>
             </svg>
-            <span class="sr-only">Instagram</span>
-            <span>@novastudio.gc</span>
         </a>
     </p>
     <nav class="pie-legal" aria-label="Información legal">

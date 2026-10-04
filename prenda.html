@@ -187,13 +187,9 @@ dialog.tallas::backdrop{background:rgba(14,14,16,.6)}
 footer{border-top:1px solid var(--linea);padding:28px 20px;text-align:center}
 footer a{margin:0 10px;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--gris);text-decoration:none}
 footer a:hover{color:var(--tinta)}
-/* Instagram: el logo y la cuenta, encima de los enlaces del pie */
-.pie-redes{margin:0 0 16px}
-footer .pie-insta{
-    display:inline-flex;align-items:center;gap:9px;margin:0;
-    font-size:11px;letter-spacing:.08em;text-transform:none;color:var(--tinta);
-}
-footer .pie-insta svg{flex:none}
+/* Instagram: solo el logo, encima de los enlaces del pie */
+.pie-redes{margin:0 0 10px}
+footer .pie-insta{display:inline-flex;padding:7px;margin:0;color:var(--tinta)}
 footer .pie-insta:hover{color:var(--acento)}
 
 @media(prefers-reduced-motion:reduce){*{transition-duration:.01ms!important}}
@@ -309,14 +305,12 @@ footer .pie-insta:hover{color:var(--acento)}
 
 <footer>
     <p class="pie-redes">
-        <a class="pie-insta" href="https://www.instagram.com/novastudio.gc/" target="_blank" rel="noopener">
-            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">
+        <a class="pie-insta" href="https://www.instagram.com/novastudio.gc/" target="_blank" rel="noopener" aria-label="Instagram de NOVA Studio">
+            <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" focusable="false">
                 <rect x="2.5" y="2.5" width="19" height="19" rx="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/>
                 <circle cx="12" cy="12" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/>
                 <circle cx="17.4" cy="6.6" r="1.15" fill="currentColor"/>
             </svg>
-            <span class="sr-only">Instagram</span>
-            <span>@novastudio.gc</span>
         </a>
     </p>
     <a href="index.html">Drop 01</a>
