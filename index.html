@@ -13,7 +13,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@800&family=Space+Grotesk:wght@300;400;500&family=Space+Mono:wght@400;700&family=Inter:wght@300&family=Montserrat:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
-    --blanco:#ffffff;      /* la mitad clara */
+    --blanco:#ffffff;      /* la mitad clara */
+    --alto-fijo:72px;      /* lo que ocupa la cabecera fija */
     --gris-ficha:#ebebeb;  /* el fondo de las fotos del catálogo */
     --tinta:#0e0e10;
     --gris:#6f6b66;
@@ -41,7 +42,8 @@
 
 *{box-sizing:border-box}
 /* La página acaba en negro: lo que sobre por debajo sigue siendo noche. */
-html{background:var(--noche);scroll-behavior:smooth}
+html{background:var(--noche);scroll-behavior:smooth}
+body{padding-top:var(--alto-fijo)}
 body{
     margin:0;
     background:var(--blanco);
@@ -69,24 +71,24 @@ body{
    color con un fundido (dos capas cruzadas, porque un degradado
    no interpola solo).
    ══════════════════════════════════════════════════════════════ */
+/* La marca manda: se queda clavada arriba de todo, siempre visible. El
+   contenido empieza por debajo (de ahí el padding del body), así que la
+   cabecera no tapa nada: es una banda propia. */
 .fijo{
     position:fixed;top:0;left:0;right:0;z-index:20;
     display:flex;justify-content:center;
-    padding:15px 22px 26px;
+    padding:14px 22px;
     pointer-events:none;
-    opacity:0;transform:translateY(-10px);
-    transition:opacity .45s ease,transform .45s ease;
 }
-.fijo.visible{opacity:1;transform:none}
 .fijo::before,.fijo::after{
     content:'';position:absolute;inset:0;transition:opacity .5s ease;
 }
-.fijo::before{background:linear-gradient(to bottom,rgba(255,255,255,.96) 40%,rgba(255,255,255,0));opacity:1}
-.fijo::after {background:linear-gradient(to bottom,rgba(7,7,10,.96) 40%,rgba(7,7,10,0));opacity:0}
+.fijo::before{background:var(--blanco);opacity:1;border-bottom:1px solid var(--linea)}
+.fijo::after {background:var(--noche);opacity:0;border-bottom:1px solid var(--noche-linea)}
 .fijo.noche::before{opacity:0}
 .fijo.noche::after {opacity:1}
 
-.fijo-logo{position:relative;z-index:1;pointer-events:auto;line-height:0}
+.fijo-logo{position:relative;z-index:1;pointer-events:auto;line-height:0;margin:0}
 .fijo-logo img{
     width:clamp(94px,17vw,126px);height:auto;display:block;
     transition:filter .5s ease;
@@ -741,13 +743,14 @@ footer{
 <body id="arriba">
 
 <header class="fijo" id="fijo">
-    <a class="fijo-logo" href="#arriba" aria-label="NOVA Supply Clothing · volver arriba">
-        <img src="logo-supply.png" width="760" height="267" alt="NOVA Supply Clothing">
-    </a>
+    <h1 class="fijo-logo">
+        <a href="#arriba" aria-label="NOVA Supply Clothing · volver arriba">
+            <img src="logo-supply.png" width="760" height="267" alt="NOVA Supply Clothing">
+        </a>
+    </h1>
 </header>
 
-<!-- El bucle ABRE la página: es lo primero que se ve, a sangre y por
-     encima del logo. Los ocho fotogramas están recortados de forma que el
+<!-- El bucle va justo debajo de la marca, a sangre. Los ocho fotogramas están recortados de forma que el
      emblema cae siempre en el mismo punto, así que no se mueve del sitio.
      Va fuera de <main> para llegar de borde a borde sin trucos de 100vw,
      que con la barra de desplazamiento visible desbordan a lo ancho. -->
@@ -764,11 +767,6 @@ footer{
 
 <main>
 
-    <div class="logo">
-        <div class="mark-wrap"><img class="mark" src="logo-marca.png" width="512" height="512" alt="Emblema de NOVA Supply Clothing"></div>
-        <h1 class="titulo"><img class="wordmark" src="logo-supply.png" width="760" height="267" alt="NOVA Supply Clothing"></h1>
-    </div>
-
     <section class="intro">
         <p class="drop">Drop 01</p>
     </section>
@@ -784,190 +782,83 @@ footer{
 
         <article class="art" id="camiseta">
             <p class="sello sello--fin">Sold out</p>
-            <button type="button" class="visor">
+            <a class="visor" href="prenda.html?id=camiseta" aria-label="Ver Camiseta · Gris lavado">
                 <img class="foto activa" data-color="gris" data-cara="delante" src="gris-delante.jpg"
                      width="920" height="780" alt="Camiseta NOVA Supply Clothing gris por delante, con el emblema en el pecho">
                 <img class="foto" data-color="gris" data-cara="detras" src="gris-detras.jpg"
                      width="920" height="780" alt="Camiseta NOVA Supply Clothing gris por detrás, con NOVA en grande">
-            </button>
+            </a>
             <h3 class="art-nombre">Camiseta · Gris lavado</h3>
             <p class="art-precio">47,50 €</p>
         </article>
 
         <article class="art" id="camiseta-rosa">
             <p class="sello">Quedan L · XL · XXL</p>
-            <button type="button" class="visor">
+            <a class="visor" href="prenda.html?id=camiseta-rosa" aria-label="Ver Camiseta · Rosa lavado">
                 <img class="foto activa" data-color="rosa" data-cara="delante" src="rosa-delante.jpg"
                      width="920" height="780" alt="Camiseta NOVA Supply Clothing rosa por delante, con el emblema en el pecho">
                 <img class="foto" data-color="rosa" data-cara="detras" src="rosa-detras.jpg"
                      width="920" height="780" alt="Camiseta NOVA Supply Clothing rosa por detrás, con NOVA en grande">
-            </button>
+            </a>
             <h3 class="art-nombre">Camiseta · Rosa lavado</h3>
             <p class="art-precio">47,50 €</p>
         </article>
 
         <article class="art" id="sudadera">
             <p class="sello">Próximamente</p>
-            <button type="button" class="visor">
+            <a class="visor" href="prenda.html?id=sudadera" aria-label="Ver Sudadera">
                 <img class="foto activa" data-cara="delante" src="sud-delante.jpg" width="900" height="840" loading="lazy"
                      alt="Sudadera NOVA Supply Clothing por delante, con cremallera y Studio y Nova en las mangas">
                 <img class="foto" data-cara="detras" src="sud-detras.jpg" width="900" height="840" loading="lazy"
                      alt="Sudadera NOVA Supply Clothing por detrás, con el emblema grande en la espalda">
-            </button>
+            </a>
             <h3 class="art-nombre">Sudadera</h3>
         </article>
 
         <article class="art" id="p-camisa">
             <p class="sello">Próximamente</p>
-            <button type="button" class="visor">
+            <a class="visor" href="prenda.html?id=p-camisa" aria-label="Ver Camisa">
                 <img class="foto activa" data-cara="delante" src="d2-camisa-delante.jpg" width="560" height="560" loading="lazy"
                      alt="Camisa de NOVA Supply Clothing, camisa de manga corta gris con el emblema en el pecho">
                 <img class="foto" data-cara="detras" src="d2-camisa-detras.jpg" width="560" height="560" loading="lazy"
                      alt="Camisa de NOVA Supply Clothing, camisa de manga corta gris con NOVA en grande en la espalda">
-            </button>
+            </a>
             <h3 class="art-nombre">Camisa</h3>
         </article>
 
         <article class="art" id="p-tirantes">
             <p class="sello">Próximamente</p>
-            <button type="button" class="visor">
+            <a class="visor" href="prenda.html?id=p-tirantes" aria-label="Ver Tirantes">
                 <img class="foto activa" data-cara="delante" src="d2-tirantes-delante.jpg" width="560" height="560" loading="lazy"
                      alt="Camiseta de tirantes de NOVA Supply Clothing, blanca con el emblema en el pecho">
                 <img class="foto" data-cara="detras" src="d2-tirantes-detras.jpg" width="560" height="560" loading="lazy"
                      alt="Camiseta de tirantes de NOVA Supply Clothing, blanca lisa por detrás">
-            </button>
+            </a>
             <h3 class="art-nombre">Tirantes</h3>
         </article>
 
         <article class="art" id="p-vaqueros">
             <p class="sello">Próximamente</p>
-            <button type="button" class="visor">
+            <a class="visor" href="prenda.html?id=p-vaqueros" aria-label="Ver Vaqueros">
                 <img class="foto activa" data-cara="delante" src="d2-vaqueros-delante.jpg" width="560" height="560" loading="lazy"
                      alt="Vaqueros cortos de NOVA Supply Clothing, pantalón vaquero corto claro por delante">
                 <img class="foto" data-cara="detras" src="d2-vaqueros-detras.jpg" width="560" height="560" loading="lazy"
                      alt="Vaqueros cortos de NOVA Supply Clothing, pantalón vaquero corto claro con el emblema en el bolsillo">
-            </button>
+            </a>
             <h3 class="art-nombre">Vaqueros</h3>
         </article>
 
         <article class="art" id="p-short">
             <p class="sello">Próximamente</p>
-            <button type="button" class="visor">
+            <a class="visor" href="prenda.html?id=p-short" aria-label="Ver Short">
                 <img class="foto activa" data-cara="delante" src="d2-short-delante.jpg" width="560" height="560" loading="lazy"
                      alt="Pantalón corto de NOVA Supply Clothing, beige con NOVA en la pernera">
                 <img class="foto" data-cara="detras" src="d2-short-detras.jpg" width="560" height="560" loading="lazy"
                      alt="Pantalón corto de NOVA Supply Clothing, beige con el emblema en el bolsillo">
-            </button>
+            </a>
             <h3 class="art-nombre">Short</h3>
         </article>
 
-    </section>
-
-    <section class="venta">
-        <!-- Aquí vivía la caja de preventa, que llevaba a los enlaces de pago
-             de Stripe. Ahora no se cobra por la web: se aparta la prenda con
-             los datos del cliente y se paga al recogerla en la tienda.
-             El formulario manda a /api/reserva, que la apunta en la libreta. -->
-        <div class="reserva" id="reserva">
-            <h2>Apártala y págala en tienda</h2>
-            <p class="reserva-como">Por la web no se cobra nada. Déjanos tus datos, te guardamos
-                la prenda y la pagas cuando pases a recogerla.</p>
-
-            <p class="precio"><span class="sr-only">Precio</span><b>47,50&nbsp;€</b></p>
-            <p class="recogida">Av. del Atlántico 317 · Vecindario · Se paga al recoger</p>
-
-            <form class="eleccion" id="form-reserva" novalidate>
-                <fieldset>
-                    <legend>Talla</legend>
-                    <div class="opciones">
-                        <!-- Agotadas: se ven, para que se sepa que existen, pero no se pueden
-                             elegir. Cuando entre género se les quita el disabled, y en
-                             api/reserva.js se añade la talla a la lista TALLAS. -->
-                        <label class="opcion"><input type="radio" name="talla" value="S" disabled><span>S</span></label>
-                        <label class="opcion"><input type="radio" name="talla" value="M" disabled><span>M</span></label>
-                        <label class="opcion"><input type="radio" name="talla" value="L" required><span>L</span></label>
-                        <label class="opcion"><input type="radio" name="talla" value="XL"><span>XL</span></label>
-                        <label class="opcion"><input type="radio" name="talla" value="XXL"><span>XXL</span></label>
-                    </div>
-                    <p class="guia-linea"><a class="guia" id="guia" href="talla-gris.jpeg">Guía de tallas</a></p>
-                </fieldset>
-
-                <fieldset>
-                    <legend>Color</legend>
-                    <div class="opciones">
-                        <label class="opcion"><input type="radio" name="color" value="gris" disabled><span><i class="punto" style="--c:#7b7676"></i>Gris · agotado</span></label>
-                        <label class="opcion"><input type="radio" name="color" value="rosa" checked required><span><i class="punto" style="--c:#e79aba"></i>Rosa</span></label>
-                    </div>
-                </fieldset>
-
-                <fieldset class="campos-cliente">
-                    <legend>Tus datos</legend>
-                    <label class="campo">
-                        <span>Nombre y apellidos</span>
-                        <input type="text" name="nombre" autocomplete="name" required
-                               maxlength="80" placeholder="Airam Santana">
-                    </label>
-                    <label class="campo">
-                        <span>Teléfono</span>
-                        <input type="tel" name="tel" inputmode="tel" autocomplete="tel" required
-                               maxlength="24" placeholder="600 123 456">
-                    </label>
-                    <label class="campo">
-                        <span>Correo electrónico</span>
-                        <input type="email" name="correo" inputmode="email" autocomplete="email" required
-                               maxlength="160" placeholder="tunombre@gmail.com">
-                    </label>
-                </fieldset>
-
-                <button type="submit" class="pago">
-                    Apartar la mía
-                    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 8h11M9 3.5 13.5 8 9 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </button>
-            </form>
-
-            <p class="pago-nota" id="reserva-aviso" role="status"></p>
-            <p class="pago-legal">Al apartarla aceptas las <a href="condiciones.html">condiciones</a>
-                y la <a href="privacidad.html">política de privacidad</a>. Usamos tus datos sólo
-                para guardarte la prenda y avisarte de la recogida.</p>
-        </div>
-
-        <!-- La confirmación sustituye al formulario cuando la reserva entra bien. -->
-        <div class="reserva-ok" id="reserva-ok" hidden>
-            <p class="reserva-ok-marca">Apartada</p>
-            <p class="reserva-ok-ref">Tu referencia: <b id="reserva-ref"></b></p>
-            <p class="reserva-ok-texto">Te la guardamos <b>siete días</b>. Pásate por
-                Av. del Atlántico 317, Vecindario, di tu referencia y la pagas allí mismo.
-                Si no puedes venir en ese plazo, escríbenos y la guardamos más tiempo.</p>
-        </div>
-
-        <!-- Las dos tablas de medidas. Es un <dialog>: el propio navegador se
-             encarga de oscurecer el fondo, atrapar el foco y cerrarlo con Esc,
-             y el botón cierra solo por ser un form method="dialog". Las fotos
-             van en lazy, así que no pesan hasta que alguien lo abre. -->
-        <dialog class="tallas" id="tallas" aria-labelledby="tallas-titulo">
-            <form method="dialog">
-                <button class="tallas-cerrar" aria-label="Cerrar la guía de tallas">
-                    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-                </button>
-            </form>
-
-            <p class="tallas-titulo" id="tallas-titulo">Guía de tallas</p>
-
-            <div class="tallas-caras" role="group" aria-label="Prenda">
-                <button type="button" data-tabla="gris" aria-pressed="true">Gris</button>
-                <button type="button" data-tabla="rosa" aria-pressed="false">Rosa</button>
-            </div>
-
-            <div class="tallas-lienzo">
-                <img id="tabla-gris" src="talla-gris.jpeg" width="1320" height="452" loading="lazy"
-                     alt="Medidas de la camiseta gris en centímetros. Largo, pecho, hombro y manga: S 64, 60, 56 y 19. M 65, 62, 58 y 20. L 66, 64, 60 y 21. XL 67, 66, 62 y 22. 2XL 68, 68, 64 y 23.">
-                <img id="tabla-rosa" src="talla-rosa.jpeg" width="1320" height="432" loading="lazy" hidden
-                     alt="Medidas de la camiseta rosa en centímetros. Largo, pecho, hombro y manga: S 70, 56, 53 y 20,8. M 72, 58, 55 y 21,5. L 74, 60, 57 y 22,2. XL 76, 62, 59 y 22,9. 2XL 78, 64, 61 y 23,6.">
-            </div>
-
-            <p class="tallas-desliza" aria-hidden="true">Desliza la tabla para verla entera</p>
-            <p class="tallas-pie">Medidas en centímetros, tomadas a mano: puede haber alguna variación.</p>
-        </dialog>
     </section>
 
 </main>
@@ -975,11 +866,6 @@ footer{
 <div class="transicion" aria-hidden="true"></div>
 
 <section class="oscuro">
-
-    <div class="adentro">
-        <p class="drop">La marca</p>
-        <h2>Hecho en Vecindario</h2>
-    </div>
 
     <div class="adentro">
         <form class="aviso" id="aviso" novalidate>
@@ -1023,32 +909,25 @@ footer{
 </footer>
 
 <script>
-/* ---------- el logo que se queda arriba ----------
-   Aparece al dejar atrás la cabecera y se pone en blanco cuando el punto de
-   la página que tiene debajo ya es oscuro (a mitad del degradado). */
+/* ---------- la marca de arriba ----------
+   Está siempre fija en lo alto. Lo único que cambia es el color: cuando lo
+   que tiene debajo ya es la mitad oscura, se invierte para que se lea. */
 (function(){
     var fijo  = document.getElementById('fijo');
-    var hero  = document.querySelector('.logo');
     var trans = document.querySelector('.transicion');
-    if(!fijo || !hero || !trans) return;
+    if(!fijo || !trans) return;
 
-    var apareceEn = 0, cambiaEn = 0, alto = 0, pedido = false;
+    var cambiaEn = 0, alto = 0, pedido = false;
 
     function medir(){
-        var h = hero.getBoundingClientRect();
-        apareceEn = h.bottom + window.scrollY - 20;
         var t = trans.getBoundingClientRect();
-        cambiaEn  = t.top + window.scrollY + t.height * 0.55;
+        cambiaEn = t.top + window.scrollY + t.height * 0.55;
         alto = fijo.offsetHeight;
     }
-
     function pintar(){
         pedido = false;
-        var y = window.scrollY;
-        fijo.classList.toggle('visible', y > apareceEn);
-        fijo.classList.toggle('noche',   cambiaEn - y < alto);
+        fijo.classList.toggle('noche', cambiaEn - window.scrollY < alto);
     }
-
     function alScroll(){ if(!pedido){ pedido = true; requestAnimationFrame(pintar); } }
 
     medir(); pintar();
@@ -1057,85 +936,26 @@ footer{
     addEventListener('load',   function(){ medir(); pintar(); });
 })();
 
-/* ---------- girar la prenda ----------
-   El mismo visor sirve para la camiseta (con colores) y para la sudadera
-   (sin ellos). Tres formas de ver el otro lado, todas sobre un solo estado:
-     · pasar el ratón por encima   → asoma el reverso mientras estás ahí
-     · pulsar la foto o una flecha → lo deja fijado
-   Sin JavaScript se queda la primera foto, que ya viene marcada en el HTML. */
-function montarVisor(cfg){
-    var caja = document.getElementById(cfg.caja);
-    if(!caja) return;
-
-    var visor   = caja.querySelector('.visor');
-    var fotos   = caja.querySelectorAll('.foto');
-    var flechas = caja.querySelectorAll('.flecha');
-    var laCara  = cfg.cara  ? document.getElementById(cfg.cara)  : null;
-    var elColor = cfg.color ? document.getElementById(cfg.color) : null;
-    var selector = cfg.selector ? document.getElementById(cfg.selector) : null;
-    var swatches = selector ? selector.querySelectorAll('.swatch') : [];
-
-    var nombresCara = { delante:'Delante', detras:'Detrás' };
-    var nombresColor = cfg.colores || {};
-
-    var color      = cfg.colorInicial || null;   // null = la prenda no tiene colores
-    var caraFijada = 'delante';                  // la que dejan el clic y las flechas
-    var asomando   = false;                      // el ratón por encima enseña la otra
-
-    // En el móvil no hay ratón: el "hover" que emula el navegador se queda
-    // pegado tras tocar, así que allí sólo mandan el toque y las flechas.
-    var conRaton = window.matchMedia &&
-                   matchMedia('(hover: hover) and (pointer: fine)').matches;
-
-    function otra(c){ return c === 'delante' ? 'detras' : 'delante'; }
-
-    function pintar(){
-        var cara = asomando ? otra(caraFijada) : caraFijada;
-        Array.prototype.forEach.call(fotos, function(foto){
-            var mismoColor = !color || foto.getAttribute('data-color') === color;
-            foto.classList.toggle('activa', mismoColor && foto.getAttribute('data-cara') === cara);
-        });
-        if(elColor) elColor.textContent = nombresColor[color];
-        if(laCara)  laCara.textContent  = nombresCara[cara];
-        visor.setAttribute('aria-label',
-            cfg.prenda + (color ? ' ' + nombresColor[color].toLowerCase() : '') + ', ' +
-            nombresCara[cara].toLowerCase() + '. Pulsa para girarla.');
-    }
-
-    function girar(){ caraFijada = otra(caraFijada); asomando = false; pintar(); }
-
-    visor.addEventListener('click', girar);
-    Array.prototype.forEach.call(flechas, function(f){ f.addEventListener('click', girar); });
-
-    if(conRaton){
-        visor.addEventListener('pointerenter', function(){ asomando = true;  pintar(); });
-        visor.addEventListener('pointerleave', function(){ asomando = false; pintar(); });
-    }
-
-    Array.prototype.forEach.call(swatches, function(boton){
-        boton.addEventListener('click', function(){
-            color = boton.getAttribute('data-color');
-            Array.prototype.forEach.call(swatches, function(otro){
-                otro.setAttribute('aria-pressed', otro === boton ? 'true' : 'false');
+/* ---------- girar la prenda en la rejilla ----------
+   Cada ficha es un enlace a su propia página, así que al pulsar se abre la
+   prenda. Lo único que hace esto es enseñar el detrás mientras el ratón está
+   encima. En el móvil no hay ratón: se ve el delante y se abre la ficha de un
+   toque, que es donde están las dos caras. */
+(function(){
+    if(!matchMedia('(hover:hover)').matches) return;
+    Array.prototype.forEach.call(document.querySelectorAll('.art'), function(art){
+        var visor = art.querySelector('.visor');
+        var fotos = art.querySelectorAll('.foto');
+        if(!visor || fotos.length < 2) return;
+        function cara(cual){
+            Array.prototype.forEach.call(fotos, function(f){
+                f.classList.toggle('activa', f.getAttribute('data-cara') === cual);
             });
-            pintar();
-        });
+        }
+        visor.addEventListener('pointerenter', function(){ cara('detras');  });
+        visor.addEventListener('pointerleave', function(){ cara('delante'); });
     });
-
-    pintar();
-}
-
-/* Todas las prendas del drop usan el mismo visor: enseñan el delante y
-   giran al detrás al pasar el ratón o al pulsar. Los colores de la camiseta
-   ya no son un selector, cada uno tiene su propia ficha en la rejilla. */
-[['camiseta',      'Camiseta gris lavado'],
- ['camiseta-rosa', 'Camiseta rosa lavado'],
- ['sudadera',      'Sudadera'],
- ['p-camisa',      'Camisa'],
- ['p-tirantes',    'Camiseta de tirantes'],
- ['p-vaqueros',    'Vaqueros cortos'],
- ['p-short',       'Pantalón corto']]
-.forEach(function(p){ montarVisor({ caja:p[0], prenda:p[1] }); });
+})();
 
 /* ---------- contar la visita ----------
    Una llamada y ya. El servidor apunta una visita del día y una huella
@@ -1146,127 +966,6 @@ function montarVisor(cfg){
     // El .catch hace falta: un try no atrapa una promesa rechazada, y sin él
     // un fallo de red dejaría un error suelto en la consola del visitante.
     try{ fetch('/api/visita', { method:'POST', keepalive:true, cache:'no-store' }).catch(function(){}); }catch(e){}
-})();
-
-/* ---------- la guía de tallas ----------
-   Abre el cuadro con la tabla del color que tenga elegido, y deja cambiar
-   de una a otra. Si el navegador no supiera de <dialog>, no tocamos nada y
-   el enlace hace lo suyo: abrir la imagen. */
-(function(){
-    var abre  = document.getElementById('guia');
-    var caja  = document.getElementById('tallas');
-    if(!abre || !caja || !caja.showModal) return;
-
-    var tablas  = { gris: document.getElementById('tabla-gris'),
-                    rosa: document.getElementById('tabla-rosa') };
-    var botones = caja.querySelectorAll('.tallas-caras button');
-
-    var lienzo = caja.querySelector('.tallas-lienzo');
-
-    function avisaSiNoCabe(){
-        caja.classList.toggle('se-desliza', lienzo.scrollWidth > lienzo.clientWidth + 1);
-    }
-
-    function enseña(cual){
-        if(!tablas[cual]) cual = 'gris';
-        for(var c in tablas) tablas[c].hidden = (c !== cual);
-        requestAnimationFrame(avisaSiNoCabe);
-        Array.prototype.forEach.call(botones, function(b){
-            b.setAttribute('aria-pressed', b.getAttribute('data-tabla') === cual ? 'true' : 'false');
-        });
-    }
-
-    Array.prototype.forEach.call(botones, function(b){
-        b.addEventListener('click', function(){ enseña(b.getAttribute('data-tabla')); });
-    });
-
-    abre.addEventListener('click', function(e){
-        e.preventDefault();
-        var elegido = document.querySelector('.eleccion input[name="color"]:checked');
-        enseña(elegido ? elegido.value : 'gris');
-        caja.showModal();
-        requestAnimationFrame(avisaSiNoCabe);
-    });
-
-    // Esc. El <dialog> ya se cierra solo en un navegador normal, pero dentro
-    // de un visor incrustado esa vía no siempre llega, así que lo cerramos aquí.
-    caja.addEventListener('keydown', function(e){
-        if(e.key === 'Escape' && caja.open){ e.preventDefault(); caja.close(); }
-    });
-
-    // Pulsar fuera del cuadro también cierra. Comparamos con el rectángulo
-    // porque el clic en el fondo oscuro le llega al propio <dialog>.
-    caja.addEventListener('click', function(e){
-        var r = caja.getBoundingClientRect();
-        if(e.clientX < r.left || e.clientX > r.right ||
-           e.clientY < r.top  || e.clientY > r.bottom) caja.close();
-    });
-})();
-
-
-/* ---------- apartar para recoger en tienda ----------
-   Manda los datos a /api/reserva, que los apunta. No hay pago: el cliente
-   paga en la tienda al recogerla. Si algo falla se dice y el formulario se
-   queda como estaba, para no perder lo que ya había escrito. */
-(function(){
-    var form = document.getElementById('form-reserva');
-    var aviso = document.getElementById('reserva-aviso');
-    var caja  = document.getElementById('reserva');
-    var hecho = document.getElementById('reserva-ok');
-    if(!form || !aviso || !caja || !hecho) return;
-
-    var ES_CORREO = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-    var ES_TEL    = /^[+()\d][\d\s()+.-]{7,19}$/;
-
-    function valor(n){ var c = form.elements[n]; return c ? String(c.value || '').trim() : ''; }
-    function elegido(n){ var c = form.querySelector('input[name="'+n+'"]:checked'); return c ? c.value : ''; }
-
-    function falla(msg, campo){
-        aviso.textContent = msg;
-        if(campo){ campo.classList.add('mal'); campo.focus(); }
-        return false;
-    }
-
-    form.addEventListener('submit', function(e){
-        e.preventDefault();
-        Array.prototype.forEach.call(form.querySelectorAll('.mal'), function(c){ c.classList.remove('mal'); });
-        aviso.textContent = '';
-
-        var datos = {
-            nombre: valor('nombre'), tel: valor('tel'), correo: valor('correo'),
-            talla: elegido('talla'), color: elegido('color')
-        };
-
-        if(!datos.talla)                   return falla('Elige una talla.');
-        if(datos.nombre.length < 2)        return falla('Dinos tu nombre.', form.elements.nombre);
-        if(!ES_TEL.test(datos.tel))        return falla('Ese teléfono no parece correcto.', form.elements.tel);
-        if(!ES_CORREO.test(datos.correo))  return falla('Ese correo no parece correcto.', form.elements.correo);
-
-        var boton = form.querySelector('button[type=submit]');
-        boton.disabled = true;
-        aviso.textContent = 'Apartándola…';
-
-        fetch('/api/reserva', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(datos)
-        })
-        .then(function(r){ return r.json().then(function(d){ return { ok:r.ok, datos:d }; }); })
-        .then(function(res){
-            if(res.ok && res.datos && res.datos.ok){
-                document.getElementById('reserva-ref').textContent = res.datos.ref;
-                caja.hidden = true;
-                hecho.hidden = false;
-                hecho.scrollIntoView({ behavior:'smooth', block:'center' });
-                return;
-            }
-            throw new Error((res.datos && res.datos.error) || 'fallo');
-        })
-        .catch(function(){
-            boton.disabled = false;
-            aviso.textContent = 'No hemos podido apartarla. Inténtalo otra vez o escríbenos.';
-        });
-    });
 })();
 
 /* ---------- aviso de próximos drops ----------
