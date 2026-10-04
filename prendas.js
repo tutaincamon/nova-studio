@@ -17,7 +17,7 @@ window.PRENDAS = [
     {
         id: 'camiseta',
         nombre: 'Camiseta',
-        variante: 'Gris lavado',
+        variante: 'Gris',
         color: 'gris',
         precio: '47,50 €',
         estado: 'agotado',
@@ -31,7 +31,7 @@ window.PRENDAS = [
     {
         id: 'camiseta-rosa',
         nombre: 'Camiseta',
-        variante: 'Rosa lavado',
+        variante: 'Rosa',
         color: 'rosa',
         precio: '47,50 €',
         estado: 'disponible',
@@ -40,7 +40,7 @@ window.PRENDAS = [
         detras:  'rosa-detras.jpg',
         altDelante: 'Camiseta NOVA Supply Clothing rosa por delante, con el emblema en el pecho',
         altDetras:  'Camiseta NOVA Supply Clothing rosa por detrás, con NOVA en grande',
-        texto: 'La misma camiseta en rosa lavado. Algodón pesado, corte boxy y caída recta, con el emblema bordado en el pecho y NOVA a la espalda.'
+        texto: 'La misma camiseta en rosa. Algodón pesado, corte boxy y caída recta, con el emblema bordado en el pecho y NOVA a la espalda.'
     },
     {
         id: 'sudadera',
