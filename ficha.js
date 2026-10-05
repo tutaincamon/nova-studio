@@ -169,7 +169,7 @@
 
         var boton = form.querySelector('button[type=submit]');
         boton.disabled = true;
-        aviso.textContent = 'Apartándola…';
+        aviso.textContent = 'Reservando…';
 
         fetch('/api/reserva', {
             method: 'POST',
@@ -189,7 +189,7 @@
         })
         .catch(function () {
             boton.disabled = false;
-            aviso.textContent = 'No hemos podido apartarla. Inténtalo otra vez o escríbenos.';
+            aviso.textContent = 'No hemos podido reservarla. Inténtalo otra vez o escríbenos.';
         });
     });
 

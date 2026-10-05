@@ -131,6 +131,43 @@ function ultimosDias(n) {
 
 const DIAS = 14;
 
+// Borra una reserva por su referencia y la descuenta de los recuentos: el de
+// talla y color y el de reservas de ese día (la misma clave que sumó
+// api/reserva.js). Es para quitar pruebas; no se puede deshacer.
+async function borra(cred, ref) {
+    const base = cred.url.replace(/\/+$/, '');
+    const pide = async ordenes => {
+        const r = await fetch(base + '/pipeline', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + cred.token, 'Content-Type': 'application/json' },
+            body: JSON.stringify(ordenes),
+            signal: AbortSignal.timeout(8000)
+        });
+        if (!r.ok) throw new Error('redis ' + r.status);
+        return r.json();
+    };
+    const [lista] = await pide([['LRANGE', 'preventa:pedidos', '0', '-1']]);
+    const crudo = ((lista && lista.result) || []).find(s => { try { return JSON.parse(s).ref === ref; } catch { return false; } });
+    if (!crudo) return { ok: false, ref };
+
+    const p = JSON.parse(crudo);
+    const campo = p.talla && p.color ? p.talla + '-' + p.color : '';
+    const dia = String(p.fecha || '').slice(0, 10);
+    const ordenes = [['LREM', 'preventa:pedidos', '1', crudo]];
+    if (campo) ordenes.push(['HINCRBY', 'preventa:combinaciones', campo, '-1']);
+    if (dia) ordenes.push(['DECR', 'preventa:clics:' + dia]);
+    const r = await pide(ordenes);
+
+    // que ningún recuento se quede por debajo de cero
+    const arreglos = [];
+    if (campo && Number(r[1] && r[1].result) < 0) arreglos.push(['HSET', 'preventa:combinaciones', campo, '0']);
+    const iDia = campo ? 2 : 1;
+    if (dia && Number(r[iDia] && r[iDia].result) < 0) arreglos.push(['SET', 'preventa:clics:' + dia, '0']);
+    if (arreglos.length) await pide(arreglos);
+
+    return { ok: Number(r[0] && r[0].result) === 1, ref };
+}
+
 async function leer(cred) {
     const dias = ultimosDias(DIAS);
     const ordenes = [
@@ -194,7 +231,7 @@ function cuando(iso) {
     } catch { return ''; }
 }
 
-function pagina(datos, prueba) {
+function pagina(datos, prueba, borrada) {
     const { n: cuenta, tallas: TALLAS, colores: COLORES } = cuadro(datos.combinaciones);
     const n = (t, c) => Number(cuenta[t + '-' + c] || 0);
     const porTalla = t => COLORES.reduce((s, c) => s + n(t, c), 0);
@@ -222,6 +259,12 @@ function pagina(datos, prueba) {
                     (p.correo ? ' · <a href="mailto:' + escapa(p.correo) + '">' + escapa(p.correo) + '</a>' : '') +
                   '</span>'
                 : '<span class="quien sin">De la preventa con Stripe: sin datos de contacto</span>') +
+              (p.ref
+                ? '<form method="post" class="borrar" onsubmit="return confirm(\'¿Borrar la reserva \' + this.ref.value + \'? No se puede deshacer.\')">' +
+                    '<input type="hidden" name="accion" value="borrar">' +
+                    '<input type="hidden" name="ref" value="' + escapa(p.ref) + '">' +
+                    '<button type="submit">Borrar</button></form>'
+                : '') +
             '</li>').join('')
         : '<li class="vacio">Todavía no ha apartado nadie</li>';
 
@@ -323,6 +366,9 @@ ul.correos li i{white-space:nowrap}
 textarea{width:100%;padding:10px 12px;border:1px solid rgba(14,14,16,.18);border-radius:3px;
          background:#fbfaf9;color:#6f6b66;font-family:inherit;font-size:11px;line-height:1.6;resize:vertical}
 .vacio-correos{margin:0;padding:18px 0;text-align:center;font-size:12px;color:#6f6b66}
+li.reserva form.borrar{flex-basis:100%;margin:2px 0 0;text-align:right}
+li.reserva form.borrar button{padding:3px 0;border:0;background:none;font-family:inherit;font-size:10.5px;font-weight:600;
+    letter-spacing:.06em;color:#a4525f;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
 .estado-correo{margin:0;font-size:12px;line-height:1.7;color:#4a4744}
 .prueba{margin:12px 0 0;padding:11px 13px;border-radius:3px;font-size:12px;line-height:1.7}
 .prueba.bien{background:rgba(46,125,50,.08);color:#2e5e31}
@@ -355,6 +401,9 @@ cliente aparece y paga. Las que caducan sin recoger siguen contadas aquí.</p>
 ${trafico}
 
 <h2>Reservas · ${datos.pedidos.length}</h2>
+${borrada ? '<p class="prueba ' + (borrada.ok ? 'bien' : 'mal') + '">' + (borrada.ok
+    ? 'Borrada la reserva <b>' + escapa(borrada.ref) + '</b>, y descontada de los recuentos.'
+    : 'No se ha encontrado la reserva <b>' + escapa(borrada.ref) + '</b>: puede que ya estuviera borrada.') + '</p>' : ''}
 <p class="ojo-datos">Son datos personales de gente real: úsalos sólo para avisarles de la recogida. No enseñes esta pantalla a nadie ni la fotografíes.</p>
 <ul>${ultimos}</ul>
 
@@ -395,11 +444,16 @@ module.exports = async (req, res) => {
         return res.end('La base de datos no está conectada en este proyecto.');
     }
 
-    // el botón «Mandar correo de prueba»
-    let prueba = null;
+    // los botones del panel: «Mandar correo de prueba» y «Borrar»
+    let prueba = null, borrada = null;
     if (req.method === 'POST') {
         const f = await campos(req);
         if (f.accion === 'prueba-correo') prueba = await aviso.prueba();
+        if (f.accion === 'borrar' && f.ref) {
+            const ref = String(f.ref).slice(0, 20);
+            try { borrada = await borra(cred, ref); }
+            catch (e) { console.error('El panel no pudo borrar la reserva:', e.message); borrada = { ok: false, ref }; }
+        }
     }
 
     try {
@@ -409,7 +463,7 @@ module.exports = async (req, res) => {
             'Cache-Control': 'no-store',
             'X-Robots-Tag': 'noindex, nofollow'
         });
-        return res.end(pagina(datos, prueba));
+        return res.end(pagina(datos, prueba, borrada));
     } catch (e) {
         console.error('El panel no pudo leer la base:', e.message);
         res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
