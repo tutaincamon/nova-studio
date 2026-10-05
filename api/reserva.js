@@ -14,9 +14,12 @@
    Para verlas: Vercel → Storage → tu base → Data Browser, o directamente el
    panel con su clave.
 
+   Y con cada reserva le llega un correo a la tienda con todos los datos
+   (ver avisaPorCorreo, más abajo).
+
    OJO: aquí viajan datos personales de gente real (nombre, teléfono y
-   correo). No se mandan a ningún sitio más ni se usan para otra cosa que
-   avisar de la recogida.
+   correo). No se mandan a ningún sitio más que a la base y a ese aviso, ni
+   se usan para otra cosa que avisar de la recogida.
    ══════════════════════════════════════════════════════════════════════════ */
 
 // Lo que de verdad se puede apartar hoy. Si entra más género, se toca aquí
@@ -64,6 +67,77 @@ async function redis(cred, ordenes) {
 
 const limpia = (v, max) => String(v == null ? '' : v).trim().replace(/\s+/g, ' ').slice(0, max);
 
+/* ---------- el aviso por correo a la tienda ----------
+   Se manda con Resend (resend.com), que se habla por HTTP igual que la base:
+   no hay que instalar nada. Sin la variable RESEND_API_KEY no se manda
+   nada y la reserva funciona igual.
+
+   Mientras no se verifique un dominio propio en Resend, el remitente es el
+   suyo de pruebas (onboarding@resend.dev), que solo puede escribir al correo
+   con el que se abrió la cuenta. Por eso la cuenta de Resend tiene que ir a
+   nombre del mismo correo que recibe los avisos. Si algún día se verifica
+   novasupply.es, basta con poner AVISO_REMITENTE = NOVA <reservas@novasupply.es>. */
+const AVISO_PARA = process.env.AVISO_CORREO || 'novastudioworld@gmail.com';
+const AVISO_DE   = process.env.AVISO_REMITENTE || 'NOVA Reservas <onboarding@resend.dev>';
+// Hoy solo se aparta la camiseta rosa, así que el nombre sale del color.
+const NOMBRE_PRENDA = { rosa: 'Camiseta rosa' };
+
+const escapa = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+async function avisaPorCorreo(r) {
+    const clave = process.env.RESEND_API_KEY;
+    if (!clave) return false;
+
+    const prenda = (NOMBRE_PRENDA[r.color] || r.color) + ' · talla ' + r.talla;
+    const hora = new Date(r.fecha).toLocaleString('es-ES', {
+        timeZone: 'Atlantic/Canary', dateStyle: 'short', timeStyle: 'short'
+    });
+    const datos = [
+        ['Referencia', r.ref],
+        ['Prenda', prenda],
+        ['Nombre', r.nombre],
+        ['Teléfono', r.tel],
+        ['Correo', r.correo],
+        ['Cuándo', hora + ' (hora de Canarias)']
+    ];
+    const pie = 'Se paga y se recoge en la tienda. Si respondes a este correo, le escribes directamente al cliente.';
+
+    const texto = 'Nueva reserva en la web\n\n' +
+        datos.map(([k, v]) => k + ': ' + v).join('\n') + '\n\n' + pie;
+
+    // en el HTML todo lo que escribió el cliente va escapado
+    const celda = (k, v) => {
+        if (k === 'Teléfono') return '<a href="tel:' + escapa(v.replace(/[^\d+]/g, '')) + '">' + escapa(v) + '</a>';
+        if (k === 'Correo')   return '<a href="mailto:' + escapa(v) + '">' + escapa(v) + '</a>';
+        return escapa(v);
+    };
+    const html =
+        '<div style="font-family:Helvetica,Arial,sans-serif;color:#0e0e10;max-width:480px">' +
+        '<p style="margin:0 0 14px;font-size:16px;font-weight:bold">Nueva reserva en la web</p>' +
+        '<table style="border-collapse:collapse;font-size:14px;line-height:1.5">' +
+        datos.map(([k, v]) =>
+            '<tr><td style="padding:5px 18px 5px 0;color:#6f6b66;white-space:nowrap">' + k + '</td>' +
+            '<td style="padding:5px 0">' + celda(k, v) + '</td></tr>').join('') +
+        '</table>' +
+        '<p style="margin:18px 0 0;font-size:12px;color:#6f6b66">' + pie + '</p></div>';
+
+    const resp = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + clave, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            from: AVISO_DE,
+            to: [AVISO_PARA],
+            reply_to: r.correo,
+            subject: 'Nueva reserva ' + r.ref + ' · ' + prenda,
+            text: texto,
+            html
+        }),
+        signal: AbortSignal.timeout(4000)
+    });
+    if (!resp.ok) throw new Error('resend ' + resp.status + ' ' + (await resp.text()).slice(0, 200));
+    return true;
+}
+
 module.exports = async (req, res) => {
     if (req.method !== 'POST') {
         res.setHeader('Allow', 'POST');
@@ -110,9 +184,17 @@ module.exports = async (req, res) => {
             ['HINCRBY','preventa:combinaciones', talla + '-' + color, '1'],
             ['INCR',   'preventa:clics:' + dia]
         ]);
-        return res.status(200).json({ ok: true, ref });
     } catch (e) {
         console.error('No se pudo guardar la reserva:', e.message);
         return res.status(500).json({ ok: false, error: 'guardar' });
     }
+
+    // La reserva ya está guardada. Si el aviso falla, queda apuntado en el
+    // registro de Vercel y el cliente no se entera: se responde igual. Se
+    // espera a que salga antes de responder porque, una vez respondido,
+    // Vercel puede congelar la función y el correo no llegaría a irse.
+    try { await avisaPorCorreo(reserva); }
+    catch (e) { console.error('No se pudo mandar el aviso por correo:', e.message); }
+
+    return res.status(200).json({ ok: true, ref });
 };

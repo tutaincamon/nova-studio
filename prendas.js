@@ -10,6 +10,12 @@
      'agotado'       se enseña tachada, no se puede apartar
      'proximamente'  todavía no ha salido
 
+   detalles (opcional): fotos de cerca que salen en la ficha después de
+   Delante y Detrás. Cada una lleva su botón con el texto de «nombre».
+   Con «entera: true» la foto se enseña completa sobre el gris, sin
+   ampliarla más de su tamaño, para las que son pequeñas; sin ella llena el
+   recuadro, que es como deben ir las que ya vienen recortadas en 4:5.
+
    Si abres una talla nueva, acuérdate de añadirla también a TALLAS en
    api/reserva.js: esa lista es la que manda de verdad.
    ══════════════════════════════════════════════════════════════════════════ */
@@ -26,7 +32,7 @@ window.PRENDAS = [
         detras:  'gris-detras.jpg',
         altDelante: 'Camiseta NOVA Supply Clothing gris por delante, con el emblema en el pecho',
         altDetras:  'Camiseta NOVA Supply Clothing gris por detrás, con NOVA en grande',
-        texto: 'Algodón pesado lavado a la piedra, corte boxy y caída recta. El emblema bordado en el pecho y NOVA en grande a la espalda.'
+        texto: 'Algodón pesado lavado a la piedra, corte boxy y caída recta. El monograma en el pecho y NOVA en grande a la espalda.'
     },
     {
         id: 'camiseta-rosa',
@@ -40,7 +46,7 @@ window.PRENDAS = [
         detras:  'rosa-detras.jpg',
         altDelante: 'Camiseta NOVA Supply Clothing rosa por delante, con el emblema en el pecho',
         altDetras:  'Camiseta NOVA Supply Clothing rosa por detrás, con NOVA en grande',
-        texto: 'La misma camiseta en rosa. Algodón pesado, corte boxy y caída recta, con el emblema bordado en el pecho y NOVA a la espalda.'
+        texto: 'La misma camiseta en rosa. Algodón pesado, corte boxy y caída recta, con el monograma en el pecho y NOVA a la espalda.'
     },
     {
         id: 'sudadera',
@@ -54,7 +60,11 @@ window.PRENDAS = [
         detras:  'sud-detras.jpg',
         altDelante: 'Sudadera NOVA Supply Clothing por delante, con cremallera y Studio y Nova en las mangas',
         altDetras:  'Sudadera NOVA Supply Clothing por detrás, con el emblema grande en la espalda',
-        texto: 'Sudadera con cremallera y capucha, teñida a mano y con desgastes hechos uno a uno. Studio y Nova en las mangas, emblema grande a la espalda.'
+        detalles: [
+            { src: 'sud-cremallera.jpg', nombre: 'Cremallera',
+              alt: 'Tirador metálico de la cremallera de la sudadera, con el monograma de NOVA' }
+        ],
+        texto: 'Sudadera con cremallera y capucha, teñida a mano y con desgastes hechos uno a uno. Studio y Nova en las mangas, emblema grande a la espalda. Cremallera personalizada con el monograma.'
     },
     {
         id: 'p-camisa',
@@ -68,7 +78,13 @@ window.PRENDAS = [
         detras:  'd2-camisa-detras.jpg',
         altDelante: 'Camisa de NOVA Supply Clothing, de manga corta gris con el emblema en el pecho',
         altDetras:  'Camisa de NOVA Supply Clothing, de manga corta gris con NOVA en grande en la espalda',
-        texto: 'Camisa de manga corta en cuadro fino, corte holgado y botón de nácar. Emblema al pecho y NOVA en grande a la espalda.'
+        detalles: [
+            { src: 'd2-camisa-cuello.jpg', nombre: 'Cuello', entera: true,
+              alt: 'Cuello y tapeta de la camisa de cuadro gris, con los botones metálicos del monograma' },
+            { src: 'd2-camisa-boton.jpg', nombre: 'Botón', entera: true,
+              alt: 'Botón metálico de la camisa con el monograma de NOVA, de cerca' }
+        ],
+        texto: 'Camisa de manga corta en cuadro fino, corte holgado y botón metálico personalizado con el monograma de la marca. Emblema al pecho y NOVA en grande a la espalda.'
     },
     {
         id: 'p-tirantes',

@@ -71,9 +71,14 @@ main{max-width:1060px;margin:0 auto;padding:clamp(18px,3vw,30px) clamp(16px,4vw,
     opacity:0;transition:opacity .45s ease;
 }
 .visor img.activa{opacity:1}
+/* las fotos de detalle llenan el recuadro; las pequeñas («entera» en
+   prendas.js) se ven completas sobre el gris y nunca más grandes que su
+   tamaño, para que no se emborronen */
+.visor img.detalle{object-fit:cover;padding:0}
+.visor img.detalle--entera{object-fit:scale-down;padding:5%}
 .visor:focus-visible{outline:2px solid var(--acento);outline-offset:4px}
 
-.caras{display:flex;justify-content:center;gap:8px;margin-top:12px}
+.caras{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:12px}
 .caras button{
     background:none;border:1px solid var(--linea);border-radius:100px;
     padding:7px 16px;cursor:pointer;

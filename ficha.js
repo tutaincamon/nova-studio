@@ -25,29 +25,55 @@
     var titulo = p.nombre + (p.variante ? ' · ' + p.variante : '');
     document.title = titulo + ' · NOVA Supply Clothing';
 
-    /* ---------- las fotos ---------- */
+    /* ---------- las fotos ----------
+       Delante y detrás siempre; detrás de ellas, los detalles que tenga la
+       prenda en prendas.js, cada uno con su botón. Pulsar la foto pasa a la
+       siguiente y, después de la última, vuelve a la primera. */
+    var visor = $('visor'), caras = $('caras');
     var del = $('foto-delante'), det = $('foto-detras');
     del.src = p.delante; del.alt = p.altDelante;
     det.src = p.detras;  det.alt = p.altDetras;
 
-    var caraActual = 'delante';
-    function pinta(cara) {
-        caraActual = cara;
-        del.classList.toggle('activa', cara === 'delante');
-        det.classList.toggle('activa', cara === 'detras');
-        Array.prototype.forEach.call($('caras').querySelectorAll('button'), function (b) {
-            b.setAttribute('aria-pressed', b.getAttribute('data-cara') === cara ? 'true' : 'false');
+    var vistas = [
+        { id: 'delante', img: del, dice: 'por delante' },
+        { id: 'detras',  img: det, dice: 'por detrás' }
+    ];
+    (p.detalles || []).forEach(function (d, i) {
+        var img = document.createElement('img');
+        img.className = 'foto detalle' + (d.entera ? ' detalle--entera' : '');
+        img.src = d.src; img.alt = d.alt || '';
+        img.decoding = 'async';
+        visor.appendChild(img);
+
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.setAttribute('data-cara', 'detalle-' + i);
+        b.setAttribute('aria-pressed', 'false');
+        b.textContent = d.nombre;
+        caras.appendChild(b);
+
+        vistas.push({ id: 'detalle-' + i, img: img, dice: 'detalle: ' + d.nombre.toLowerCase() });
+    });
+
+    var actual = 0;
+    function pinta(i) {
+        actual = i;
+        vistas.forEach(function (v, k) { v.img.classList.toggle('activa', k === i); });
+        Array.prototype.forEach.call(caras.querySelectorAll('button'), function (b) {
+            b.setAttribute('aria-pressed', b.getAttribute('data-cara') === vistas[i].id ? 'true' : 'false');
         });
-        $('visor').setAttribute('aria-label',
-            titulo + ', ' + (cara === 'delante' ? 'por delante' : 'por detrás') + '. Pulsa para girarla.');
+        visor.setAttribute('aria-label',
+            titulo + ', ' + vistas[i].dice + '. Pulsa para ver la siguiente foto.');
     }
-    $('visor').addEventListener('click', function () {
-        pinta(caraActual === 'delante' ? 'detras' : 'delante');
+    visor.addEventListener('click', function () { pinta((actual + 1) % vistas.length); });
+    Array.prototype.forEach.call(caras.querySelectorAll('button'), function (b) {
+        b.addEventListener('click', function () {
+            for (var k = 0; k < vistas.length; k++) {
+                if (vistas[k].id === b.getAttribute('data-cara')) return pinta(k);
+            }
+        });
     });
-    Array.prototype.forEach.call($('caras').querySelectorAll('button'), function (b) {
-        b.addEventListener('click', function () { pinta(b.getAttribute('data-cara')); });
-    });
-    pinta('delante');
+    pinta(0);
 
     /* ---------- los datos ---------- */
     var sello = $('sello');
