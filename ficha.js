@@ -40,7 +40,7 @@
     ];
     (p.detalles || []).forEach(function (d, i) {
         var img = document.createElement('img');
-        img.className = 'foto detalle' + (d.entera ? ' detalle--entera' : '');
+        img.className = 'foto detalle';   // se pinta igual que las de la prenda
         img.src = d.src; img.alt = d.alt || '';
         img.decoding = 'async';
         visor.appendChild(img);
@@ -65,7 +65,37 @@
         visor.setAttribute('aria-label',
             titulo + ', ' + vistas[i].dice + '. Pulsa para ver la siguiente foto.');
     }
-    visor.addEventListener('click', function () { pinta((actual + 1) % vistas.length); });
+    function mueve(paso) { pinta((actual + paso + vistas.length) % vistas.length); }
+
+    // las flechas de encima de la foto
+    $('anterior').addEventListener('click', function () { mueve(-1); });
+    $('siguiente').addEventListener('click', function () { mueve(1); });
+
+    // con el teclado, las flechas izquierda y derecha mientras el foco está en la foto
+    visor.parentNode.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowLeft')  { e.preventDefault(); mueve(-1); }
+        if (e.key === 'ArrowRight') { e.preventDefault(); mueve(1); }
+    });
+
+    // y con el dedo: deslizar sobre la foto pasa a la siguiente o a la anterior
+    var inicio = null, deslizo = false;
+    visor.addEventListener('pointerdown', function (e) {
+        if (e.pointerType === 'touch') inicio = { x: e.clientX, y: e.clientY };
+    });
+    visor.addEventListener('pointerup', function (e) {
+        if (!inicio) return;
+        var dx = e.clientX - inicio.x, dy = e.clientY - inicio.y;
+        inicio = null;
+        if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+            deslizo = true;                       // que el toque no cuente además como clic
+            setTimeout(function () { deslizo = false; }, 350);
+            mueve(dx < 0 ? 1 : -1);
+        }
+    });
+    visor.addEventListener('pointercancel', function () { inicio = null; });
+
+    // pulsar la foto pasa a la siguiente
+    visor.addEventListener('click', function () { if (!deslizo) mueve(1); });
     Array.prototype.forEach.call(caras.querySelectorAll('button'), function (b) {
         b.addEventListener('click', function () {
             for (var k = 0; k < vistas.length; k++) {

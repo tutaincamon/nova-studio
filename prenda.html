@@ -71,12 +71,31 @@ main{max-width:1060px;margin:0 auto;padding:clamp(18px,3vw,30px) clamp(16px,4vw,
     opacity:0;transition:opacity .45s ease;
 }
 .visor img.activa{opacity:1}
-/* las fotos de detalle llenan el recuadro; las pequeñas («entera» en
-   prendas.js) se ven completas sobre el gris y nunca más grandes que su
-   tamaño, para que no se emborronen */
-.visor img.detalle{object-fit:cover;padding:0}
-.visor img.detalle--entera{object-fit:scale-down;padding:5%}
 .visor:focus-visible{outline:2px solid var(--acento);outline-offset:4px}
+
+/* las flechas, encima de la foto, para pasar de una a otra sin bajar a los
+   botones. En el móvil también se pasan deslizando el dedo sobre la foto. */
+.marco{position:relative}
+.visor{touch-action:pan-y}
+.flecha{
+    position:absolute;top:50%;z-index:2;
+    display:flex;align-items:center;justify-content:center;
+    width:42px;height:42px;margin-top:-21px;padding:0;
+    border:1px solid rgba(14,14,16,.12);border-radius:50%;
+    background:rgba(255,255,255,.9);color:var(--tinta);cursor:pointer;
+    box-shadow:0 1px 6px rgba(14,14,16,.08);
+    transition:background .25s,border-color .25s,transform .2s;
+}
+.flecha--atras{left:12px}
+.flecha--alante{right:12px}
+.flecha:hover{background:#fff;border-color:var(--tinta)}
+.flecha:active{transform:scale(.93)}
+.flecha:focus-visible{outline:2px solid var(--acento);outline-offset:3px}
+@media(max-width:520px){
+    .flecha{width:38px;height:38px;margin-top:-19px}
+    .flecha--atras{left:8px}
+    .flecha--alante{right:8px}
+}
 
 .caras{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:12px}
 .caras button{
@@ -225,10 +244,14 @@ footer .pie-insta:hover{color:var(--acento)}
     <!-- Lo de dentro lo rellena ficha.js con los datos de prendas.js -->
     <div class="ficha" id="ficha" hidden>
         <div class="escaparate">
-            <button type="button" class="visor" id="visor" aria-label="Girar la prenda">
-                <img class="foto activa" id="foto-delante" src="" alt="">
-                <img class="foto" id="foto-detras" src="" alt="">
-            </button>
+            <div class="marco">
+                <button type="button" class="visor" id="visor" aria-label="Girar la prenda">
+                    <img class="foto activa" id="foto-delante" src="" alt="">
+                    <img class="foto" id="foto-detras" src="" alt="">
+                </button>
+                <button type="button" class="flecha flecha--atras" id="anterior" aria-label="Foto anterior"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                <button type="button" class="flecha flecha--alante" id="siguiente" aria-label="Foto siguiente"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            </div>
             <div class="caras" id="caras">
                 <button type="button" data-cara="delante" aria-pressed="true">Delante</button>
                 <button type="button" data-cara="detras" aria-pressed="false">Detrás</button>

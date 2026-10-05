@@ -12,9 +12,9 @@
 
    detalles (opcional): fotos de cerca que salen en la ficha después de
    Delante y Detrás. Cada una lleva su botón con el texto de «nombre».
-   Con «entera: true» la foto se enseña completa sobre el gris, sin
-   ampliarla más de su tamaño, para las que son pequeñas; sin ella llena el
-   recuadro, que es como deben ir las que ya vienen recortadas en 4:5.
+   Se preparan con el mismo lienzo que la foto de su prenda y con la foto
+   recortada justo al hueco que ocupa la prenda, sobre el mismo gris
+   (#ebebeb): así en la ficha salen del mismo tamaño y en el mismo sitio.
 
    Si abres una talla nueva, acuérdate de añadirla también a TALLAS en
    api/reserva.js: esa lista es la que manda de verdad.
@@ -79,9 +79,9 @@ window.PRENDAS = [
         altDelante: 'Camisa de NOVA Supply Clothing, de manga corta gris con el emblema en el pecho',
         altDetras:  'Camisa de NOVA Supply Clothing, de manga corta gris con NOVA en grande en la espalda',
         detalles: [
-            { src: 'd2-camisa-cuello.jpg', nombre: 'Cuello', entera: true,
+            { src: 'd2-camisa-cuello.jpg', nombre: 'Cuello',
               alt: 'Cuello y tapeta de la camisa de cuadro gris, con los botones metálicos del monograma' },
-            { src: 'd2-camisa-boton.jpg', nombre: 'Botón', entera: true,
+            { src: 'd2-camisa-boton.jpg', nombre: 'Botón',
               alt: 'Botón metálico de la camisa con el monograma de NOVA, de cerca' }
         ],
         texto: 'Camisa de manga corta en cuadro fino, corte holgado y botón metálico personalizado con el monograma de la marca. Emblema al pecho y NOVA en grande a la espalda.'
