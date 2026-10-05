@@ -22,6 +22,40 @@
    que se reenvía por WhatsApp—.
    ══════════════════════════════════════════════════════════════════════════ */
 
+// El aviso por correo de cada reserva: el panel enseña si está activado y
+// tiene un botón para mandar un correo de prueba y ver qué contesta Resend.
+const aviso = require('./_aviso');
+
+function explicaPrueba(r, cfg) {
+    if (r.ok) return 'Enviado a <b>' + escapa(cfg.para) + '</b>. Si en un par de minutos no lo ves, mira en spam y en Promociones.';
+    if (r.motivo === 'sin-clave') return 'No se ha mandado: falta la clave de Resend.';
+    if (r.motivo === 'red') return 'No se pudo hablar con Resend (' + escapa(r.detalle || '') + '). Prueba otra vez en un momento.';
+    const d = String(r.detalle || '');
+    if (/own email address/i.test(d)) return 'Resend lo ha rechazado: con su remitente de pruebas solo deja escribir ' +
+        'al correo con el que se abrió la cuenta, y ese no es <b>' + escapa(cfg.para) + '</b>. O la cuenta de Resend ' +
+        'se abrió con otro correo, o AVISO_CORREO apunta a otro. Lo que dice Resend: <i>' + escapa(d) + '</i>';
+    if (r.estado === 401 || (r.estado === 403 && /api key/i.test(d))) return 'Resend dice que la clave no vale: puede ' +
+        'que esté mal copiada o que se haya borrado. Lo que dice Resend: <i>' + escapa(d) + '</i>';
+    return 'Resend ha contestado ' + escapa(r.estado || '') + ': <i>' + escapa(d) + '</i>';
+}
+
+// El botón de prueba llega como un formulario POST. Vercel suele traer ya el
+// cuerpo leído en req.body; si no, se lee aquí.
+async function campos(req) {
+    let b = req.body;
+    if (b && typeof b === 'object' && !Buffer.isBuffer(b)) return b;
+    if (Buffer.isBuffer(b)) b = b.toString('utf8');
+    if (typeof b !== 'string') {
+        b = await new Promise(ok => {
+            let s = '';
+            req.on('data', c => { s += c; if (s.length > 2000) req.destroy(); });
+            req.on('end', () => ok(s));
+            req.on('error', () => ok(''));
+        });
+    }
+    try { return Object.fromEntries(new URLSearchParams(b)); } catch { return {}; }
+}
+
 // Las filas y columnas salen de lo que hay en la base, no de una lista fija:
 // si mañana se abre otra talla u otro color, aparece aquí sin tocar nada.
 // Siempre están las tallas que se pueden apartar hoy (las de api/reserva.js)
@@ -160,7 +194,7 @@ function cuando(iso) {
     } catch { return ''; }
 }
 
-function pagina(datos) {
+function pagina(datos, prueba) {
     const { n: cuenta, tallas: TALLAS, colores: COLORES } = cuadro(datos.combinaciones);
     const n = (t, c) => Number(cuenta[t + '-' + c] || 0);
     const porTalla = t => COLORES.reduce((s, c) => s + n(t, c), 0);
@@ -289,6 +323,14 @@ ul.correos li i{white-space:nowrap}
 textarea{width:100%;padding:10px 12px;border:1px solid rgba(14,14,16,.18);border-radius:3px;
          background:#fbfaf9;color:#6f6b66;font-family:inherit;font-size:11px;line-height:1.6;resize:vertical}
 .vacio-correos{margin:0;padding:18px 0;text-align:center;font-size:12px;color:#6f6b66}
+.estado-correo{margin:0;font-size:12px;line-height:1.7;color:#4a4744}
+.prueba{margin:12px 0 0;padding:11px 13px;border-radius:3px;font-size:12px;line-height:1.7}
+.prueba.bien{background:rgba(46,125,50,.08);color:#2e5e31}
+.prueba.mal{background:rgba(164,82,95,.08);color:#8a4551}
+.prueba i{font-style:normal;word-break:break-word;opacity:.85}
+form.prueba-correo{margin:14px 0 0}
+form.prueba-correo button{width:100%;padding:13px 16px;border:1px solid #0e0e10;border-radius:3px;background:#0e0e10;
+    color:#fff;font-family:inherit;font-weight:700;font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;cursor:pointer}
 .pie{margin:32px 0 0;text-align:center;font-size:10px;line-height:1.9;letter-spacing:.06em;color:#a9a5a0}
 </style></head><body><main>
 
@@ -320,6 +362,18 @@ ${trafico}
 <p class="nota-lista">Quien se apunta desde la ventana que sale al entrar en la web.</p>
 ${correos}
 
+<h2>Aviso por correo</h2>
+${(() => {
+    const cfg = aviso.config();
+    const estado = cfg.clave
+        ? 'Activado. Cada reserva manda un correo a <b>' + escapa(cfg.para) + '</b> (con la clave de Resend que termina en «' + escapa(cfg.clave.slice(-4)) + '»).'
+        : 'Desactivado: la web no recibe la clave <b>RESEND_API_KEY</b>. En Vercel → Settings → Environment Variables tiene que llamarse exactamente así y tener marcado Production; después, Redeploy.';
+    return '<p class="estado-correo">' + estado + '</p>' +
+        (prueba ? '<p class="prueba ' + (prueba.ok ? 'bien' : 'mal') + '">' + explicaPrueba(prueba, cfg) + '</p>' : '') +
+        '<form method="post" class="prueba-correo"><input type="hidden" name="accion" value="prueba-correo">' +
+        '<button type="submit">Mandar correo de prueba</button></form>';
+})()}
+
 <p class="pie">Actualizado ${cuando(new Date().toISOString())} · recarga para ver lo nuevo</p>
 
 </main></body></html>`;
@@ -341,6 +395,13 @@ module.exports = async (req, res) => {
         return res.end('La base de datos no está conectada en este proyecto.');
     }
 
+    // el botón «Mandar correo de prueba»
+    let prueba = null;
+    if (req.method === 'POST') {
+        const f = await campos(req);
+        if (f.accion === 'prueba-correo') prueba = await aviso.prueba();
+    }
+
     try {
         const datos = await leer(cred);
         res.writeHead(200, {
@@ -348,7 +409,7 @@ module.exports = async (req, res) => {
             'Cache-Control': 'no-store',
             'X-Robots-Tag': 'noindex, nofollow'
         });
-        return res.end(pagina(datos));
+        return res.end(pagina(datos, prueba));
     } catch (e) {
         console.error('El panel no pudo leer la base:', e.message);
         res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
