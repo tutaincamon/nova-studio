@@ -1,0 +1,12 @@
+{
+  "name": "nova-reservas",
+  "private": true,
+  "type": "module",
+  "description": "App de reservas de NOVA Studio (nova.appflu.es)",
+  "scripts": {
+    "dev": "node dev-server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

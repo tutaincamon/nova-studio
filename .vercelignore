@@ -19,3 +19,6 @@ frames/
 # Cosas del editor y documentación interna
 .claude/
 README.md
+
+# App de reservas: es otro proyecto de Vercel (nova.appflu.es)
+reservas/
