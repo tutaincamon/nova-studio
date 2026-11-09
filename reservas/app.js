@@ -347,8 +347,7 @@ function homeHero() {
     <div class="hero-grain" aria-hidden="true"></div>
     <div class="hero-in" id="hero-in">
       <div class="hero-copy">
-        <p class="hero-eyebrow"><span>Barbería · Vecindario</span></p>
-        <h1 id="hero-title"><span class="ln"><span>Tu mejor versión</span></span> <em class="ln"><span>empieza en la silla.</span></em></h1>
+        <h1 id="hero-title" class="sr-only">NOVA Studio · Barbería en Vecindario</h1>
         <div class="hero-meta">
           ${st ? `<span class="hero-chip${st.open ? " is-open" : ""}"><i></i>${esc(st.text)}</span>` : ""}
           <a class="hero-chip hero-rate" href="${esc(B.rating.url)}" target="_blank" rel="noopener noreferrer"><b>★ ${esc(B.rating.score)}</b>${B.rating.count} reseñas</a>
@@ -439,7 +438,7 @@ function homeExtras() {
 </section>
 <section class="home-block" aria-labelledby="location-title">
   <p class="eyebrow">Tu barbería en Vecindario</p>
-  <h2 id="location-title">Nos vemos en ${novaLogo("in-h")}</h2>
+  <h2 id="location-title">Nos vemos en <em class="serif">el estudio.</em></h2>
   <div class="map-frame" id="map-frame">Cargando mapa…</div>
   <div class="visit card">
     <address><strong>${esc(B.street)}</strong><span>${esc(B.city)}</span></address>
@@ -449,7 +448,7 @@ function homeExtras() {
 </section>
 <section class="home-block" aria-labelledby="about-title">
   <p class="eyebrow">Barbería en Gran Canaria</p>
-  <h2 id="about-title" class="h-logo">${novaLogo("in-h")}<em class="serif">imagen y estilo.</em></h2>
+  <h2 id="about-title">Imagen <em class="serif">y estilo.</em></h2>
   <div class="about-photos">
     <figure><img src="/assets/cabina.jpg" alt="Barbero trabajando con un cliente" loading="lazy"><figcaption>En cabina</figcaption></figure>
     <figure><img src="/assets/acabado.jpg" alt="Detalle del acabado de un corte" loading="lazy"><figcaption>El acabado</figcaption></figure>
@@ -700,7 +699,7 @@ const pages = {
           ${
             user
               ? `<div class="club-joined"><span class="club-check">✓</span><div><strong>Eres del Club NOVA</strong><span>Esta cita suma a tu historial y a tu nivel.</span></div></div>`
-              : `<div class="club-card"><span class="club-tag">${novaLogo("in-tag inv")}CLUB</span><h2>Entras en el Club al reservar</h2><p>Con estos mismos datos. Sin contraseñas.</p><ul class="club-perks"><li>${catalog.points.perCut} punto por cada corte</li><li>Ligas de Bronce a Leyenda, con premios</li><li>Medallas y +${catalog.points.perFriend} puntos por cada amigo</li></ul>
+              : `<div class="club-card"><span class="club-tag">CLUB</span><h2>Entras en el Club al reservar</h2><p>Con estos mismos datos. Sin contraseñas.</p><ul class="club-perks"><li>${catalog.points.perCut} punto por cada corte</li><li>Ligas de Bronce a Leyenda, con premios</li><li>Medallas y +${catalog.points.perFriend} puntos por cada amigo</li></ul>
                   <div class="ref-box${refCode() ? " open" : ""}" id="ref-box"><button type="button" class="ref-toggle" id="ref-toggle"><span aria-hidden="true">🎁</span>¿Te ha invitado un amigo?<b>Pon su código</b></button>
                   <div class="ref-field"><label class="sr-only" for="ref-input">Código de amigo</label><input id="ref-input" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="16" placeholder="Ej.: CARLOS482" value="${esc(refCode())}"><p class="ref-state" id="ref-state" aria-live="polite"></p></div></div></div>`
           }
@@ -795,7 +794,7 @@ const pages = {
     show(
       `<div class="booked-hero">
         <svg class="booked-check" viewBox="0 0 52 52" aria-hidden="true"><circle cx="26" cy="26" r="24"/><path d="m15 27 7 7 15-16"/></svg>
-        <h1>${user?.name ? `¡Hecho, ${esc(first(user.name))}!` : "¡Cita reservada!"}</h1><p class="sub">Te esperamos en ${novaLogo("in-t")}</p>
+        <h1>${user?.name ? `¡Hecho, ${esc(first(user.name))}!` : "¡Cita reservada!"}</h1><p class="sub">Te esperamos en <em class="serif">el estudio.</em></p>
       </div>` +
         `<div class="ticket">
           <div class="tix-top"><img src="/assets/logo.png" alt="NOVA Studio"><span class="tix-ok">✓ Confirmada</span></div>
@@ -917,7 +916,7 @@ const pages = {
       got = m.medals.filter((x) => x.got).length;
     show(
       `<section class="ph" style="${leagueVars(L.league)}">
-        <div class="ph-top"><span class="ph-brand">${novaLogo("in-tag inv")}<b>CLUB</b></span><span class="ph-league">${leagueArt(L.league)}${esc(L.label.toUpperCase())}</span></div>
+        <div class="ph-top"><span class="ph-brand">SOCIO DEL <b>CLUB</b></span><span class="ph-league">${leagueArt(L.league)}${esc(L.label.toUpperCase())}</span></div>
         <div class="ph-id">
           <label class="ph-avatar" title="Cambiar foto">${user.photo ? `<img src="${esc(user.photo)}" alt="Tu foto">` : `<b>${initial(user.name || user.email)}</b>`}<span class="ph-cam">${svg(ICONS.camera)}</span><input type="file" accept="image/*" id="photo-in" class="sr-only"></label>
           <div class="ph-name"><h1>${esc(user.name || "Tu perfil")}</h1><span>Socio Nº ${String(user.no || 0).padStart(4, "0")} · desde ${esc(monthYear(user.since))}</span></div>
@@ -1014,7 +1013,7 @@ const pages = {
     const P = catalog.points;
     if (!user) {
       show(
-        `<section class="pts"><span class="pts-tag">${novaLogo("in-tag inv")}CLUB</span><strong class="pts-num">${P.perCut}</strong><p>punto por cada corte · +${P.perFriend} por cada amigo que invites</p><div class="pts-league">${leagueArt(catalog.leagues[0])}<span>Empiezas en <b>Bronce III</b> y subes hasta <b>Leyenda</b></span></div></section>` +
+        `<section class="pts"><span class="pts-tag">EL CLUB</span><strong class="pts-num">${P.perCut}</strong><p>punto por cada corte · +${P.perFriend} por cada amigo que invites</p><div class="pts-league">${leagueArt(catalog.leagues[0])}<span>Empiezas en <b>Bronce III</b> y subes hasta <b>Leyenda</b></span></div></section>` +
           `<a class="btn wide" href="#home">Reservar mi primer corte</a><a class="btn wide secondary" style="margin-top:10px" href="#login">Ya soy del Club · Entrar</a>` +
           `<p class="section-label">Premios del Club</p><div class="rw-list">${catalog.rewards.map((r) => rewardRow(r, 0)).join("")}</div>` +
           `<p class="section-label">Ligas</p>${leagueList(-1)}`,
