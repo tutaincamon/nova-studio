@@ -1,6 +1,6 @@
 // Deja la app abrir sin conexión con lo último que se vio. La API nunca se
 // guarda: las horas libres y las citas siempre se piden en el momento.
-const CACHE = "nova-v8";
+const CACHE = "nova-v9";
 const SHELL = ["/", "/app.css", "/app.js", "/assets/logo.png", "/assets/icon-192.png"];
 
 self.addEventListener("install", (e) => {
