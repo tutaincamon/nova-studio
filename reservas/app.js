@@ -342,8 +342,7 @@ function homeHero() {
       team = catalog.providers;
   return `<section class="hero" aria-labelledby="hero-title">
     <div class="hero-media" id="hero-media">
-      <img class="hero-blur" src="/assets/hero-nova.jpg" alt="">
-      <img class="hero-photo" src="/assets/hero-nova.jpg" alt="Herramientas de barbería de NOVA Studio con el logo" fetchpriority="high">
+      <picture><source media="(orientation: landscape)" srcset="/assets/hero-nova-wide.jpg"><img class="hero-photo" src="/assets/hero-nova.jpg" alt="Herramientas de barbería de NOVA Studio con el logo" fetchpriority="high"></picture>
     </div>
     <div class="hero-grain" aria-hidden="true"></div>
     <div class="hero-in" id="hero-in">
