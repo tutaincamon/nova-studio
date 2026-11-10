@@ -14,7 +14,8 @@ const ON_VERCEL = !!process.env.VERCEL;
 const LOGIN_CON_CODIGO = process.env.LOGIN_CON_CODIGO === "1";
 const SESSION = "nova_s",
   STAFF = "nova_staff",
-  MONTH = 30 * 86400;
+  MONTH = 30 * 86400,
+  YEAR = 365 * 86400; // la sesión dura un año y se renueva sola cada vez que se abre la app
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const PHONE = /^\+?[\d\s().-]{7,22}$/;
 
@@ -112,8 +113,8 @@ const pinOf = (p) =>
   process.env["STAFF_PIN_" + p.id.toUpperCase()] || (p.owner ? process.env.STAFF_PIN : "") || (ON_VERCEL ? "" : "1234");
 async function startSession(req, res, email) {
   const t = token();
-  await cmd("SET", "sess:" + sha(t), email, "EX", MONTH);
-  cookie(res, req, SESSION, t, MONTH);
+  await cmd("SET", "sess:" + sha(t), email, "EX", YEAR);
+  cookie(res, req, SESSION, t, YEAR);
 }
 // Código para invitar amigos: el nombre en mayúsculas y tres cifras (CARLOS482).
 async function makeRefCode(email, name) {
@@ -371,15 +372,22 @@ function makeBooking(s, p, date, start, extra) {
 
 // Para meter texto escrito por clientes dentro del HTML de un correo.
 const htmlEsc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+// Ajustes de cada barbero: correo de avisos y enlace de su calendario.
+const staffCfg = async (id) => (await getJSON("staffcfg:" + id)) || {};
 async function notifySalon(b, title) {
-  const to = process.env.AVISO_CORREO || BUSINESS.email;
+  const salon = process.env.AVISO_CORREO || BUSINESS.email;
+  const cfg = b.provider?.id ? await staffCfg(b.provider.id) : {};
+  const list = [...new Set([salon, cfg.notify !== false && cfg.email].filter(Boolean).map((x) => x.toLowerCase()))];
+  await Promise.all(list.map((to) => notifyOne(to, b, title)));
+}
+async function notifyOne(to, b, title) {
   await send(
     to,
     `${title}: ${b.service.name} · ${T.niceDate(b.date)} ${b.start}`,
     title,
     bookingLines(b, T.niceDate(b.date)) +
       `<hr style="border:0;border-top:1px solid #dcdad3;margin:14px 0">
-       <p style="margin:0">${htmlEsc(b.name)} · ${htmlEsc(b.phone)}${b.email ? " · " + htmlEsc(b.email) : ""}</p>`,
+       <p style="margin:0">${htmlEsc(b.name)}${b.phone ? " · " + htmlEsc(b.phone) : ""}${b.email ? " · " + htmlEsc(b.email) : ""}</p>`,
     b.email || undefined,
   );
 }
@@ -388,9 +396,20 @@ async function notifySalon(b, title) {
 const routes = {
   "GET catalog": async () => ({ ...publicCatalog(), card: Card.cardPublic() }),
 
-  "GET me": async ({ req }) => {
+  "GET me": async ({ req, res }) => {
     let u = await currentUser(req);
     if (u && !u.ref) u = await ensureUser(u.email);
+    // Cada vez que se abre la app, la sesión vuelve a valer un año: quien viene
+    // una vez al mes no tiene que volver a entrar nunca en ese móvil.
+    const ck = cookies(req);
+    if (u && ck[SESSION]) {
+      await cmd("EXPIRE", "sess:" + sha(ck[SESSION]), YEAR);
+      cookie(res, req, SESSION, ck[SESSION], YEAR);
+    }
+    if (ck[STAFF] && (await staffOf(req))) {
+      await cmd("EXPIRE", "staffsess:" + sha(ck[STAFF]), YEAR);
+      cookie(res, req, STAFF, ck[STAFF], YEAR);
+    }
     return { user: publicUser(u), staff: await staffOf(req), mail: mailReady(), loginCode: LOGIN_CON_CODIGO };
   },
 
@@ -423,11 +442,13 @@ const routes = {
     const { s, p } = validSlotInput(body);
     const user = await currentUser(req);
     const email = user ? user.email : normEmail(body.email);
-    const name = clean(body.name),
-      phone = clean(body.phone, 30);
+    // Con la sesión iniciada no hace falta mandar nada: se usan los datos del perfil.
+    // El teléfono es opcional (se pide después, para completar el perfil).
+    const name = clean(body.name) || clean(user?.name),
+      phone = clean(body.phone, 30) || clean(user?.phone, 30);
     if (!name) fail(400, "Falta tu nombre.");
     if (!EMAIL.test(email)) fail(400, "Revisa tu correo.");
-    if (!PHONE.test(phone)) fail(400, "Revisa tu teléfono.");
+    if (phone && !PHONE.test(phone)) fail(400, "Revisa tu teléfono.");
     if (body.terms !== true) fail(400, "Tienes que aceptar las condiciones.");
     // Con Stripe activado, toda cita online queda garantizada con una tarjeta.
     if (Card.cardEnabled() && !user?.card) fail(402, "Añade una tarjeta para garantizar la cita.", { card: true });
@@ -607,7 +628,7 @@ const routes = {
         phone = clean(body.phone, 30);
       if (!name) fail(400, "Falta tu nombre.");
       if (!EMAIL.test(email)) fail(400, "Revisa tu correo.");
-      if (!PHONE.test(phone)) fail(400, "Revisa tu teléfono.");
+      if (phone && !PHONE.test(phone)) fail(400, "Revisa tu teléfono.");
       if (await getJSON("user:" + email)) fail(409, "Ya tienes cuenta con este correo. Entra con él y sigue con tu reserva.");
       u = await registerNew(req, res, { email, name, phone, ref: body.ref });
     }
@@ -735,8 +756,8 @@ const routes = {
     if (!pin) fail(400, `La clave de ${p.name.split(" ")[0]} aún no está puesta.`);
     if (!same(String(body.pin || ""), pin)) fail(400, "Clave incorrecta.");
     const t = token();
-    await cmd("SET", "staffsess:" + sha(t), p.id, "EX", MONTH);
-    cookie(res, req, STAFF, t, MONTH);
+    await cmd("SET", "staffsess:" + sha(t), p.id, "EX", YEAR);
+    cookie(res, req, STAFF, t, YEAR);
     return { ok: true };
   },
 
@@ -915,6 +936,148 @@ const routes = {
       pending: cents(list.reduce((a, b) => a + (b.charge && b.charge.status !== "succeeded" && b.charge.status !== "refunded" ? b.charge.amount : 0), 0)),
       uncharged: list.filter((b) => !b.charge).length,
     };
+  },
+
+  // ── Productos del estudio ───────────────────────────────────────────────
+  // Lo que se vende en el local (ceras, polvos, aceites…). El dueño los sube
+  // desde su panel; en la app se enseñan y se compran en el estudio.
+  "GET products": async ({ req }) => {
+    const all = (await bookingsByIds2("prod:", await cmd("SMEMBERS", "prodall"))).sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.created.localeCompare(b.created));
+    const me = await staffOf(req);
+    return { products: me?.owner ? all : all.filter((p) => p.visible !== false) };
+  },
+
+  "GET products/:id/photo": async ({ params }) => {
+    const data = await cmd("GET", "prodimg:" + String(params.id).replace(/[^A-Za-z0-9]/g, ""));
+    const m = data && /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(data);
+    if (!m) fail(404, "Sin foto.");
+    return { raw: Buffer.from(m[2], "base64"), type: m[1], cache: "public, max-age=31536000, immutable" };
+  },
+
+  "POST staff/products": async ({ req, body }) => {
+    const me = await needStaff(req);
+    if (!me.owner) fail(403, "Los productos los lleva el dueño.");
+    const prev = body.id ? await getJSON("prod:" + String(body.id).replace(/[^A-Za-z0-9]/g, "")) : null;
+    if (body.id && !prev) fail(404, "Ese producto ya no existe.");
+    if (body.delete === true) {
+      if (!prev) fail(400, "Falta el producto.");
+      await pipe([
+        ["DEL", "prod:" + prev.id],
+        ["DEL", "prodimg:" + prev.id],
+        ["SREM", "prodall", prev.id],
+      ]);
+      return { ok: true };
+    }
+    const name = clean(body.name, 80);
+    if (!name) fail(400, "Ponle un nombre.");
+    const price = Math.round(Number(String(body.price ?? "").replace(",", ".")) * 100) / 100;
+    if (!(price >= 0) || price > 9999) fail(400, "Revisa el precio.");
+    const photo = String(body.photo || "");
+    if (photo && (!PHOTO.test(photo) || photo.length > 280000)) fail(400, "Esa foto no vale. Prueba con otra.");
+    const now = T.nowLocal().stamp;
+    const pr = {
+      id: prev?.id || "P" + crypto.randomBytes(4).toString("hex").toUpperCase(),
+      name,
+      brand: clean(body.brand, 60),
+      desc: clean(body.desc, 400),
+      price,
+      visible: body.visible !== false,
+      soldOut: body.soldOut === true,
+      order: prev?.order ?? Date.now(),
+      created: prev?.created || now,
+      img: photo ? String(Date.now()) : prev?.img || "", // cambia al cambiar la foto, para que se recargue
+    };
+    await pipe([
+      ["SET", "prod:" + pr.id, JSON.stringify(pr)],
+      ["SADD", "prodall", pr.id],
+      ...(photo ? [["SET", "prodimg:" + pr.id, photo]] : []),
+    ]);
+    return { product: pr };
+  },
+
+  // ── Avisos y calendario de cada barbero ─────────────────────────────────
+  "GET staff/settings": async ({ req }) => {
+    const me = await needStaff(req);
+    let cfg = await staffCfg(me.id);
+    if (!cfg.feed) {
+      cfg = { ...cfg, feed: token() };
+      await pipe([
+        ["SET", "staffcfg:" + me.id, JSON.stringify(cfg)],
+        ["SET", "calfeed:" + cfg.feed, me.id],
+      ]);
+    }
+    return { email: cfg.email || "", notify: cfg.notify !== false, feed: cfg.feed, mail: mailReady() };
+  },
+
+  "POST staff/settings": async ({ req, body }) => {
+    const me = await needStaff(req);
+    let cfg = await staffCfg(me.id);
+    if (body.email !== undefined) {
+      const email = normEmail(body.email);
+      if (email && !EMAIL.test(email)) fail(400, "Revisa el correo.");
+      cfg = { ...cfg, email };
+    }
+    if (body.notify !== undefined) cfg = { ...cfg, notify: body.notify !== false };
+    // Enlace nuevo: el anterior deja de funcionar (por si se ha compartido sin querer).
+    if (body.resetFeed === true) {
+      if (cfg.feed) await cmd("DEL", "calfeed:" + cfg.feed);
+      cfg = { ...cfg, feed: token() };
+      await cmd("SET", "calfeed:" + cfg.feed, me.id);
+    }
+    await setJSON("staffcfg:" + me.id, cfg);
+    if (body.test === true) {
+      if (!cfg.email) fail(400, "Pon primero tu correo.");
+      if (!mailReady()) fail(400, "El envío de correos aún no está configurado.");
+      const ok = await send(cfg.email, "Prueba de avisos", "Los avisos funcionan", `<p style="margin:0">Hola ${htmlEsc(me.name.split(" ")[0])}: aquí te llegará cada cita nueva, cambiada o cancelada.</p>`);
+      if (!ok) fail(502, "No se ha podido enviar. Revisa el correo.");
+    }
+    return { ok: true, feed: cfg.feed };
+  },
+
+  // Calendario del barbero en formato iCalendar: Google Calendar, el iPhone u
+  // Outlook se suscriben a esta dirección y enseñan sus citas. La dirección
+  // lleva una clave larga; quien no la tenga no ve nada.
+  "GET cal/:token": async ({ params }) => {
+    const tk = String(params.token).replace(/\.ics$/i, "").replace(/[^A-Za-z0-9_-]/g, "");
+    const id = tk && (await cmd("GET", "calfeed:" + tk));
+    const p = id && provider(id);
+    if (!p) fail(404, "Ese calendario no existe.");
+    const today = T.nowLocal().date;
+    const dates = Array.from({ length: 30 + 1 + RULES.daysAhead + 7 }, (_, i) => T.addDays(today, i - 30));
+    const sets = await pipe(dates.map((d) => ["SMEMBERS", "day:" + d]));
+    const list = (await bookingsByIds([...new Set(sets.flat())])).filter((b) => b.provider.id === p.id && b.status === "confirmed");
+    const ics = (s) => String(s ?? "").replace(/\\/g, "\\\\").replace(/[,;]/g, "\\$&").replace(/\r?\n/g, "\\n");
+    const fmt = new Intl.DateTimeFormat("en-GB", { timeZone: BUSINESS.tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+    const z = (ms) => new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+    // Hora de Canarias → UTC (en verano va una hora por delante).
+    const utc = (date, hhmm) => {
+      const [y, m, d] = date.split("-").map(Number),
+        [h, mi] = hhmm.split(":").map(Number);
+      const guess = Date.UTC(y, m - 1, d, h, mi);
+      const o = Object.fromEntries(fmt.formatToParts(new Date(guess)).map((x) => [x.type, x.value]));
+      return z(guess - (Date.UTC(+o.year, +o.month - 1, +o.day, +o.hour, +o.minute) - guess));
+    };
+    const stamp = z(Date.now());
+    const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//NOVA Studio//Reservas//ES", "CALSCALE:GREGORIAN", "METHOD:PUBLISH", `X-WR-CALNAME:${ics(BUSINESS.short + " · " + p.name.split(" ")[0])}`, `X-WR-TIMEZONE:${BUSINESS.tz}`, "REFRESH-INTERVAL;VALUE=DURATION:PT15M", "X-PUBLISHED-TTL:PT15M"];
+    for (const b of list) {
+      const block = b.kind === "block";
+      const desc = block
+        ? "Hora bloqueada"
+        : [b.service.name + (b.service.price ? ` · ${b.service.price} €` : ""), b.phone && "Tel. " + b.phone, b.email, b.attendance === "absent" && "NO VINO", "Ref. " + b.id].filter(Boolean).join("\n");
+      lines.push(
+        "BEGIN:VEVENT",
+        `UID:${b.id}@nova-reservas`,
+        `DTSTAMP:${stamp}`,
+        `DTSTART:${utc(b.date, b.start)}`,
+        `DTEND:${utc(b.date, b.end)}`,
+        `SUMMARY:${ics(block ? "Bloqueado · " + b.service.name : `${b.name} · ${b.service.name}`)}`,
+        `DESCRIPTION:${ics(desc)}`,
+        `LOCATION:${ics(BUSINESS.street + ", " + BUSINESS.city)}`,
+        "END:VEVENT",
+      );
+    }
+    lines.push("END:VCALENDAR");
+    return { raw: lines.join("\r\n") + "\r\n", type: "text/calendar; charset=utf-8", cache: "no-store" };
   },
 
   // ── Formación (fase 1: lista de interesados) ────────────────────────────
@@ -1220,6 +1383,11 @@ export default async function handler(req, res) {
     const body = req.method === "POST" ? await readBody(req) : {};
     const out = await hit.fn({ req, res, body, q: url.searchParams, params: hit.params });
     res.statusCode = 200;
+    if (out?.raw !== undefined) {
+      res.setHeader("Content-Type", out.type);
+      res.setHeader("Cache-Control", out.cache || "no-store");
+      return res.end(out.raw);
+    }
     res.end(JSON.stringify(out ?? {}));
   } catch (e) {
     const status = e.status || 500;

@@ -460,6 +460,7 @@ function homeExtras() {
   <p>Un espacio donde la barbería se encuentra con la creatividad, la moda y la cultura urbana. Hacemos <strong>corte de pelo</strong>, degradados, <strong>corte y barba</strong> y <strong>corte privado</strong> en ${esc(B.street)}, Vecindario. Reserva en segundos, sin llamar y sin descargar nada.</p>
   <ul class="about-tags" aria-label="Servicios"><li>Corte de pelo</li><li>Degradado</li><li>Corte y barba</li><li>Corte privado</li><li>Fuera de horario</li><li>VIP a domicilio</li></ul>
 </section>
+<div id="home-products"></div>
 <section class="home-block shop-home" aria-labelledby="shop-title">
   <p class="eyebrow">${esc(catalog.shop.name)} · Clothing</p>
   <h2 id="shop-title">La ropa <em class="serif">de la casa.</em></h2>
@@ -481,7 +482,7 @@ ${trainingCard()}
   <div class="hf-cols">
     <div><small>Dirección</small><a href="${esc(B.maps)}" ${ext}>${esc(B.street)}<br>${esc(B.city)}</a></div>
     <div><small>Horario</small>${B.hoursText.map(([d, h]) => `<span>${esc(d)} · ${esc(h)}</span>`).join("")}<span class="hf-muted">${esc(B.closedText)}</span></div>
-    <div><small>Contacto</small><a href="${wa("Hola NOVA Studio 👋")}" ${ext}>WhatsApp</a><a href="${esc(B.instagram)}" ${ext}>Instagram</a><a href="${esc(catalog.shop.url)}" ${ext}>${esc(catalog.shop.name)}</a><a href="#formacion">Formación</a></div>
+    <div><small>Contacto</small><a href="${wa("Hola NOVA Studio 👋")}" ${ext}>WhatsApp</a><a href="${esc(B.instagram)}" ${ext}>Instagram</a><a href="${esc(catalog.shop.url)}" ${ext}>${esc(catalog.shop.name)}</a><a href="#productos">Productos</a><a href="#formacion">Formación</a></div>
   </div>
   <p class="hf-copy">© ${new Date().getFullYear()} NOVA Studio · <em class="serif">Good people, better days.</em></p>
 </footer>`;
@@ -588,6 +589,7 @@ const pages = {
         legalLinks(),
     );
     initMap();
+    initProducts();
     initHero();
     $$(".mate").forEach((a) =>
       a.addEventListener("click", (e) => {
@@ -700,19 +702,25 @@ const pages = {
       ["🇨🇴", "+57"],
       ["🇦🇷", "+54"],
     ];
+    // Con la sesión iniciada y el nombre en el perfil no se pregunta nada.
+    const quick = !!(user && user.name);
     const saved = String(draft.phone || user?.phone || "");
     const m = saved.match(/^(\+\d{1,3})\s*(.*)$/);
     const savedCc = m && cc.some(([, c]) => c === m[1]) ? m[1] : "+34",
       savedNum = m ? m[2] : saved;
     show(
       back(`time/${draft.provider}`, "Cambiar hora") +
-        heading("Tus datos", "Solo lo necesario para guardar tu cita.") +
+        (quick ? heading("Confirma tu cita", "Un toque y listo.") : heading("Tus datos", "Solo lo necesario para guardar tu cita.")) +
         `<div class="pick-summary">${face(p)}<div><strong>${esc(s.name)} · ${euro(s.price)}</strong><span>${esc(p.name)} · ${esc(longDay(draft.date))} · ${esc(draft.start)}</span></div></div>` +
         `<form id="details" novalidate>
-          <label for="f-name">Nombre</label><input id="f-name" name="name" required maxlength="120" autocomplete="name" value="${esc(draft.name || user?.name || "")}">
-          <label for="f-email">Correo</label><input id="f-email" name="email" type="email" required autocomplete="email" ${user ? "readonly" : ""} value="${esc(user?.email || draft.email || "")}">
-          <label for="f-phone">Teléfono</label>
-          <div class="phone-field"><select name="cc" aria-label="Prefijo del país">${cc.map(([f, c]) => `<option value="${c}" ${c === savedCc ? "selected" : ""}>${f} ${c}</option>`).join("")}</select><input id="f-phone" name="phone" type="tel" inputmode="tel" required maxlength="20" autocomplete="tel-national" placeholder="600 000 000" value="${esc(savedNum)}"></div>
+          ${
+            quick
+              ? `<div class="quick-who">${user.photo ? `<img src="${esc(user.photo)}" alt="">` : `<b>${initial(user.name)}</b>`}<div><strong>${esc(user.name)}</strong><span>${esc(user.email)}${user.phone ? " · " + esc(user.phone) : ""}</span></div><a href="#profile">Cambiar</a></div>`
+              : `${user?.name ? "" : `<label for="f-name">Nombre</label><input id="f-name" name="name" required maxlength="120" autocomplete="name" value="${esc(draft.name || "")}">`}
+          ${user ? "" : `<label for="f-email">Correo</label><input id="f-email" name="email" type="email" required autocomplete="email" value="${esc(draft.email || "")}">`}
+          <label for="f-phone">Teléfono <small class="opt">(opcional, por si hay algún cambio)</small></label>
+          <div class="phone-field"><select name="cc" aria-label="Prefijo del país">${cc.map(([f, c]) => `<option value="${c}" ${c === savedCc ? "selected" : ""}>${f} ${c}</option>`).join("")}</select><input id="f-phone" name="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel-national" placeholder="600 000 000" value="${esc(savedNum)}"></div>`
+          }
           ${
             user
               ? `<div class="club-joined"><span class="club-check">✓</span><div><strong>Eres del Club NOVA</strong><span>Esta cita te suma ${svcPoints(s)} puntos.</span></div></div>`
@@ -721,10 +729,10 @@ const pages = {
                   <div class="ref-field"><label class="sr-only" for="ref-input">Código de amigo</label><input id="ref-input" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="16" placeholder="Ej.: CARLOS482" value="${esc(refCode())}"><p class="ref-state" id="ref-state" aria-live="polite"></p></div></div></div>`
           }
           ${cardOn() ? guaranteeBox(s) : ""}
-          <label class="check"><input type="checkbox" name="terms" required ${draft.terms ? "checked" : ""}><span>Acepto reservar la cita indicada. Se puede cambiar desde la app hasta ${catalog.rules.cancelHours} h antes.${
-            cardOn() ? ` <b>Si no vengo y no la cancelo a tiempo, autorizo a ${esc(catalog.business.name)} a cobrar ${euro(s.price)} en mi tarjeta.</b>` : ""
-          } He leído las <a href="#condiciones" target="_blank">condiciones</a> y la <a href="#privacidad" target="_blank">política de privacidad</a>.</span></label>
-          <button class="btn wide book-btn" type="submit">${cardOn() && !user?.card ? "Añadir tarjeta y reservar" : cardOn() ? "Reservar" : "Reservar y pagar en el local"}</button>
+          <button class="btn wide book-btn" type="submit">${cardOn() && !user?.card ? "Añadir tarjeta y reservar" : quick ? "Confirmar reserva" : cardOn() ? "Reservar" : "Reservar y pagar en el local"}</button>
+          <p class="terms-note">Al reservar aceptas las <a href="#condiciones" target="_blank">condiciones</a> y la <a href="#privacidad" target="_blank">privacidad</a>. Puedes cambiarla o cancelarla desde la app hasta ${catalog.rules.cancelHours} h antes.${
+            cardOn() ? ` <b>Si no vienes y no la cancelas a tiempo, autorizas a ${esc(catalog.business.name)} a cobrar ${euro(s.price)} en tu tarjeta.</b>` : ""
+          }</p>
           <p class="pay-note">${svg(ICONS.card)} ${cardOn() ? "Ahora no se cobra nada. El servicio se paga en el local, en efectivo o con tarjeta." : "En el local puedes pagar en efectivo o con tarjeta."}</p>
         </form>`,
     );
@@ -775,7 +783,8 @@ const pages = {
         refIn.focus();
         return toast("Ese código de amigo no existe. Revísalo o bórralo.");
       }
-      const data = { name: d.name.trim(), email: (user?.email || d.email).trim(), phone: `${d.cc} ${d.phone.trim()}` };
+      const num = String(d.phone || "").trim();
+      const data = { name: String(d.name || user?.name || "").trim(), email: (user?.email || d.email).trim(), phone: num ? `${d.cc} ${num}` : user?.phone || "" };
       Object.assign(draft, data, { terms: true });
       saveDraft();
       // Tarjeta en garantía: se guarda una vez y queda en el perfil para las próximas citas.
@@ -828,9 +837,19 @@ const pages = {
         `<a class="btn wide secondary" href="${gcalLink({ ...b, end: addMin(b.start, b.service.duration) })}" target="_blank" rel="noopener">${svg(ICONS.cal)} Añadir a mi calendario</a>` +
         (b.existing
           ? `<p class="warning">Ya tenías cuenta con este correo. Entra con tu correo para ver y cambiar todas tus citas.</p><a class="btn wide" href="#login">Entrar a mis citas</a>`
-          : `<a class="btn wide" style="margin-top:10px" href="#booking/${esc(b.id)}">Ver mi cita</a>`),
+          : `<a class="btn wide" style="margin-top:10px" href="#booking/${esc(b.id)}">Ver, cambiar o cancelar mi cita</a>`) +
+        (user && !user.phone && !b.existing
+          ? `<form id="bk-phone" class="card complete"><strong>Completa tu perfil</strong><span>Déjanos tu teléfono por si hay algún cambio con tu cita. Solo te lo pedimos esta vez.</span>
+              <div class="form-actions" style="margin-top:10px"><input name="phone" type="tel" inputmode="tel" required maxlength="25" autocomplete="tel" placeholder="+34 600 000 000" aria-label="Teléfono"><button class="btn" type="submit">Guardar</button></div></form>`
+          : ""),
     );
     confetti();
+    if ($("#bk-phone"))
+      onForm("bk-phone", async (d, f) => {
+        await api("profile", { name: user.name, phone: d.phone });
+        await refreshMe();
+        f.outerHTML = `<p class="charge-note ok">Teléfono guardado. Gracias.</p>`;
+      });
   },
 
   async bookings() {
@@ -926,7 +945,7 @@ const pages = {
 
   async profile() {
     if (!user) return loginScreen("", "profile");
-    const m = await api("member");
+    const [m, bk] = await Promise.all([api("member"), api("bookings").catch(() => ({ upcoming: [] }))]);
     user = m.user;
     nav();
     const L = leagueOf(m.earned),
@@ -947,6 +966,12 @@ const pages = {
         <button type="button" data-scroll="medallas"><strong>${got}</strong><span>Medallas</span></button>
         <button type="button" data-scroll="amigos"><strong>${m.metrics.friends}</strong><span>Amigos</span></button>
       </div>
+      <p class="section-label">Tus citas</p>
+      ${
+        bk.upcoming.length
+          ? bk.upcoming.map((b, i) => (i ? `<div class="appts">${bookingCard(b, bk.now)}</div>` : nextApptCard(b))).join("") + `<p class="muted pf-hint">Toca una cita para cambiarla de día u hora o cancelarla. <a href="#bookings">Ver historial</a></p>`
+          : `<a class="appt-empty" href="#home"><strong>No tienes citas pendientes</strong><span>Reserva tu próximo corte en un minuto ›</span></a>`
+      }
       ${leagueStrip(L.index)}
       ${nextBlock(m, L)}
       ${medalsBlock(m)}
@@ -1094,6 +1119,10 @@ const pages = {
 
   // Panel del equipo: cada barbero entra con su clave y ve su agenda y su caja.
   // El dueño ve a todo el equipo y, solo él, las comisiones.
+  async productos() {
+    await productsPage();
+  },
+
   async formacion() {
     await trainingPage();
   },
@@ -1101,7 +1130,7 @@ const pages = {
   async equipo(args = []) {
     if (!staff) return staffLogin();
     try {
-      await ({ caja: staffCaja, faltas: staffFaltas, formacion: staffTraining }[args[0]] || staffAgenda)();
+      await ({ caja: staffCaja, faltas: staffFaltas, formacion: staffTraining, productos: staffProducts }[args[0]] || staffAgenda)();
     } catch (e) {
       if (e.status !== 401) throw e;
       staff = null;
@@ -1540,7 +1569,9 @@ function staffTop(tab) {
   return (
     `<div class="staff-top">${face(provById(staff.id), "who-face")}<div><p class="eyebrow">${staff.owner ? "Propietario" : "Panel de barbero"}</p><h1>Hola, ${esc(first(staff.name))}</h1></div></div>` +
     `<div class="tabs" role="navigation" aria-label="Panel"><a href="#equipo" class="${tab === "agenda" ? "active" : ""}" ${tab === "agenda" ? 'aria-current="page"' : ""}>Agenda</a><a href="#equipo/caja" class="${tab === "caja" ? "active" : ""}" ${tab === "caja" ? 'aria-current="page"' : ""}>${staff.owner ? "Caja y comisiones" : "Mi caja"}</a><a href="#equipo/faltas" class="${tab === "faltas" ? "active" : ""}" ${tab === "faltas" ? 'aria-current="page"' : ""}>Faltas</a>${
-      staff.owner ? `<a href="#equipo/formacion" class="${tab === "formacion" ? "active" : ""}" ${tab === "formacion" ? 'aria-current="page"' : ""}>Formación</a>` : ""
+      staff.owner
+        ? `<a href="#equipo/formacion" class="${tab === "formacion" ? "active" : ""}" ${tab === "formacion" ? 'aria-current="page"' : ""}>Formación</a><a href="#equipo/productos" class="${tab === "productos" ? "active" : ""}" ${tab === "productos" ? 'aria-current="page"' : ""}>Productos</a>`
+        : ""
     }</div>`
   );
 }
@@ -1596,7 +1627,8 @@ async function staffAgenda() {
       canjes +
       cols +
       (staff.owner ? "" : `<button type="button" class="btn wide secondary" style="margin-top:14px" id="see-all">${staffAll ? "Ver solo mi agenda" : "Ver la agenda de todo el salón"}</button>`) +
-      `<button type="button" class="btn wide secondary" style="margin-top:28px" id="staff-out">Salir del panel</button>`,
+      `<button type="button" class="btn wide secondary" style="margin-top:28px" id="staff-set">${svg(ICONS.cal)} Avisos y calendario</button>` +
+      `<button type="button" class="btn wide secondary" style="margin-top:10px" id="staff-out">Salir del panel</button>`,
   );
   $("#strip .active")?.scrollIntoView({ inline: "center", block: "nearest" });
   $$(".day-chip").forEach((b) => (b.onclick = () => ((staffDay = b.dataset.day), render())));
@@ -1618,6 +1650,7 @@ async function staffAgenda() {
   $("#new-bk").onclick = () => staffNew(false);
   $("#new-block").onclick = () => staffNew(true);
   $("#new-shop").onclick = () => staffShop("");
+  $("#staff-set").onclick = () => staffSettings();
   const all = $("#see-all");
   if (all) all.onclick = () => ((staffAll = !staffAll), render());
   $("#staff-out").onclick = async () => {
@@ -2023,6 +2056,236 @@ function loginScreen(reason, next) {
   });
 }
 
+// ── Productos del estudio ──────────────────────────────────────────────────
+// Lo que se vende en el local. El dueño los sube desde su panel (pestaña
+// «Productos»); aquí se enseñan y se compran en el estudio.
+let productsP = null;
+const loadProducts = (fresh) => {
+  if (fresh || !productsP) {
+    productsP = api("products").then((r) => r.products);
+    productsP.catch(() => (productsP = null));
+  }
+  return productsP;
+};
+const prodImg = (p, cls = "") => (p.img ? `<img class="${cls}" src="/api/products/${esc(p.id)}/photo?v=${esc(p.img)}" alt="" loading="lazy">` : `<span class="${cls} pr-noimg" aria-hidden="true">${svg(ICONS.jar)}</span>`);
+const prodCard = (p) =>
+  `<button type="button" class="pr-card${p.soldOut ? " out" : ""}" data-prod="${esc(p.id)}">
+    <span class="pr-pic">${prodImg(p)}${p.soldOut ? `<em>Agotado</em>` : ""}</span>
+    ${p.brand ? `<small>${esc(p.brand)}</small>` : ""}<strong>${esc(p.name)}</strong><b>${euro(p.price)}</b>
+  </button>`;
+function bindProducts(list) {
+  $$("[data-prod]").forEach(
+    (el) =>
+      (el.onclick = () => {
+        const p = list.find((x) => x.id === el.dataset.prod);
+        if (!p) return;
+        sheet(
+          `<div class="pr-sheet"><span class="pr-big">${prodImg(p)}</span>
+            ${p.brand ? `<p class="eyebrow">${esc(p.brand)}</p>` : ""}<h2>${esc(p.name)}</h2>
+            <p class="pr-price">${euro(p.price)}${p.soldOut ? ` <span class="appt-state st-cancel">Agotado</span>` : ""}</p>
+            ${p.desc ? `<p>${esc(p.desc)}</p>` : ""}
+            <p class="muted">Se compra en el estudio. Pídeselo a tu barbero en tu próxima cita.</p>
+            <a class="btn wide wa-btn" target="_blank" rel="noopener" href="${wa(`Hola, me interesa ${p.name}${p.brand ? " de " + p.brand : ""}. ¿Lo tenéis?`)}">${svg(ICONS.chat)} Preguntar por WhatsApp</a></div>`,
+        );
+      }),
+  );
+}
+// En la portada: los primeros productos, si hay alguno.
+async function initProducts() {
+  const box = $("#home-products");
+  if (!box) return;
+  let list;
+  try {
+    list = (await loadProducts()).filter((p) => p.visible !== false);
+  } catch {
+    return;
+  }
+  if (!list.length || !document.body.contains(box)) return;
+  box.innerHTML = `<section class="home-block" aria-labelledby="prod-title">
+    <p class="eyebrow">En el estudio</p>
+    <h2 id="prod-title">Productos <em class="serif">para casa.</em></h2>
+    <div class="pr-grid">${list.slice(0, 4).map(prodCard).join("")}</div>
+    ${list.length > 4 ? `<div class="home-actions"><a class="btn secondary" href="#productos">Ver los ${list.length} productos</a></div>` : ""}
+  </section>`;
+  bindProducts(list);
+}
+async function productsPage() {
+  const list = (await loadProducts(true)).filter((p) => p.visible !== false);
+  show(
+    back("home", "Inicio") +
+      heading("Productos", "Lo que usamos en la silla, para que lo tengas en casa. Se compran en el estudio.") +
+      (list.length ? `<div class="pr-grid">${list.map(prodCard).join("")}</div>` : `<p class="ag-free">Pronto subiremos los productos del estudio.</p>`) +
+      legalLinks(),
+  );
+  bindProducts(list);
+}
+
+// Panel del dueño: subir, cambiar, ocultar y borrar productos.
+async function staffProducts() {
+  let list;
+  try {
+    list = await loadProducts(true);
+  } catch (e) {
+    throw e;
+  }
+  if (!staff.owner) return show(staffTop("productos") + `<p class="ag-free">Los productos los lleva el dueño.</p>`);
+  show(
+    staffTop("productos") +
+      `<div class="staff-bar"><button type="button" class="btn" id="pr-new">+ Añadir producto</button></div>` +
+      (list.length
+        ? `<div class="pr-admin">${list
+            .map(
+              (p) => `<button type="button" class="ag-item pr-row" data-edit="${esc(p.id)}">${prodImg(p, "pr-thumb")}<div><strong>${esc(p.name)}</strong><span>${p.brand ? esc(p.brand) + " · " : ""}${euro(p.price)}</span></div><span>${
+                p.visible === false ? `<span class="appt-state">Oculto</span>` : p.soldOut ? `<span class="appt-state st-cancel">Agotado</span>` : `<span class="appt-state st-ok">Visible</span>`
+              }</span></button>`,
+            )
+            .join("")}</div>`
+        : `<p class="ag-free">Aún no hay productos. Pulsa «Añadir producto», hazle una foto con el móvil y ponle nombre y precio.</p>`) +
+      `<p class="muted" style="margin-top:18px">Los clientes los ven en la portada y en <a href="#productos">la página de productos</a>.</p>`,
+  );
+  $("#pr-new").onclick = () => productSheet(null);
+  $$("[data-edit]").forEach((el) => (el.onclick = () => productSheet(list.find((p) => p.id === el.dataset.edit))));
+}
+function productSheet(p) {
+  let photo = "";
+  const sh = sheet(
+    `<p class="eyebrow">Producto</p><h2>${p ? "Cambiar producto" : "Nuevo producto"}</h2>
+    <form id="pr-form">
+      <label class="pr-photo" id="pr-photo">${p?.img ? prodImg(p) : `<span>${svg(ICONS.camera)}Hacer o elegir foto</span>`}<input type="file" accept="image/*" class="sr-only" id="pr-file"></label>
+      <label for="pr-name">Nombre</label><input id="pr-name" name="name" required maxlength="80" value="${esc(p?.name || "")}" placeholder="Cera mate">
+      <label for="pr-brand">Marca <small>(opcional)</small></label><input id="pr-brand" name="brand" maxlength="60" value="${esc(p?.brand || "")}">
+      <label for="pr-price">Precio</label><div class="pct-field"><input id="pr-price" name="price" required inputmode="decimal" value="${p ? String(p.price).replace(".", ",") : ""}" placeholder="12"><span>€</span></div>
+      <label for="pr-desc">Descripción <small>(opcional)</small></label><textarea id="pr-desc" name="desc" rows="3" maxlength="400" placeholder="Para qué sirve, cómo se usa…">${esc(p?.desc || "")}</textarea>
+      <label class="check"><input type="checkbox" name="visible" ${p?.visible === false ? "" : "checked"}><span>Visible para los clientes</span></label>
+      <label class="check" style="margin-top:10px"><input type="checkbox" name="soldOut" ${p?.soldOut ? "checked" : ""}><span>Agotado ahora mismo</span></label>
+      <button class="btn wide" style="margin-top:18px" type="submit">Guardar</button>
+      ${p ? `<button type="button" class="btn wide danger" style="margin-top:10px" id="pr-del">Borrar producto</button>` : ""}
+    </form>`,
+  );
+  const f = sh.el.querySelector("#pr-form");
+  sh.el.querySelector("#pr-file").onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      photo = await shrinkImage(file, 640);
+      const box = sh.el.querySelector("#pr-photo");
+      box.querySelector("img, span")?.remove();
+      box.insertAdjacentHTML("afterbegin", `<img src="${photo}" alt="">`);
+    } catch {
+      toast("No se ha podido leer esa foto.");
+    }
+  };
+  f.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const d = new FormData(f),
+      btn = f.querySelector("[type=submit]");
+    btn.disabled = true;
+    try {
+      await api("staff/products", { id: p?.id, name: d.get("name"), brand: d.get("brand"), price: d.get("price"), desc: d.get("desc"), visible: d.get("visible") === "on", soldOut: d.get("soldOut") === "on", photo });
+      sh.close();
+      toast("Producto guardado.");
+      render();
+    } catch (err) {
+      btn.disabled = false;
+      toast(err.message);
+    }
+  });
+  const del = sh.el.querySelector("#pr-del");
+  if (del)
+    del.onclick = async () => {
+      if (del.dataset.sure !== "1") {
+        del.dataset.sure = "1";
+        del.textContent = "Pulsa otra vez para borrar";
+        return;
+      }
+      try {
+        await api("staff/products", { id: p.id, delete: true });
+        sh.close();
+        toast("Producto borrado.");
+        render();
+      } catch (err) {
+        toast(err.message);
+      }
+    };
+}
+
+// ── Avisos y calendario de cada barbero ────────────────────────────────────
+// Cada barbero pone el correo donde quiere que le avisen de sus citas y
+// conecta su agenda con Google Calendar o con el calendario del móvil.
+async function staffSettings() {
+  let r;
+  try {
+    r = await api("staff/settings");
+  } catch (e) {
+    return toast(e.message);
+  }
+  const url = () => `${location.origin}/api/cal/${r.feed}.ics`,
+    webcal = () => url().replace(/^https?:/, "webcal:");
+  const sh = sheet(
+    `<p class="eyebrow">${esc(first(staff.name))}</p><h2>Avisos y calendario</h2>
+    <p class="section-label" style="margin-top:18px">Avisos por correo</p>
+    <form id="st-mail"><label for="st-email" style="margin-top:0">Tu correo</label><input id="st-email" name="email" type="email" autocomplete="email" value="${esc(r.email)}" placeholder="tucorreo@gmail.com">
+      <label class="check" style="margin-top:12px"><input type="checkbox" name="notify" ${r.notify ? "checked" : ""}><span>Avisarme de cada cita nueva, cambiada o cancelada</span></label>
+      <div class="form-actions" style="margin-top:14px"><button class="btn" type="submit">Guardar</button><button type="button" class="btn secondary" id="st-test">Enviar prueba</button></div>
+      ${r.mail ? "" : `<p class="warning">El envío de correos aún no está activado en la app. Tu correo queda guardado y los avisos empezarán a llegar en cuanto se active.</p>`}</form>
+    <p class="section-label">Tu agenda en tu calendario</p>
+    <p class="muted" style="margin-top:0">Tus citas aparecen en Google Calendar o en el calendario del iPhone, con el nombre del cliente, el servicio y su teléfono. Se actualiza sola.</p>
+    <div class="stack"><a class="btn wide" id="st-google" target="_blank" rel="noopener" href="#">${svg(ICONS.cal)} Añadir a Google Calendar</a>
+      <a class="btn wide secondary" id="st-apple" href="#">Añadir al calendario del iPhone</a>
+      <button type="button" class="btn wide secondary" id="st-copy">${svg(ICONS.copy)} Copiar el enlace</button></div>
+    <p class="muted" style="font-size:13px;margin-top:12px">Google tarda unas horas en traer los cambios; el iPhone, unos minutos. Para ver una cita al instante, mira la Agenda de este panel. El enlace es solo tuyo: no lo compartas.</p>
+    <button type="button" class="tr-del" id="st-reset">Crear un enlace nuevo (el anterior deja de funcionar)</button>`,
+  );
+  const q = (s) => sh.el.querySelector(s);
+  const links = () => {
+    q("#st-google").href = "https://calendar.google.com/calendar/r?cid=" + encodeURIComponent(webcal());
+    q("#st-apple").href = webcal();
+  };
+  links();
+  const save = (extra = {}) => api("staff/settings", { email: q("#st-email").value, notify: q("[name=notify]").checked, ...extra });
+  q("#st-mail").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try {
+      await save();
+      toast("Guardado.");
+    } catch (err) {
+      toast(err.message);
+    }
+  });
+  q("#st-test").onclick = async () => {
+    try {
+      await save({ test: true });
+      toast("Enviado. Mira tu correo.");
+    } catch (err) {
+      toast(err.message);
+    }
+  };
+  q("#st-copy").onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(url());
+      toast("Enlace copiado.");
+    } catch {
+      toast(url());
+    }
+  };
+  const rs = q("#st-reset");
+  rs.onclick = async () => {
+    if (rs.dataset.sure !== "1") {
+      rs.dataset.sure = "1";
+      rs.textContent = "Pulsa otra vez: habrá que volver a añadirlo al calendario";
+      return;
+    }
+    try {
+      r.feed = (await save({ resetFeed: true })).feed;
+      links();
+      rs.dataset.sure = "";
+      rs.textContent = "Enlace nuevo creado. Vuelve a añadirlo a tu calendario.";
+    } catch (err) {
+      toast(err.message);
+    }
+  };
+}
+
 // ── Formación ──────────────────────────────────────────────────────────────
 // Fase 1: una página para quien quiere aprender (no para clientes) y una lista
 // de interesados que solo ve el dueño. Se comparte con nova.appflu.es/formacion.
@@ -2288,7 +2551,7 @@ function loadStripe() {
 }
 const STRIPE_LOOK = {
   theme: "stripe",
-  variables: { colorPrimary: "#171717", colorText: "#171717", colorBackground: "#ffffff", colorDanger: "#a62a29", borderRadius: "12px", fontFamily: "Albert Sans, Helvetica Neue, Arial, sans-serif", fontSizeBase: "16px" },
+  variables: { colorPrimary: "#171717", colorText: "#171717", colorBackground: "#ffffff", colorDanger: "#a62a29", borderRadius: "12px", fontFamily: "Archivo, Helvetica Neue, Arial, sans-serif", fontSizeBase: "16px" },
   rules: { ".Input": { border: "1px solid #ccc9c0", boxShadow: "none", padding: "13px" }, ".Input:focus": { border: "1px solid #171717", boxShadow: "0 0 0 1px #171717" } },
 };
 const fakeFields = () =>
@@ -2454,7 +2717,7 @@ function confetti() {
   c.height = H * dpr;
   x.scale(dpr, dpr);
   document.body.append(c);
-  const colors = ["#f3cf8a", "#e6b25c", "#fff3d6", "#171717", "#f4c2c9", "#ffffff"];
+  const colors = ["#f6a9d0", "#fbd3e7", "#ffffff", "#0a090c", "#f6a9d0", "#ffffff"];
   const bits = Array.from({ length: 120 }, (_, i) => ({
     x: W / 2 + (Math.random() - 0.5) * 60,
     y: H * 0.28,
@@ -2618,7 +2881,7 @@ async function render() {
     }
     document.body.dataset.page = page;
     motion();
-    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", page === "home" ? "#0b0b0b" : "#f5f4f0");
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", page === "home" ? "#0a090c" : "#f5f4f1");
     lastPage = page;
     hideSplash();
   };
@@ -2639,7 +2902,7 @@ async function render() {
 }
 
 // Rutas «bonitas» que llevan a una pantalla (por si se comparten).
-const entry = { "/acceder": "login", "/mis-citas": "bookings", "/perfil": "profile", "/equipo": "equipo", "/reservar": "home", "/formacion": "formacion" }[location.pathname.replace(/\/$/, "")];
+const entry = { "/acceder": "login", "/mis-citas": "bookings", "/perfil": "profile", "/equipo": "equipo", "/reservar": "home", "/formacion": "formacion", "/productos": "productos" }[location.pathname.replace(/\/$/, "")];
 if (entry && !location.hash) history.replaceState(null, "", "/#" + entry);
 
 // Intro con el logo: solo la primera vez en cada visita y como mínimo un instante, para que se vea.
@@ -2659,6 +2922,14 @@ function hideSplash() {
 }
 setTimeout(hideSplash, 4000); // por si algo falla, que nunca se quede tapando
 
+// «Reservar» de la cabecera: baja a la lista de servicios (yendo antes al inicio si hace falta).
+$("#book-link").addEventListener("click", (e) => {
+  e.preventDefault();
+  const down = () => document.getElementById("servicios")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (document.body.dataset.page === "home") return down();
+  go("home");
+  setTimeout(down, 700);
+});
 window.addEventListener("hashchange", render);
 refreshMe().then(render);
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
