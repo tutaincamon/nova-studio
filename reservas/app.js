@@ -938,12 +938,12 @@ const pages = {
           <label class="ph-avatar" title="Cambiar foto">${user.photo ? `<img src="${esc(user.photo)}" alt="Tu foto">` : `<b>${initial(user.name || user.email)}</b>`}<span class="ph-cam">${svg(ICONS.camera)}</span><input type="file" accept="image/*" id="photo-in" class="sr-only"></label>
           <div class="ph-name"><h1>${esc(user.name || "Tu perfil")}</h1><span>Socio Nº ${String(user.no || 0).padStart(4, "0")} · desde ${esc(monthYear(user.since))}</span></div>
         </div>
-        <div class="ph-count"><strong>${m.metrics.cuts}</strong><span>${m.metrics.cuts === 1 ? "corte" : "cortes"}<br>con nosotros</span></div>
+        <div class="ph-count"><strong>${nf(m.earned)}</strong><span>${m.earned === 1 ? "punto" : "puntos"}<br>ganados</span></div>
         <div class="ph-bar"><i style="width:${L.pct}%"></i></div>
         <div class="ph-next">${L.toNext ? `${nf(L.toNext)} ${L.toNext === 1 ? "punto" : "puntos"} para <b>✦ ${esc(L.nextLabel)}</b>` : `Has llegado a lo más alto: <b>${esc(topLeague().name)}</b>`}</div>
       </section>
       <div class="stat3">
-        <a href="#rewards"><strong>${nf(m.balance)}</strong><span>Puntos</span></a>
+        <a href="#bookings"><strong>${m.metrics.cuts}</strong><span>${m.metrics.cuts === 1 ? "Corte" : "Cortes"}</span></a>
         <button type="button" data-scroll="medallas"><strong>${got}</strong><span>Medallas</span></button>
         <button type="button" data-scroll="amigos"><strong>${m.metrics.friends}</strong><span>Amigos</span></button>
       </div>
@@ -1221,7 +1221,7 @@ function leagueOf(pts) {
     from = Math.ceil(lg.min + step * k),
     to = k < 2 ? Math.ceil(lg.min + step * (k + 1)) : next.min,
     nextLabel = k < 2 ? `${lg.name} ${DIV[k + 1]}` : next === topLeague() ? next.name : `${next.name} III`;
-  return { league: lg, index: i, label: `${lg.name} ${DIV[k]}`, pct: Math.max(4, Math.round(((pts - from) / (to - from)) * 100)), toNext: to - pts, nextLabel };
+  return { league: lg, index: i, label: `${lg.name} ${DIV[k]}`, pct: pts > from ? Math.max(4, Math.round(((pts - from) / (to - from)) * 100)) : 0, toNext: to - pts, nextLabel };
 }
 const leagueVars = (lg) => `--c1:${lg.c1};--c2:${lg.c2}`;
 const monthYear = (stamp) => (stamp ? new Date(String(stamp).slice(0, 10) + "T12:00:00").toLocaleDateString("es-ES", { month: "long", year: "numeric" }) : "hoy");
@@ -1266,7 +1266,7 @@ function leagueList(index, earned = 0) {
       const state = i === index ? "Tu liga" : i < index ? "✓ Superada" : `${nf(lg.min)} pts`,
         left = i > index ? lg.min - earned : 0;
       return `<div class="lg-row${i === index ? " on" : ""}${i > index ? " locked" : ""}${i === catalog.leagues.length - 1 ? " top" : ""}" style="${leagueVars(lg)}">${leagueArt(lg, i > index)}<div><strong>${esc(lg.name)}<small>${esc(lg.motto)}</small></strong><ul class="lg-perks">${lg.perks.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>${
-        user && i === index + 1 ? `<span class="lg-left">Te faltan ${nf(left)} puntos · unos ${cutsFor(left)} ${cutsFor(left) === 1 ? "corte" : "cortes"}</span>` : ""
+        user && i === index + 1 ? `<span class="lg-left">Te faltan ${nf(left)} puntos · ${cutsFor(left) === 1 ? "con un corte" : `unos ${cutsFor(left)} cortes`}</span>` : ""
       }</div><em>${state}</em></div>`;
     })
     .join("")}</div>`;
@@ -1365,7 +1365,7 @@ function nextBlock(m, L) {
   return (
     `<p class="section-label">Lo próximo</p><div class="nx-list">` +
     (target
-      ? `<div class="nx nx-league" style="${leagueVars(target)}">${leagueArt(target)}<div><strong>${esc(L.nextLabel)}</strong><span>Te faltan ${nf(L.toNext)} puntos · unos ${cutsFor(L.toNext)} ${cutsFor(L.toNext) === 1 ? "corte" : "cortes"}</span><div class="md-bar"><i style="width:${L.pct}%"></i></div></div></div>`
+      ? `<div class="nx nx-league" style="${leagueVars(target)}">${leagueArt(target)}<div><strong>${esc(L.nextLabel)}</strong><span>Te faltan ${nf(L.toNext)} puntos · ${cutsFor(L.toNext) === 1 ? "con un corte" : `unos ${cutsFor(L.toNext)} cortes`}</span><div class="md-bar"><i style="width:${L.pct}%"></i></div></div></div>`
       : "") +
     near
       .map(
