@@ -1,7 +1,7 @@
 // Una sola función para toda la API: vercel.json manda aquí /api/<lo que sea>.
 import crypto from "node:crypto";
 import { cmd, pipe, getJSON, setJSON, hgetall, usingMemory } from "./_lib/store.js";
-import { SERVICES, PROVIDERS, RULES, BUSINESS, POINTS, MEDALS, REWARDS, COMMISSION, publicCatalog } from "./_lib/config.js";
+import { SERVICES, PROVIDERS, RULES, BUSINESS, POINTS, MEDALS, REWARDS, COMMISSION, TRAINING, publicCatalog } from "./_lib/config.js";
 import * as T from "./_lib/time.js";
 import { codeMail, send, bookingLines, mailReady } from "./_lib/mail.js";
 import * as Card from "./_lib/stripe.js";
@@ -96,6 +96,15 @@ async function needStaff(req) {
   const me = await staffOf(req);
   if (!me) fail(401, "Solo para el equipo.", { staff: true });
   return me;
+}
+// Un socio por su correo o por su código del Club (el de invitar amigos).
+async function findMember(q) {
+  const s = String(q || "").trim();
+  if (!s) return null;
+  if (s.includes("@")) return getJSON("user:" + s.toLowerCase());
+  const code = s.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
+  const email = code && (await cmd("GET", "refcode:" + code));
+  return email ? getJSON("user:" + email) : null;
 }
 // Cada barbero lleva su agenda; el dueño, la de todos.
 const canManage = (me, providerId) => !!me && (me.owner || me.id === providerId);
@@ -195,6 +204,12 @@ async function clubOf(u) {
   }
   const counted = friends.filter((f) => f.counted);
 
+  // Compras en NOVA Supply que el equipo ha apuntado a su cuenta.
+  const purchases = (await bookingsByIds2("sh:", await cmd("SMEMBERS", "ush:" + u.email))).sort((a, b) => b.created.localeCompare(a.created));
+  const cutDays = new Set(done.map((b) => b.date));
+  const days = [...cutDays].sort();
+  const fresh = days.filter((d, i) => i && T.absMin(d, "00:00") - T.absMin(days[i - 1], "00:00") <= 28 * 1440).length;
+
   const since = String(u.created || now.date).slice(0, 10);
   const metrics = {
     cuts: done.length,
@@ -205,26 +220,41 @@ async function clubOf(u) {
     privado: done.filter((b) => b.service.id === "privado").length,
     perfect: absences ? 0 : done.length,
     streak: longestMonthRun(done.map((b) => b.date.slice(0, 7))),
+    fresh,
+    barbers: new Set(done.map((b) => b.provider.id)).size,
+    items: purchases.reduce((a, p) => a + (p.items || 0), 0),
+    look: new Set(purchases.filter((p) => cutDays.has(p.date)).map((p) => p.date)).size,
     profile: u.photo && u.phone ? 1 : 0,
     year: T.absMin(now.date, "00:00") - T.absMin(since, "00:00") >= 365 * 1440 ? 1 : 0,
   };
   const medals = MEDALS.map((m) => ({ id: m.id, progress: Math.min(metrics[m.metric] || 0, m.goal), got: (metrics[m.metric] || 0) >= m.goal }));
 
   const redemptions = (await bookingsByIds2("rd:", await cmd("SMEMBERS", "urd:" + u.email))).sort((a, b) => b.created.localeCompare(a.created));
-  const pointsOf = (b) => SERVICES.find((s) => s.id === b.service.id)?.points ?? POINTS.perCut;
 
   // Movimientos de puntos, del más reciente al más antiguo.
   const moves = [
     ...done.map((b) => ({ when: b.date + " " + b.start, text: b.service.name, pts: pointsOf(b) })),
+    ...purchases.map((p) => ({ when: p.created, text: `NOVA Supply · ${p.items} ${p.items === 1 ? "prenda" : "prendas"}`, pts: p.points })),
     ...counted.map((f) => ({ when: f.date + " 23:59", text: `Amigo: ${f.name}`, pts: POINTS.perFriend })),
     ...redemptions.filter((r) => r.status !== "canceled").map((r) => ({ when: r.created, text: `Canje: ${r.reward.name}`, pts: -r.reward.cost })),
+    { when: String(u.created || ""), text: "Bienvenida al Club", pts: POINTS.welcome },
   ].sort((a, b) => b.when.localeCompare(a.when));
   const medalBonus = MEDALS.filter((m, i) => medals[i].got).reduce((a, m) => a + m.bonus, 0);
-  if (medalBonus) moves.push({ when: "", text: "Bonus de medallas", pts: medalBonus });
+  if (medalBonus) moves.unshift({ when: "", text: "Bonus de medallas", pts: medalBonus });
 
-  const earned = done.reduce((a, b) => a + pointsOf(b), 0) + counted.length * POINTS.perFriend + medalBonus;
+  const earned =
+    POINTS.welcome +
+    done.reduce((a, b) => a + pointsOf(b), 0) +
+    purchases.reduce((a, p) => a + p.points, 0) +
+    counted.length * POINTS.perFriend +
+    medalBonus;
   const spent = redemptions.filter((r) => r.status !== "canceled").reduce((a, r) => a + r.reward.cost, 0);
   return { metrics, medals, friends, earned, spent, balance: earned - spent, redemptions, moves: moves.slice(0, 40) };
+}
+// Puntos de una cita: lo que costó el servicio × puntos por euro.
+function pointsOf(b) {
+  const price = b.service.price ?? SERVICES.find((s) => s.id === b.service.id)?.price ?? 15;
+  return Math.round(price * POINTS.perEuro);
 }
 async function bookingsByIds2(prefix, ids) {
   if (!ids.length) return [];
@@ -339,6 +369,8 @@ function makeBooking(s, p, date, start, extra) {
   };
 }
 
+// Para meter texto escrito por clientes dentro del HTML de un correo.
+const htmlEsc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 async function notifySalon(b, title) {
   const to = process.env.AVISO_CORREO || BUSINESS.email;
   await send(
@@ -347,7 +379,7 @@ async function notifySalon(b, title) {
     title,
     bookingLines(b, T.niceDate(b.date)) +
       `<hr style="border:0;border-top:1px solid #dcdad3;margin:14px 0">
-       <p style="margin:0">${b.name} · ${b.phone}${b.email ? " · " + b.email : ""}</p>`,
+       <p style="margin:0">${htmlEsc(b.name)} · ${htmlEsc(b.phone)}${b.email ? " · " + htmlEsc(b.email) : ""}</p>`,
     b.email || undefined,
   );
 }
@@ -732,6 +764,56 @@ const routes = {
     };
   },
 
+  // NOVA Supply: el barbero apunta una compra de ropa a la cuenta de un socio
+  // (por su correo o su código del Club) y le suma los puntos.
+  "GET staff/member": async ({ req, q }) => {
+    await needStaff(req);
+    const u = await findMember(q.get("q"));
+    if (!u) fail(404, "No encontramos a ese socio. Prueba con su correo o su código del Club.");
+    const c = await clubOf(u);
+    return { member: { email: u.email, name: u.name, no: u.no, earned: c.earned, balance: c.balance } };
+  },
+
+  "POST staff/shop": async ({ req, body }) => {
+    const me = await needStaff(req);
+    const u = await findMember(body.email);
+    if (!u) fail(404, "No encontramos a ese socio.");
+    const amount = Math.round(Number(String(body.amount || "").replace(",", ".")) * 100) / 100;
+    const items = Math.round(Number(body.items));
+    if (!(amount > 0 && amount <= 2000)) fail(400, "Pon el importe de la compra, en euros.");
+    if (!(items >= 1 && items <= 30)) fail(400, "¿Cuántas prendas se lleva?");
+    const now = T.nowLocal();
+    const p = {
+      id: "S" + crypto.randomBytes(3).toString("hex").toUpperCase(),
+      email: u.email,
+      name: u.name,
+      amount,
+      items,
+      points: Math.round(amount * POINTS.perEuro),
+      date: now.date,
+      created: now.stamp,
+      by: me.id,
+    };
+    await pipe([
+      ["SET", "sh:" + p.id, JSON.stringify(p)],
+      ["SADD", "ush:" + u.email, p.id],
+    ]);
+    return { purchase: p };
+  },
+
+  // Deshacer una compra apuntada por error: quien la apuntó, o el dueño.
+  "POST staff/shop/:id/delete": async ({ req, params }) => {
+    const me = await needStaff(req);
+    const p = await getJSON("sh:" + params.id);
+    if (!p) fail(404, "No existe esa compra.");
+    if (p.by !== me.id && !me.owner) fail(403, "Solo la puede quitar quien la apuntó o el dueño.");
+    await pipe([
+      ["DEL", "sh:" + p.id],
+      ["SREM", "ush:" + p.email, p.id],
+    ]);
+    return { ok: true };
+  },
+
   "GET staff/redemptions": async ({ req }) => {
     await needStaff(req);
     const list = await bookingsByIds2("rd:", await cmd("SMEMBERS", "rdpending"));
@@ -833,6 +915,99 @@ const routes = {
       pending: cents(list.reduce((a, b) => a + (b.charge && b.charge.status !== "succeeded" && b.charge.status !== "refunded" ? b.charge.amount : 0), 0)),
       uncharged: list.filter((b) => !b.charge).length,
     };
+  },
+
+  // ── Formación (fase 1: lista de interesados) ────────────────────────────
+  // Cualquiera puede apuntarse; si repite con el mismo teléfono se actualiza
+  // su ficha en vez de duplicarla. Solo el dueño ve la lista.
+  "POST training/interest": async ({ req, body }) => {
+    const name = clean(body.name),
+      phone = clean(body.phone, 30),
+      email = normEmail(body.email),
+      insta = clean(body.instagram, 40).replace(/^@/, "");
+    if (!name) fail(400, "Falta tu nombre.");
+    if (!PHONE.test(phone)) fail(400, "Revisa tu teléfono.");
+    if (email && !EMAIL.test(email)) fail(400, "Revisa tu correo.");
+    if (body.consent !== true) fail(400, "Tienes que aceptar que te contactemos.");
+    const pick = (v, list) => (list.some((x) => (x.id || x) === v) ? v : "");
+    const many = (v, list) => [...new Set([].concat(v || []).filter((x) => list.includes(x)))];
+    const level = pick(body.level, TRAINING.levels),
+      format = pick(body.format, TRAINING.formats);
+    if (!level) fail(400, "Dinos tu nivel.");
+    await limit("train:" + ip(req), 6, 3600);
+    const key = "trphone:" + phone.replace(/\D/g, "");
+    const prevId = await cmd("GET", key);
+    const prev = prevId && (await getJSON("tr:" + prevId));
+    const now = T.nowLocal().stamp;
+    const t = {
+      id: prev?.id || "F" + crypto.randomBytes(4).toString("hex").toUpperCase(),
+      name,
+      phone,
+      email,
+      instagram: insta,
+      level,
+      format,
+      topics: many(body.topics, TRAINING.topics),
+      availability: many(body.availability, TRAINING.availability),
+      message: clean(body.message, 600),
+      created: prev?.created || now,
+      updated: prev ? now : undefined,
+      status: prev?.status || "new",
+      note: prev?.note || "",
+    };
+    await pipe([
+      ["SET", "tr:" + t.id, JSON.stringify(t)],
+      ["SET", key, t.id],
+      ["SADD", "trall", t.id],
+    ]);
+    if (!prev) {
+      const H = htmlEsc;
+      const lv = TRAINING.levels.find((x) => x.id === level)?.name || level;
+      await send(
+        process.env.AVISO_CORREO || BUSINESS.email,
+        `Nuevo interesado en la formación: ${name}`,
+        "Alguien quiere aprender",
+        `<p style="margin:0 0 8px"><b>${H(name)}</b> · ${H(phone)}${email ? " · " + H(email) : ""}</p><p style="margin:0">${H(lv)}${t.topics.length ? " · " + H(t.topics.join(", ")) : ""}</p>${t.message ? `<p style="margin:10px 0 0">«${H(t.message)}»</p>` : ""}`,
+      ).catch(() => {});
+    }
+    return { ok: true, updated: !!prev };
+  },
+
+  "GET staff/training": async ({ req }) => {
+    const me = await needStaff(req);
+    if (!me.owner) fail(403, "La lista de formación solo la ve el dueño.");
+    const list = (await bookingsByIds2("tr:", await cmd("SMEMBERS", "trall"))).sort((a, b) => b.created.localeCompare(a.created));
+    const count = (fn) => list.reduce((o, t) => ([].concat(fn(t)).forEach((k) => k && (o[k] = (o[k] || 0) + 1)), o), {});
+    return {
+      list,
+      stats: {
+        total: list.length,
+        fresh: list.filter((t) => t.status === "new").length,
+        enrolled: list.filter((t) => t.status === "enrolled").length,
+        level: count((t) => t.level),
+        format: count((t) => t.format),
+        topics: count((t) => t.topics),
+        availability: count((t) => t.availability),
+      },
+    };
+  },
+
+  "POST staff/training/:id": async ({ req, params, body }) => {
+    const me = await needStaff(req);
+    if (!me.owner) fail(403, "La lista de formación solo la ve el dueño.");
+    const t = await getJSON("tr:" + params.id);
+    if (!t) fail(404, "No existe esa ficha.");
+    if (body.delete === true) {
+      await pipe([
+        ["DEL", "tr:" + t.id],
+        ["DEL", "trphone:" + t.phone.replace(/\D/g, "")],
+        ["SREM", "trall", t.id],
+      ]);
+      return { ok: true };
+    }
+    const status = ["new", "contacted", "enrolled", "discarded"].includes(body.status) ? body.status : t.status;
+    await setJSON("tr:" + t.id, { ...t, status, note: body.note !== undefined ? clean(body.note, 400) : t.note });
+    return { ok: true };
   },
 
   // Cita apuntada por el equipo (llamada, WhatsApp, alguien que entra) o bloqueo de horas.

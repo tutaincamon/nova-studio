@@ -90,7 +90,19 @@ export async function seed() {
   await save(booking(email, "Alex Demo", miss, "18:30", "corte", { attendance: "absent", guarantee: { brand: "visa", last4: "4242" } }, "noa"));
 
   // Un premio canjeado pendiente de recoger.
-  const rd = { id: "C1A2B3", email, name: "Alex Demo", reward: { id: "bebida", name: "Bebida premium", cost: 3 }, status: "pending", created: addDays(today, -2) + " 18:00" };
+  const rd = { id: "C1A2B3", email, name: "Alex Demo", reward: { id: "bebida", name: "Bebida premium", cost: 300 }, status: "pending", created: addDays(today, -2) + " 18:00" };
+
+  // Ropa de NOVA Supply: una camiseta el día de su último corte (Look completo)
+  // y otra hace meses.
+  for (const [id, d, amount, items] of [["S0DEM1", -95, 47.5, 1], ["S0DEM2", -3, 47.5, 1]]) {
+    let date = addDays(today, d);
+    while ([0, 1].includes(new Date(date + "T12:00:00Z").getUTCDay())) date = addDays(date, -1);
+    const p = { id, email, name: "Alex Demo", amount, items, points: Math.round(amount * 10), date, created: date + " 19:00", by: "airam" };
+    await pipe([
+      ["SET", "sh:" + id, JSON.stringify(p)],
+      ["SADD", "ush:" + email, id],
+    ]);
+  }
   await pipe([
     ["SET", "rd:" + rd.id, JSON.stringify(rd)],
     ["SADD", "urd:" + email, rd.id],

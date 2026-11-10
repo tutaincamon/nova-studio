@@ -57,6 +57,8 @@ const ICONS = {
   jar: '<rect x="5" y="8" width="14" height="13" rx="3"/><path d="M6 4h12v4H6zM9 13h6"/>',
   shirt: '<path d="M8 3 3 6l2 5 3-1v11h8V10l3 1 2-5-5-3c-.5 1.5-2 2.5-4 2.5S8.5 4.5 8 3z"/>',
   share: '<circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="m8.2 10.8 7.6-4.5M8.2 13.2l7.6 4.5"/>',
+  bag: '<path d="M5 8h14l-1 13H6z"/><path d="M9 10V7a3 3 0 0 1 6 0v3"/>',
+  hanger: '<path d="M12 7.5a2 2 0 1 1 2-2c0 1.2-2 1.5-2 3.2L3.5 15a1.6 1.6 0 0 0 1 2.9h15a1.6 1.6 0 0 0 1-2.9z"/>',
   lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
   copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
   logout: '<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H4"/>',
@@ -458,6 +460,20 @@ function homeExtras() {
   <p>Un espacio donde la barbería se encuentra con la creatividad, la moda y la cultura urbana. Hacemos <strong>corte de pelo</strong>, degradados, <strong>corte y barba</strong> y <strong>corte privado</strong> en ${esc(B.street)}, Vecindario. Reserva en segundos, sin llamar y sin descargar nada.</p>
   <ul class="about-tags" aria-label="Servicios"><li>Corte de pelo</li><li>Degradado</li><li>Corte y barba</li><li>Corte privado</li><li>Fuera de horario</li><li>VIP a domicilio</li></ul>
 </section>
+<section class="home-block shop-home" aria-labelledby="shop-title">
+  <p class="eyebrow">${esc(catalog.shop.name)} · Clothing</p>
+  <h2 id="shop-title">La ropa <em class="serif">de la casa.</em></h2>
+  <div class="shop-pics">
+    <figure class="shop-main"><img src="/assets/supply.jpg" alt="Camisetas de ${esc(catalog.shop.name)} rosas y grises" loading="lazy" width="760" height="1350"></figure>
+    <figure class="shop-item"><img src="/assets/supply-rosa.jpg" alt="Camiseta rosa de ${esc(catalog.shop.name)} con el emblema en el pecho" loading="lazy" width="920" height="781"><figcaption>Camiseta · Rosa</figcaption></figure>
+  </div>
+  <p>Algodón pesado, corte boxy y el emblema de la estrella. Diseñada en el estudio. <strong>Cada euro en ropa te suma ${catalog.points.perEuro} puntos</strong> en el Club, y desde ${esc(catalog.leagues.find((lg) => lg.perks.some((p) => /%.*Supply/.test(p)))?.name || "")} tienes descuento en cada prenda.</p>
+  <div class="home-actions">
+    <a class="btn" href="${esc(catalog.shop.url)}" target="_blank" rel="noopener">Ver la tienda · ${esc(catalog.shop.label)} ↗</a>
+    <a class="btn secondary" href="#rewards">Cómo suma en el Club</a>
+  </div>
+</section>
+${trainingCard()}
 <footer class="home-footer">
   ${novaLogo("hf-logo inv")}
   <p class="hf-tag">Barbería · Vecindario, Gran Canaria</p>
@@ -465,7 +481,7 @@ function homeExtras() {
   <div class="hf-cols">
     <div><small>Dirección</small><a href="${esc(B.maps)}" ${ext}>${esc(B.street)}<br>${esc(B.city)}</a></div>
     <div><small>Horario</small>${B.hoursText.map(([d, h]) => `<span>${esc(d)} · ${esc(h)}</span>`).join("")}<span class="hf-muted">${esc(B.closedText)}</span></div>
-    <div><small>Contacto</small><a href="${wa("Hola NOVA Studio 👋")}" ${ext}>WhatsApp</a><a href="${esc(B.instagram)}" ${ext}>Instagram</a></div>
+    <div><small>Contacto</small><a href="${wa("Hola NOVA Studio 👋")}" ${ext}>WhatsApp</a><a href="${esc(B.instagram)}" ${ext}>Instagram</a><a href="${esc(catalog.shop.url)}" ${ext}>${esc(catalog.shop.name)}</a><a href="#formacion">Formación</a></div>
   </div>
   <p class="hf-copy">© ${new Date().getFullYear()} NOVA Studio · <em class="serif">Good people, better days.</em></p>
 </footer>`;
@@ -521,12 +537,13 @@ const LEGAL = {
   privacidad: [
     "Política de privacidad",
     () => `<p><b>Responsable.</b> ${esc(catalog.business.name)}, ${esc(catalog.business.street)}, ${esc(catalog.business.city)}. Contacto: <a href="mailto:${esc(catalog.business.email)}">${esc(catalog.business.email)}</a>.</p>
-    <p><b>Qué datos tratamos.</b> Los que nos das al reservar: nombre, correo y teléfono, el historial de tus citas (servicio, barbero, fecha y si viniste) y lo del Club NOVA: puntos, liga, medallas, premios canjeados, tu código de amigo, quién te invitó y, si la subes, tu foto de perfil. ${
+    <p><b>Qué datos tratamos.</b> Los que nos das al reservar: nombre, correo y teléfono, el historial de tus citas (servicio, barbero, fecha y si viniste) y lo del Club NOVA: puntos, liga, medallas, premios canjeados, las compras de ropa de NOVA Supply que el equipo apunta a tu cuenta para sumarte puntos (fecha, importe y número de prendas), tu código de amigo, quién te invitó y, si la subes, tu foto de perfil. ${
       catalog.card?.enabled
         ? "Si dejas una tarjeta en garantía, sus datos los guarda Stripe Payments Europe; nosotros solo vemos la marca, los 4 últimos números y la caducidad, y si se ha cobrado alguna falta."
         : "No guardamos datos de tarjeta: se paga en el local."
     }</p>
     <p><b>Para qué.</b> Para gestionar tus citas (crearlas, cambiarlas, cancelarlas y avisarte), darte acceso a tu cuenta con un código por correo y llevar tu Club NOVA. No te enviaremos publicidad sin tu permiso.</p>
+    <p><b>Formación.</b> Si te apuntas a la lista de la formación, guardamos lo que pones en el formulario (nombre, teléfono, correo e Instagram si los das, tu nivel y tus preferencias) solo para contactarte sobre los cursos. Lo ve únicamente el dueño del estudio y puedes pedir que lo borremos cuando quieras.</p>
     <p><b>Con quién.</b> Solo con los proveedores necesarios para que la app funcione: el alojamiento y la base de datos, el servicio que envía los correos${catalog.card?.enabled ? " y Stripe, que guarda tu tarjeta y hace los cobros por faltas" : ""}. No vendemos tus datos.</p>
     <p><b>Cuánto tiempo.</b> Mientras tengas cuenta o sigas viniendo y, después, lo que exija la ley.</p>
     <p><b>Tus derechos.</b> Puedes pedir ver, corregir o borrar tus datos escribiendo a <a href="mailto:${esc(catalog.business.email)}">${esc(catalog.business.email)}</a>. Si no te respondemos bien, puedes reclamar ante la AEPD.</p>
@@ -543,7 +560,7 @@ const LEGAL = {
         ? `<p><b>4 bis. Tarjeta en garantía y faltas.</b> Para reservar online dejas una tarjeta en garantía. Al guardarla no se cobra nada. Queda guardada en tu perfil (la custodia Stripe, nuestro proveedor de pagos) para tus próximas citas, y puedes cambiarla o quitarla cuando quieras desde tu perfil, salvo que tengas citas pendientes garantizadas con ella. <b>Si no vienes a la cita y no la has cancelado al menos ${catalog.rules.cancelHours} horas antes, autorizas a ${esc(catalog.business.name)} a cobrar en esa tarjeta el precio del servicio reservado</b>, sin necesidad de que estés presente. Antes de cobrar, tu barbero marca la cita como «No vino». Si tu banco pide confirmación o rechaza el cobro, te avisaremos y podrás pagarlo desde «Mis citas». Si crees que el cobro es un error, escríbenos y lo revisamos; si procede, te devolvemos el dinero.</p>`
         : ""
     }
-    <p><b>5. Club NOVA.</b> Es gratis. Los niveles y premios no tienen valor en dinero, no se pueden pasar a otra persona y pueden cambiar.</p>`,
+    <p><b>5. Club NOVA.</b> Es gratis. Los puntos, las ligas, los premios y los descuentos en NOVA Supply no tienen valor en dinero, no se pueden pasar a otra persona y pueden cambiar. Los puntos de la ropa los apunta el equipo al pagar en el estudio.</p>`,
   ],
   "aviso-legal": [
     "Aviso legal",
@@ -698,8 +715,8 @@ const pages = {
           <div class="phone-field"><select name="cc" aria-label="Prefijo del país">${cc.map(([f, c]) => `<option value="${c}" ${c === savedCc ? "selected" : ""}>${f} ${c}</option>`).join("")}</select><input id="f-phone" name="phone" type="tel" inputmode="tel" required maxlength="20" autocomplete="tel-national" placeholder="600 000 000" value="${esc(savedNum)}"></div>
           ${
             user
-              ? `<div class="club-joined"><span class="club-check">✓</span><div><strong>Eres del Club NOVA</strong><span>Esta cita suma a tu historial y a tu nivel.</span></div></div>`
-              : `<div class="club-card"><span class="club-tag">CLUB</span><h2>Entras en el Club al reservar</h2><p>Con estos mismos datos. Sin contraseñas.</p><ul class="club-perks"><li>${catalog.points.perCut} punto por cada corte</li><li>Ligas de Bronce a Leyenda, con premios</li><li>Medallas y +${catalog.points.perFriend} puntos por cada amigo</li></ul>
+              ? `<div class="club-joined"><span class="club-check">✓</span><div><strong>Eres del Club NOVA</strong><span>Esta cita te suma ${svcPoints(s)} puntos.</span></div></div>`
+              : `<div class="club-card"><span class="club-tag">CLUB</span><h2>Entras en el Club al reservar</h2><p>Con estos mismos datos. Sin contraseñas.</p><ul class="club-perks"><li>${catalog.points.welcome} puntos de regalo al entrar</li><li>${catalog.points.perEuro} puntos por cada euro, en la silla y en ${esc(catalog.shop.name)}</li><li>De ${esc(catalog.leagues[0].name)} a ${esc(topLeague().name)}: ligas con premios y descuentos</li></ul>
                   <div class="ref-box${refCode() ? " open" : ""}" id="ref-box"><button type="button" class="ref-toggle" id="ref-toggle"><span aria-hidden="true">🎁</span>¿Te ha invitado un amigo?<b>Pon su código</b></button>
                   <div class="ref-field"><label class="sr-only" for="ref-input">Código de amigo</label><input id="ref-input" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="16" placeholder="Ej.: CARLOS482" value="${esc(refCode())}"><p class="ref-state" id="ref-state" aria-live="polite"></p></div></div></div>`
           }
@@ -790,7 +807,7 @@ const pages = {
   async booked() {
     if (!lastBooked) return go(user ? "bookings" : "home");
     const b = lastBooked,
-      pts = b.service.points || catalog.points.perCut;
+      pts = svcPoints(svcById(b.service.id) || b.service);
     show(
       `<div class="booked-hero">
         <svg class="booked-check" viewBox="0 0 52 52" aria-hidden="true"><circle cx="26" cy="26" r="24"/><path d="m15 27 7 7 15-16"/></svg>
@@ -923,15 +940,17 @@ const pages = {
         </div>
         <div class="ph-count"><strong>${m.metrics.cuts}</strong><span>${m.metrics.cuts === 1 ? "corte" : "cortes"}<br>con nosotros</span></div>
         <div class="ph-bar"><i style="width:${L.pct}%"></i></div>
-        <div class="ph-next">${L.toNext ? `${L.toNext} ${L.toNext === 1 ? "punto" : "puntos"} para <b>◆ ${esc(L.nextLabel)}</b>` : "Has llegado a lo más alto: <b>Leyenda</b>"}</div>
+        <div class="ph-next">${L.toNext ? `${nf(L.toNext)} ${L.toNext === 1 ? "punto" : "puntos"} para <b>✦ ${esc(L.nextLabel)}</b>` : `Has llegado a lo más alto: <b>${esc(topLeague().name)}</b>`}</div>
       </section>
       <div class="stat3">
-        <a href="#rewards"><strong>${m.balance}</strong><span>Puntos</span></a>
+        <a href="#rewards"><strong>${nf(m.balance)}</strong><span>Puntos</span></a>
         <button type="button" data-scroll="medallas"><strong>${got}</strong><span>Medallas</span></button>
         <button type="button" data-scroll="amigos"><strong>${m.metrics.friends}</strong><span>Amigos</span></button>
       </div>
       ${leagueStrip(L.index)}
+      ${nextBlock(m, L)}
       ${medalsBlock(m)}
+      ${supplyBlock(L)}
       ${inviteBlock(m)}
       ${
         cardOn()
@@ -955,6 +974,7 @@ const pages = {
       <button class="btn wide secondary" type="button" id="logout">${svg(ICONS.logout)} Cerrar sesión</button>` + legalLinks(),
     );
     $$("[data-scroll]").forEach((b) => (b.onclick = () => document.getElementById(b.dataset.scroll)?.scrollIntoView({ behavior: "smooth", block: "start" })));
+    celebrate(m, L);
     $("#photo-in").onchange = async (e) => {
       const f = e.target.files[0];
       if (!f) return;
@@ -1013,10 +1033,11 @@ const pages = {
     const P = catalog.points;
     if (!user) {
       show(
-        `<section class="pts"><span class="pts-tag">EL CLUB</span><strong class="pts-num">${P.perCut}</strong><p>punto por cada corte · +${P.perFriend} por cada amigo que invites</p><div class="pts-league">${leagueArt(catalog.leagues[0])}<span>Empiezas en <b>Bronce III</b> y subes hasta <b>Leyenda</b></span></div></section>` +
+        `<section class="pts"><span class="pts-tag">EL CLUB</span><strong class="pts-num">${P.welcome}</strong><p>puntos de regalo al entrar · ${P.perEuro} por cada euro, en la silla y en ${esc(catalog.shop.name)} · +${P.perFriend} por cada amigo</p><div class="pts-league">${leagueArt(catalog.leagues[0])}<span>Empiezas en <b>${esc(catalog.leagues[0].name)} III</b> y subes hasta <b>${esc(topLeague().name)}</b></span></div></section>` +
           `<a class="btn wide" href="#home">Reservar mi primer corte</a><a class="btn wide secondary" style="margin-top:10px" href="#login">Ya soy del Club · Entrar</a>` +
+          `<p class="section-label">Las ligas</p>${leagueList(-1)}` +
           `<p class="section-label">Premios del Club</p><div class="rw-list">${catalog.rewards.map((r) => rewardRow(r, 0)).join("")}</div>` +
-          `<p class="section-label">Ligas</p>${leagueList(-1)}`,
+          supplyBlock(null),
       );
       return;
     }
@@ -1026,31 +1047,34 @@ const pages = {
     show(
       `<section class="pts" style="${leagueVars(L.league)}">
         <span class="pts-tag">TUS PUNTOS</span>
-        <strong class="pts-num">${m.balance}</strong>
-        <p>${P.perCut} punto por cada corte · +${P.perFriend} por cada amigo que invites</p>
-        <div class="pts-league">${leagueArt(L.league)}<span>Liga <b>${esc(L.label)}</b> · ${m.earned} puntos ganados</span></div>
+        <strong class="pts-num">${nf(m.balance)}</strong>
+        <p>${P.perEuro} puntos por cada euro, en la silla y en ${esc(catalog.shop.name)} · +${P.perFriend} por cada amigo</p>
+        <div class="pts-league">${leagueArt(L.league)}<span>Liga <b>${esc(L.label)}</b> · ${nf(m.earned)} puntos ganados</span></div>
       </section>` +
+        nextBlock(m, L) +
         (open.length
           ? `<p class="section-label">Para recoger en el local</p><div class="rw-list">${open
               .map((r) => `<div class="rw ticket"><span class="rw-ic">${svg(ICONS.gift)}</span><div><strong>${esc(r.reward.name)}</strong><span>Enséñale este código a tu barbero</span></div><b class="tk-code">${esc(r.id)}</b></div>`)
               .join("")}</div>`
           : "") +
         `<p class="section-label">Premios del Club</p><div class="rw-list">${catalog.rewards.map((r) => rewardRow(r, m.balance)).join("")}</div>` +
-        `<p class="section-label">Ligas</p>${leagueList(L.index)}` +
+        supplyBlock(L) +
+        `<p class="section-label">Las ligas</p>${leagueList(L.index, m.earned)}` +
         (m.moves.length
           ? `<p class="section-label">Movimientos</p><div class="card mv-list">${m.moves
               .slice(0, 12)
-              .map((x) => `<div class="mv"><span>${esc(x.text)}${x.when ? `<small>${esc(shortDay(x.when.slice(0, 10)))}</small>` : ""}</span><b class="${x.pts > 0 ? "plus" : "minus"}">${x.pts > 0 ? "+" : ""}${x.pts}</b></div>`)
+              .map((x) => `<div class="mv"><span>${esc(x.text)}${x.when ? `<small>${esc(shortDay(x.when.slice(0, 10)))}</small>` : ""}</span><b class="${x.pts > 0 ? "plus" : "minus"}">${x.pts > 0 ? "+" : ""}${nf(x.pts)}</b></div>`)
               .join("")}</div>`
           : "") +
         `<a class="btn wide secondary" style="margin-top:18px" href="#profile">Ver mi perfil y medallas</a>`,
     );
+    celebrate(m, L);
     $$("[data-redeem]").forEach(
       (b) =>
         (b.onclick = () => {
           const r = catalog.rewards.find((x) => x.id === b.dataset.redeem);
           const sh = sheet(
-            `<p class="eyebrow">Canjear premio</p><h2>${esc(r.name)}</h2><p>${esc(r.desc)}. Se descuentan <b>${r.cost} puntos</b> de tu saldo (te quedarán ${m.balance - r.cost}). Tu liga no baja.</p><div class="form-actions"><button type="button" class="btn secondary" id="no">Ahora no</button><button type="button" class="btn" id="yes">Canjear</button></div>`,
+            `<p class="eyebrow">Canjear premio</p><h2>${esc(r.name)}</h2><p>${esc(r.desc)}. Se descuentan <b>${nf(r.cost)} puntos</b> de tu saldo (te quedarán ${nf(m.balance - r.cost)}). Tu liga no baja.</p><div class="form-actions"><button type="button" class="btn secondary" id="no">Ahora no</button><button type="button" class="btn" id="yes">Canjear</button></div>`,
           );
           sh.el.querySelector("#no").onclick = sh.close;
           sh.el.querySelector("#yes").onclick = async (e) => {
@@ -1070,10 +1094,14 @@ const pages = {
 
   // Panel del equipo: cada barbero entra con su clave y ve su agenda y su caja.
   // El dueño ve a todo el equipo y, solo él, las comisiones.
+  async formacion() {
+    await trainingPage();
+  },
+
   async equipo(args = []) {
     if (!staff) return staffLogin();
     try {
-      await (args[0] === "caja" ? staffCaja() : args[0] === "faltas" ? staffFaltas() : staffAgenda());
+      await ({ caja: staffCaja, faltas: staffFaltas, formacion: staffTraining }[args[0]] || staffAgenda)();
     } catch (e) {
       if (e.status !== 401) throw e;
       staff = null;
@@ -1176,7 +1204,11 @@ async function calendar({ backTo, backLabel }) {
 
 // ── Club ───────────────────────────────────────────────────────────────────
 const DIV = ["III", "II", "I"];
-// Liga y división como en un ranking: cada liga (menos Leyenda) tiene III, II y I.
+const nf = (n) => Number(n || 0).toLocaleString("es-ES");
+const topLeague = () => catalog.leagues[catalog.leagues.length - 1];
+// Puntos que da un servicio: su precio × puntos por euro.
+const svcPoints = (s) => Math.round((s?.price ?? 15) * catalog.points.perEuro);
+// Liga y división como en un ranking: cada liga (menos la última) tiene III, II y I.
 function leagueOf(pts) {
   const Ls = catalog.leagues;
   let i = Ls.length - 1;
@@ -1188,48 +1220,60 @@ function leagueOf(pts) {
     k = Math.min(2, Math.floor((pts - lg.min) / step)),
     from = Math.ceil(lg.min + step * k),
     to = k < 2 ? Math.ceil(lg.min + step * (k + 1)) : next.min,
-    nextLabel = k < 2 ? `${lg.name} ${DIV[k + 1]}` : next === Ls[Ls.length - 1] ? next.name : `${next.name} III`;
+    nextLabel = k < 2 ? `${lg.name} ${DIV[k + 1]}` : next === topLeague() ? next.name : `${next.name} III`;
   return { league: lg, index: i, label: `${lg.name} ${DIV[k]}`, pct: Math.max(4, Math.round(((pts - from) / (to - from)) * 100)), toNext: to - pts, nextLabel };
 }
 const leagueVars = (lg) => `--c1:${lg.c1};--c2:${lg.c2}`;
 const monthYear = (stamp) => (stamp ? new Date(String(stamp).slice(0, 10) + "T12:00:00").toLocaleDateString("es-ES", { month: "long", year: "numeric" }) : "hoy");
+// El mejor descuento en la tienda que da tu liga (o null).
+function shopDiscount(index) {
+  let best = null;
+  catalog.leagues.slice(0, index + 1).forEach((lg) => lg.perks.forEach((p) => /%.*Supply/.test(p) && (best = p)));
+  return best;
+}
+// Cuántos cortes son unos puntos, para que se entienda la distancia.
+const cutsFor = (pts) => Math.max(1, Math.ceil(pts / svcPoints(svcById("corte") || { price: 15 })));
 
-// Insignia de cada liga: escudo con degradado y un símbolo que crece con la liga.
+// Insignia de cada liga: escudo con degradado y un astro que crece con la liga,
+// de la chispa a la estrella de cuatro puntas del emblema, y su explosión.
 const LEAGUE_GLYPH = [
-  '<path d="M23 30l9 6 9-6"/>',
-  '<path d="M23 26l9 6 9-6M23 34l9 6 9-6"/>',
+  '<path d="M32 23.5c.7 4.4 2.1 5.8 6.5 6.5-4.4.7-5.8 2.1-6.5 6.5-.7-4.4-2.1-5.8-6.5-6.5 4.4-.7 5.8-2.1 6.5-6.5z"/>',
+  '<circle cx="37" cy="26" r="4.2"/><path d="M33.6 29.4 22 41M36.4 31 29 38.5M31.8 27.6 24.5 34"/>',
+  '<circle cx="32" cy="31" r="6"/><path d="M20.5 35.5c-2-2.6 3-7.4 11-10.3s14.6-2.6 15.9.4c.8 1.9-1.3 4.4-5.1 6.8"/>',
   '<path d="M32 22l2.9 6 6.6.8-4.9 4.5 1.3 6.5L32 36.6l-5.9 3.2 1.3-6.5-4.9-4.5 6.6-.8z"/>',
-  '<path d="M32 21l9 11-9 11-9-11z"/><path d="M32 27l4 5-4 5-4-5z"/>',
-  '<path d="M25 24h14l4 6-11 13-11-13z"/><path d="M21 30h22M32 43l-4-13 4-6 4 6z"/>',
   '<path d="M32 19c1 8 4 11 12 12-8 1-11 4-12 12-1-8-4-11-12-12 8-1 11-4 12-12z"/>',
-  '<path d="M21 38l-1-13 7 6 5-9 5 9 7-6-1 13z"/><path d="M22 42h20"/>',
-  '<path d="M21 37l-1-12 7 5 5-9 5 9 7-5-1 12z"/><path d="M18 41c4 2 9 3 14 3s10-1 14-3M32 13v3"/>',
+  '<path d="M32 21.5c.8 6.3 3.2 8.7 9.5 9.5-6.3.8-8.7 3.2-9.5 9.5-.8-6.3-3.2-8.7-9.5-9.5 6.3-.8 8.7-3.2 9.5-9.5z"/><path d="M22.5 20.5l2.6 2.6M41.5 20.5l-2.6 2.6M22.5 41.5l2.6-2.6M41.5 41.5l-2.6-2.6M32 15.5v2M32 44.5v2"/>',
 ];
 function leagueArt(lg, locked = false) {
   const i = catalog.leagues.indexOf(lg),
     id = `lg-${lg.id}${locked ? "-x" : ""}`,
     c1 = locked ? "#f1f0eb" : lg.c1,
-    c2 = locked ? "#c9c7bf" : lg.c2;
-  return `<svg viewBox="0 0 64 64" class="lg-art" aria-hidden="true"><defs><linearGradient id="${id}" x1="0" y1="0" x2=".3" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient></defs>
+    c2 = locked ? "#c9c7bf" : lg.c2,
+    top = !locked && i === catalog.leagues.length - 1;
+  return `<svg viewBox="0 0 64 64" class="lg-art${top ? " lg-top" : ""}" aria-hidden="true"><defs><linearGradient id="${id}" x1="0" y1="0" x2=".3" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient></defs>
     <path d="M32 4 54 13v17c0 14-9 24-22 30C19 54 10 44 10 30V13z" fill="url(#${id})"/>
     <path d="M32 10.5 48.5 17.2V30c0 10.5-6.6 18-16.5 22.6C22.1 48 15.5 40.5 15.5 30V17.2z" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width="1.3"/>
     <g fill="none" stroke-linecap="round" stroke-linejoin="round"><g stroke="${c2}" stroke-width="5" opacity=".55">${LEAGUE_GLYPH[i]}</g><g stroke="#fff" stroke-width="2.4">${LEAGUE_GLYPH[i]}</g></g></svg>`;
 }
 function leagueStrip(index) {
-  return `<div class="lg-strip" role="list">${catalog.leagues
+  return `<div class="lg-strip" role="list" style="--n:${catalog.leagues.length}">${catalog.leagues
     .map((lg, i) => `<div role="listitem" class="lg-step${i === index ? " on" : ""}${i < index ? " past" : ""}" style="${leagueVars(lg)}">${leagueArt(lg, i > index)}<span>${esc(lg.name)}</span></div>`)
     .join("")}</div>`;
 }
-function leagueList(index) {
+function leagueList(index, earned = 0) {
   return `<div class="lg-list">${catalog.leagues
     .map((lg, i) => {
-      const state = i === index ? "Tu liga" : i < index ? "✓ Superada" : `${lg.min} pts`;
-      return `<div class="lg-row${i === index ? " on" : ""}${i > index ? " locked" : ""}" style="${leagueVars(lg)}">${leagueArt(lg, i > index)}<div><strong>${esc(lg.name)}</strong><span>${svg(ICONS.gift)}${esc(lg.perk)}</span></div><em>${state}</em></div>`;
+      const state = i === index ? "Tu liga" : i < index ? "✓ Superada" : `${nf(lg.min)} pts`,
+        left = i > index ? lg.min - earned : 0;
+      return `<div class="lg-row${i === index ? " on" : ""}${i > index ? " locked" : ""}${i === catalog.leagues.length - 1 ? " top" : ""}" style="${leagueVars(lg)}">${leagueArt(lg, i > index)}<div><strong>${esc(lg.name)}<small>${esc(lg.motto)}</small></strong><ul class="lg-perks">${lg.perks.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>${
+        user && i === index + 1 ? `<span class="lg-left">Te faltan ${nf(left)} puntos · unos ${cutsFor(left)} ${cutsFor(left) === 1 ? "corte" : "cortes"}</span>` : ""
+      }</div><em>${state}</em></div>`;
     })
     .join("")}</div>`;
 }
 
-// Medallas: rueda dentada (cortes), escudo (amigos) y hexágono (especiales).
+// Medallas: rueda dentada (silla), sello (constancia), rombo (NOVA Supply),
+// escudo (amigos) y hexágono (especiales).
 const GEAR = (() => {
   const pts = [],
     n = 12;
@@ -1245,13 +1289,27 @@ const GEAR = (() => {
   }
   return "M" + pts.join("L") + "Z";
 })();
+const SEAL = (() => {
+  const pts = [],
+    n = 16;
+  for (let k = 0; k < n * 2; k++) {
+    const a = (k / (n * 2)) * Math.PI * 2,
+      r = k % 2 ? 26.5 : 30;
+    pts.push(`${(32 + r * Math.sin(a)).toFixed(2)},${(32 - r * Math.cos(a)).toFixed(2)}`);
+  }
+  return "M" + pts.join("L") + "Z";
+})();
 const MEDAL_SHAPE = {
-  cortes: GEAR,
+  silla: GEAR,
+  constancia: SEAL,
+  supply: "M32 2.5 61.5 32 32 61.5 2.5 32z",
   amigos: "M32 3 55 11v19c0 15-10 25-23 31C19 55 9 45 9 30V11z",
   especiales: "M32 3l25 14.5v29L32 61 7 46.5v-29z",
 };
 const MEDAL_TINT = {
-  cortes: ["#fff3cc", "#f3cf8a", "#a8701c", "#5c3d0c"],
+  silla: ["#fff3cc", "#f3cf8a", "#a8701c", "#5c3d0c"],
+  constancia: ["#fff0e0", "#ffb37a", "#c24d1c", "#5e1f08"],
+  supply: ["#ffeef4", "#f4a9c2", "#b23d63", "#4d1426"],
   amigos: ["#eef6ff", "#a9cdf7", "#3b6db0", "#16335c"],
   especiales: ["#f4ebff", "#cdb2ff", "#6d43c2", "#33196b"],
 };
@@ -1264,12 +1322,17 @@ function medalArt(md, got) {
     <g transform="translate(23 21) scale(.75)" fill="none" stroke="${got ? cm : "#a2a29d"}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[md.icon] || ICONS.star}</g>
     <text x="32" y="44" text-anchor="middle" font-family="Arial" font-size="4.4" font-weight="700" letter-spacing=".5" fill="${got ? cm : ink}">${esc(md.code)}</text></svg>`;
 }
-function medalCard(md, st) {
+const MEDAL_UNIT = { cuts: ["corte", "cortes"], friends: ["amigo", "amigos"], items: ["prenda", "prendas"], fresh: ["vuelta", "vueltas"], streak: ["mes", "meses"] };
+// «Falta 1 corte», «Faltan 2 meses»… o la descripción si no se cuenta en unidades.
+function medalLeft(md, st) {
   const left = md.goal - st.progress,
-    unit = md.metric === "cuts" ? ["corte", "cortes"] : md.metric === "friends" ? ["amigo", "amigos"] : null,
-    sub = st.got ? "✓ Conseguida" : unit ? `Falta${left === 1 ? "" : "n"} ${left} ${left === 1 ? unit[0] : unit[1]}` : md.desc,
+    unit = MEDAL_UNIT[md.metric];
+  return unit && md.goal > 1 ? `Falta${left === 1 ? "" : "n"} ${left} ${left === 1 ? unit[0] : unit[1]}` : md.desc || `Falta${left === 1 ? "" : "n"} ${left}`;
+}
+function medalCard(md, st) {
+  const sub = st.got ? "✓ Conseguida" : medalLeft(md, st),
     bar = !st.got && md.goal > 1 ? `<div class="md-bar" title="${st.progress}/${md.goal}"><i style="width:${Math.max(4, Math.round((st.progress / md.goal) * 100))}%"></i></div>` : "";
-  return `<div class="md${st.got ? " got" : ""}"><div class="md-art">${medalArt(md, st.got)}${st.got ? "" : `<span class="md-lock">${svg(ICONS.lock)}</span>`}</div><strong>${esc(md.name)}</strong><span class="md-sub">${esc(sub)}</span>${bar}<span class="md-chip">${svg(ICONS.gift)}+${md.bonus} ${md.bonus === 1 ? "punto" : "puntos"}</span></div>`;
+  return `<div class="md${st.got ? " got" : ""}" title="${esc(md.desc || md.name)}"><div class="md-art">${medalArt(md, st.got)}${st.got ? "" : `<span class="md-lock">${svg(ICONS.lock)}</span>`}</div><strong>${esc(md.name)}</strong><span class="md-sub">${esc(sub)}</span>${bar}<span class="md-chip">${svg(ICONS.gift)}+${nf(md.bonus)} pts</span></div>`;
 }
 function medalsBlock(m) {
   const all = catalog.medals.map((md, i) => [md, m.medals[i]]),
@@ -1284,6 +1347,85 @@ function medalsBlock(m) {
       .join("") +
     `</div>`
   );
+}
+
+// «Lo próximo»: las medallas que tienes más cerca. Es lo que hace volver:
+// ver que te falta un corte para algo.
+function nearMedals(m, n = 3) {
+  return catalog.medals
+    .map((md, i) => [md, m.medals[i]])
+    .filter(([md, s]) => !s.got && !["profile", "year"].includes(md.metric))
+    .sort(([a, sa], [b, sb]) => sb.progress / b.goal - sa.progress / a.goal || a.goal - sa.progress - (b.goal - sb.progress) || b.bonus - a.bonus)
+    .slice(0, n);
+}
+function nextBlock(m, L) {
+  const near = nearMedals(m),
+    target = L.toNext ? catalog.leagues.find((lg) => L.nextLabel.split(" ")[0] === lg.name) || L.league : null;
+  if (!near.length && !target) return "";
+  return (
+    `<p class="section-label">Lo próximo</p><div class="nx-list">` +
+    (target
+      ? `<div class="nx nx-league" style="${leagueVars(target)}">${leagueArt(target)}<div><strong>${esc(L.nextLabel)}</strong><span>Te faltan ${nf(L.toNext)} puntos · unos ${cutsFor(L.toNext)} ${cutsFor(L.toNext) === 1 ? "corte" : "cortes"}</span><div class="md-bar"><i style="width:${L.pct}%"></i></div></div></div>`
+      : "") +
+    near
+      .map(
+        ([md, s]) =>
+          `<div class="nx"><span class="nx-art">${medalArt(md, false)}</span><div><strong>${esc(md.name)}</strong><span>${esc(medalLeft(md, s))}${md.desc && MEDAL_UNIT[md.metric] && md.goal > 1 ? ` · ${esc(md.desc)}` : ""}</span>${
+            md.goal > 1 ? `<div class="md-bar"><i style="width:${Math.max(4, Math.round((s.progress / md.goal) * 100))}%"></i></div>` : ""
+          }</div><b>+${nf(md.bonus)}</b></div>`,
+      )
+      .join("") +
+    `</div>`
+  );
+}
+
+// Celebración al entrar si desde la última vez hay medalla nueva o subes de liga.
+// La primera vez en un aparato solo se apunta lo que hay, sin fiesta.
+function celebrate(m, L) {
+  const key = "nova_seen_" + (user?.email || ""),
+    got = catalog.medals.filter((_, i) => m.medals[i].got).map((md) => md.id);
+  let seen = null;
+  try {
+    seen = JSON.parse(localStorage.getItem(key) || "null");
+    localStorage.setItem(key, JSON.stringify({ medals: got, league: L.label, index: L.index }));
+  } catch {}
+  if (!seen) return;
+  const fresh = catalog.medals.filter((md) => got.includes(md.id) && !seen.medals.includes(md.id)),
+    up = L.label !== seen.league && (L.index > seen.index || (L.index === seen.index && DIV.indexOf(L.label.split(" ").pop()) > DIV.indexOf(String(seen.league).split(" ").pop())));
+  if (!fresh.length && !up) return;
+  const newLeague = up && L.index > seen.index;
+  const sh = sheet(
+    (up
+      ? `<div class="cel" style="${leagueVars(L.league)}"><div class="cel-art">${leagueArt(L.league)}</div><p class="eyebrow">${newLeague ? "Nueva liga" : "Subes de división"}</p><h2>${esc(L.label)}</h2><p class="cel-motto">${esc(L.league.motto)}</p>${
+          newLeague ? `<ul class="lg-perks cel-perks">${L.league.perks.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : ""
+        }</div>`
+      : "") +
+      (fresh.length
+        ? `<div class="cel-medals"><p class="eyebrow">${fresh.length === 1 ? "Medalla nueva" : `${fresh.length} medallas nuevas`}</p>${fresh
+            .slice(0, 4)
+            .map((md) => `<div class="nx"><span class="nx-art">${medalArt(md, true)}</span><div><strong>${esc(md.name)}</strong><span>${esc(md.desc || "Conseguida")}</span></div><b>+${nf(md.bonus)}</b></div>`)
+            .join("")}${fresh.length > 4 ? `<p class="muted" style="text-align:center;margin:4px 0 0">y ${fresh.length - 4} más en tu perfil</p>` : ""}</div>`
+        : "") +
+      `<button type="button" class="btn wide" id="cel-ok">Seguir</button>`,
+  );
+  sh.el.querySelector("#cel-ok").onclick = sh.close;
+  confetti();
+}
+
+// NOVA Supply: la ropa de la casa. Lo que compras allí también suma.
+function supplyBlock(L) {
+  const S = catalog.shop,
+    disc = L ? shopDiscount(L.index) : null;
+  return `<section class="supply">
+    <figure class="sp-photo"><img src="/assets/supply.jpg" alt="Camisetas de ${esc(S.name)}" loading="lazy" width="760" height="1350"></figure>
+    <div class="sp-txt">
+      <span class="club-tag">${esc(S.name.toUpperCase())}</span>
+      <h2>La ropa de <em class="serif">la casa.</em></h2>
+      <p>Cada euro en ropa también suma: <b>${catalog.points.perEuro} puntos por euro</b>. Di tu código del Club al pagar en el estudio.</p>
+      ${disc ? `<p class="sp-disc" style="${leagueVars(L.league)}">${leagueArt(L.league)}<span>Tu liga ${esc(L.league.name)}: <b>${esc(disc)}</b></span></p>` : `<p class="sp-disc sp-soon">Desde ${esc(catalog.leagues.find((lg) => lg.perks.some((p) => /%.*Supply/.test(p)))?.name || "")}, descuento en cada prenda.</p>`}
+      <a class="btn wide club-btn" href="${esc(S.url)}" target="_blank" rel="noopener">Ver la tienda · ${esc(S.label)} ↗</a>
+    </div>
+  </section>`;
 }
 function inviteBlock(m) {
   return `<section class="invite" id="amigos">
@@ -1324,7 +1466,7 @@ function rewardRow(r, balance) {
   const can = user && balance >= r.cost;
   return `<div class="rw${can ? " can" : ""}"><span class="rw-ic">${svg(ICONS[r.icon] || ICONS.gift)}</span><div><strong>${esc(r.name)}</strong><span>${esc(r.desc)}</span>${
     user && !can ? `<div class="md-bar"><i style="width:${Math.max(4, Math.round((balance / r.cost) * 100))}%"></i></div>` : ""
-  }</div>${can ? `<button type="button" class="rw-btn" data-redeem="${esc(r.id)}">Canjear<small>${r.cost} pts</small></button>` : `<span class="rw-cost">${r.cost}<small>pts</small></span>`}</div>`;
+  }</div>${can ? `<button type="button" class="rw-btn" data-redeem="${esc(r.id)}">Canjear<small>${nf(r.cost)} pts</small></button>` : `<span class="rw-cost">${nf(r.cost)}<small>pts</small></span>`}</div>`;
 }
 // Recorta la foto en cuadrado y la deja en ~20 KB.
 async function shrinkImage(file, size) {
@@ -1397,7 +1539,9 @@ function staffLogin() {
 function staffTop(tab) {
   return (
     `<div class="staff-top">${face(provById(staff.id), "who-face")}<div><p class="eyebrow">${staff.owner ? "Propietario" : "Panel de barbero"}</p><h1>Hola, ${esc(first(staff.name))}</h1></div></div>` +
-    `<div class="tabs" role="navigation" aria-label="Panel"><a href="#equipo" class="${tab === "agenda" ? "active" : ""}" ${tab === "agenda" ? 'aria-current="page"' : ""}>Agenda</a><a href="#equipo/caja" class="${tab === "caja" ? "active" : ""}" ${tab === "caja" ? 'aria-current="page"' : ""}>${staff.owner ? "Caja y comisiones" : "Mi caja"}</a><a href="#equipo/faltas" class="${tab === "faltas" ? "active" : ""}" ${tab === "faltas" ? 'aria-current="page"' : ""}>Faltas</a></div>`
+    `<div class="tabs" role="navigation" aria-label="Panel"><a href="#equipo" class="${tab === "agenda" ? "active" : ""}" ${tab === "agenda" ? 'aria-current="page"' : ""}>Agenda</a><a href="#equipo/caja" class="${tab === "caja" ? "active" : ""}" ${tab === "caja" ? 'aria-current="page"' : ""}>${staff.owner ? "Caja y comisiones" : "Mi caja"}</a><a href="#equipo/faltas" class="${tab === "faltas" ? "active" : ""}" ${tab === "faltas" ? 'aria-current="page"' : ""}>Faltas</a>${
+      staff.owner ? `<a href="#equipo/formacion" class="${tab === "formacion" ? "active" : ""}" ${tab === "formacion" ? 'aria-current="page"' : ""}>Formación</a>` : ""
+    }</div>`
   );
 }
 
@@ -1407,7 +1551,7 @@ async function staffAgenda() {
   const canjes = rd.pending.length
     ? `<section class="ag-col"><div class="ag-head"><h2>Premios por entregar</h2><span>${rd.pending.length}</span></div>${rd.pending
         .map(
-          (x) => `<div class="ag-item rd-item"><time>${esc(x.id)}</time><div><strong>${esc(x.reward.name)}</strong><span>${esc(x.name || x.email)} · ${x.reward.cost} pts</span></div><span class="seg"><button type="button" class="small" data-rd="${esc(x.id)}" data-st="done">Entregado</button></span></div>`,
+          (x) => `<div class="ag-item rd-item"><time>${esc(x.id)}</time><div><strong>${esc(x.reward.name)}</strong><span>${esc(x.name || x.email)} · ${nf(x.reward.cost)} pts</span></div><span class="seg"><button type="button" class="small" data-rd="${esc(x.id)}" data-st="done">Entregado</button></span></div>`,
         )
         .join("")}</section>`
     : "";
@@ -1448,7 +1592,7 @@ async function staffAgenda() {
     staffTop("agenda") +
       `<p class="ag-day">${esc(longDay(staffDay))}</p>` +
       `<div class="day-strip" id="strip">${strip}</div>` +
-      `<div class="staff-bar"><button type="button" class="btn" id="new-bk">+ Cita</button><button type="button" class="btn secondary" id="new-block">Bloquear hora</button></div>` +
+      `<div class="staff-bar"><button type="button" class="btn" id="new-bk">+ Cita</button><button type="button" class="btn secondary" id="new-block">Bloquear hora</button><button type="button" class="btn secondary" id="new-shop">${svg(ICONS.bag)} Venta de ropa</button></div>` +
       canjes +
       cols +
       (staff.owner ? "" : `<button type="button" class="btn wide secondary" style="margin-top:14px" id="see-all">${staffAll ? "Ver solo mi agenda" : "Ver la agenda de todo el salón"}</button>`) +
@@ -1473,6 +1617,7 @@ async function staffAgenda() {
   );
   $("#new-bk").onclick = () => staffNew(false);
   $("#new-block").onclick = () => staffNew(true);
+  $("#new-shop").onclick = () => staffShop("");
   const all = $("#see-all");
   if (all) all.onclick = () => ((staffAll = !staffAll), render());
   $("#staff-out").onclick = async () => {
@@ -1599,6 +1744,7 @@ function staffSheet(b) {
               ? ""
               : `<div class="seg"><button type="button" class="${b.attendance === "done" ? "" : "secondary"}" data-att="done">✓ Vino</button><button type="button" class="${b.attendance === "absent" ? "" : "secondary"}" data-att="absent">✗ No vino</button></div>` +
                 staffCharge(b) +
+                (b.email && b.attendance !== "absent" ? `<button type="button" class="btn wide secondary sp-staff-btn" id="sh-shop">${svg(ICONS.bag)} Se lleva ropa de ${esc(catalog.shop.name)}</button>` : "") +
                 (b.phone ? `<div class="form-actions"><a class="btn secondary" href="tel:${esc(b.phone.replace(/\s/g, ""))}">Llamar</a><a class="btn wa-btn" target="_blank" rel="noopener" href="https://wa.me/${esc(b.phone.replace(/\D/g, ""))}">WhatsApp</a></div>` : "")) +
             `<button type="button" class="btn wide danger" style="margin-top:12px" id="sh-cancel">${block ? "Quitar bloqueo" : "Cancelar cita"}</button>`),
   );
@@ -1618,6 +1764,8 @@ function staffSheet(b) {
       }),
   );
   bindStaffCharge(sh, b);
+  const shop = sh.el.querySelector("#sh-shop");
+  if (shop) shop.onclick = () => (sh.close(), staffShop(b.email));
   const c = sh.el.querySelector("#sh-cancel");
   if (c)
     c.onclick = async () => {
@@ -1637,6 +1785,73 @@ function staffSheet(b) {
       }
     };
 }
+// ── Equipo: venta de ropa de NOVA Supply ───────────────────────────────────
+// El barbero apunta lo que se lleva el socio y el Club le suma los puntos.
+// Se busca al socio por su correo o por su código del Club.
+function staffShop(email) {
+  const S = catalog.shop,
+    P = catalog.points;
+  const sh = sheet(`<p class="eyebrow">${esc(S.name)}</p><h2>Venta de ropa</h2><div id="sp-flow"></div>`);
+  const flow = sh.el.querySelector("#sp-flow");
+  const find = () => {
+    flow.innerHTML = `<p class="muted" style="margin-top:0">Pídele su correo o su código del Club (sale en su perfil, en «Invita y suma»).</p>
+      <form id="sp-find"><label for="sp-q">Correo o código</label><input id="sp-q" name="q" required autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="cliente@correo.com o CARLOS482"><button class="btn wide" style="margin-top:14px" type="submit">Buscar socio</button></form>`;
+    const f = flow.querySelector("#sp-find");
+    f.q.focus();
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        load((await api("staff/member?q=" + encodeURIComponent(f.q.value.trim()))).member);
+      } catch (err) {
+        toast(err.message);
+      }
+    };
+  };
+  const load = (mb) => {
+    const L = leagueOf(mb.earned),
+      disc = shopDiscount(L.index);
+    flow.innerHTML = `<div class="pick-summary sp-who" style="${leagueVars(L.league)}">${leagueArt(L.league)}<div><strong>${esc(mb.name || mb.email)}</strong><span>Socio Nº ${String(mb.no || 0).padStart(4, "0")} · ${esc(L.label)}${disc ? ` · <b>${esc(disc)}</b>` : ""}</span></div></div>
+      <form id="sp-sale"><div class="form-row2"><div><label for="sp-amount">Importe pagado (€)</label><input id="sp-amount" name="amount" required inputmode="decimal" placeholder="47,50" autocomplete="off"></div><div><label for="sp-items">Prendas</label><input id="sp-items" name="items" required type="number" min="1" max="30" value="1"></div></div>
+      <p class="sp-preview" id="sp-preview">Suma ${P.perEuro} puntos por cada euro.</p>
+      <button class="btn wide" style="margin-top:6px" type="submit">Sumar puntos</button></form>`;
+    const f = flow.querySelector("#sp-sale"),
+      pv = flow.querySelector("#sp-preview");
+    f.amount.focus();
+    f.amount.oninput = () => {
+      const n = Number(f.amount.value.replace(",", "."));
+      pv.innerHTML = n > 0 ? `Le suma <b>+${nf(Math.round(n * P.perEuro))} puntos</b>` : `Suma ${P.perEuro} puntos por cada euro.`;
+    };
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const btn = f.querySelector("[type=submit]");
+      btn.disabled = true;
+      try {
+        const { purchase: p } = await api("staff/shop", { email: mb.email, amount: f.amount.value, items: f.items.value });
+        flow.innerHTML = `<div class="booked-hero"><span class="booked-check">✓</span><h2>+${nf(p.points)} puntos</h2><p class="sub">Para ${esc(first(mb.name || mb.email))} · ${p.items} ${p.items === 1 ? "prenda" : "prendas"} · ${euro(p.amount)}</p></div>
+          <div class="form-actions"><button type="button" class="btn secondary" id="sp-undo">Deshacer</button><button type="button" class="btn" id="sp-ok">Hecho</button></div>`;
+        flow.querySelector("#sp-ok").onclick = sh.close;
+        flow.querySelector("#sp-undo").onclick = async (ev) => {
+          ev.currentTarget.disabled = true;
+          try {
+            await api(`staff/shop/${p.id}/delete`, {});
+            toast("Venta quitada.");
+            sh.close();
+          } catch (err) {
+            toast(err.message);
+          }
+        };
+      } catch (err) {
+        btn.disabled = false;
+        toast(err.message);
+      }
+    };
+  };
+  if (!email) return find();
+  api("staff/member?q=" + encodeURIComponent(email))
+    .then((r) => load(r.member))
+    .catch((err) => (toast(err.message), find()));
+}
+
 // ── Equipo: faltas y cobros ────────────────────────────────────────────────
 // Dentro de la ficha de una cita marcada «No vino»: cobrar el servicio en la
 // tarjeta que el cliente dejó en garantía, y ver cómo ha ido el cobro.
@@ -1808,6 +2023,240 @@ function loginScreen(reason, next) {
   });
 }
 
+// ── Formación ──────────────────────────────────────────────────────────────
+// Fase 1: una página para quien quiere aprender (no para clientes) y una lista
+// de interesados que solo ve el dueño. Se comparte con nova.appflu.es/formacion.
+const TR_KEY = "nova_train";
+function trainSaved() {
+  try {
+    return JSON.parse(localStorage.getItem(TR_KEY));
+  } catch {
+    return null;
+  }
+}
+const TR_STATUS = { new: ["Nuevo", "st-ok"], contacted: ["Contactado", "st-wait"], enrolled: ["Apuntado", "st-done"], discarded: ["Descartado", "st-cancel"] };
+
+function trainingCard() {
+  if (!catalog.training) return "";
+  const a = provById(catalog.training.teacher);
+  return `<section class="home-block" aria-labelledby="train-title">
+    <a class="train-card" href="#formacion">
+      <span class="tc-photo"><img src="/assets/oficio.jpg" alt="" loading="lazy"></span>
+      <span class="tc-txt"><small>Formación · ${esc(catalog.training.status)}</small>
+        <strong id="train-title">¿Quieres aprender <em class="serif">a cortar?</em></strong>
+        <span>${esc(first(a?.name || "Airam"))} prepara clases para empezar desde cero o para afinar tu técnica.</span>
+        <b>Apúntate a la lista <span aria-hidden="true">→</span></b></span>
+    </a>
+  </section>`;
+}
+
+function trainForm(T) {
+  const opt = (name, list, type, req = false) =>
+    list
+      .map((x) => {
+        const id = x.id || x,
+          label = x.name || x;
+        return `<label class="tchip"><input type="${type}" name="${name}" value="${esc(id)}" ${req ? "required" : ""}><span>${esc(label)}</span></label>`;
+      })
+      .join("");
+  return `<form id="train" class="card tr-form" novalidate>
+    <p class="eyebrow">Lista de interesados</p><h2>Apúntate <em class="serif">sin compromiso.</em></h2>
+    <label for="t-name">Nombre</label><input id="t-name" name="name" required maxlength="120" autocomplete="name" value="${esc(user?.name || "")}">
+    <label for="t-phone">Teléfono <small>(te escribiremos por WhatsApp)</small></label><input id="t-phone" name="phone" type="tel" inputmode="tel" required maxlength="25" autocomplete="tel" value="${esc(user?.phone || "+34 ")}">
+    <label for="t-email">Correo <small>(opcional)</small></label><input id="t-email" name="email" type="email" autocomplete="email" value="${esc(user?.email || "")}">
+    <label for="t-insta">Instagram <small>(opcional, para ver tus cortes)</small></label><input id="t-insta" name="instagram" maxlength="40" autocapitalize="off" placeholder="@tuusuario">
+    <fieldset class="tr-field"><legend>¿Cuál es tu nivel?</legend><div class="tr-levels pick">${T.levels
+      .map((l) => `<label class="tr-level"><input type="radio" name="level" value="${esc(l.id)}" required><strong>${esc(l.name)}</strong><span>${esc(l.desc)}</span></label>`)
+      .join("")}</div></fieldset>
+    <fieldset class="tr-field"><legend>¿Cómo prefieres las clases?</legend><div class="tchips">${opt("format", T.formats, "radio")}</div></fieldset>
+    <fieldset class="tr-field"><legend>¿Qué te interesa? <small>Marca todo lo que quieras</small></legend><div class="tchips">${opt("topics", T.topics, "checkbox")}</div></fieldset>
+    <fieldset class="tr-field"><legend>¿Cuándo te viene bien?</legend><div class="tchips">${opt("availability", T.availability, "checkbox")}</div></fieldset>
+    <label for="t-msg">¿Algo más? <small>(opcional)</small></label><textarea id="t-msg" name="message" rows="3" maxlength="600" placeholder="Tu experiencia, qué te gustaría conseguir…"></textarea>
+    <label class="check"><input type="checkbox" name="consent" required><span>Acepto que me contactéis por WhatsApp o correo sobre la formación. <a href="#privacidad" target="_blank">Privacidad</a>.</span></label>
+    <button class="btn wide" type="submit">Apuntarme a la lista</button>
+    <p class="pay-note">Gratis y sin compromiso. Puedes pedir que te borremos cuando quieras.</p>
+  </form>`;
+}
+const trainDone = (s) =>
+  `<div class="card tr-done"><span class="tr-check" aria-hidden="true">✓</span><h2>Estás en la lista${s.name ? `, <em class="serif">${esc(first(s.name))}.</em>` : "."}</h2>
+    <p>Te escribiremos por WhatsApp en cuanto haya fechas, antes de anunciarlo a nadie más.</p>
+    <button type="button" class="btn secondary wide" id="tr-edit">Cambiar mis respuestas</button></div>`;
+
+async function trainingPage() {
+  const T = catalog.training,
+    a = provById(T.teacher),
+    who = first(a?.name || "Airam");
+  show(
+    back("home", "Inicio") +
+      `<section class="tr-hero">
+        <span class="tr-photo">${a?.image ? `<img src="${esc(a.image)}" alt="${esc(a.name)}">` : ""}</span>
+        <div class="tr-hero-in">
+          <span class="tr-status"><i></i>${esc(T.status)} · lista abierta</span>
+          <p class="eyebrow">Formación</p>
+          <h1>Aprende el oficio <em>con ${esc(who)}.</em></h1>
+          <p class="sub">Clases prácticas de barbería en el estudio de Vecindario, para empezar desde cero o para afinar tu técnica.</p>
+          <a class="btn" href="#tr-form" id="tr-jump">Quiero apuntarme</a>
+        </div>
+      </section>
+      <section class="tr-block"><p class="eyebrow">Qué vas a aprender</p><h2>Del primer degradado <em>al acabado.</em></h2>
+        <ul class="tr-topics">${T.topics.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></section>
+      <section class="tr-block"><p class="eyebrow">Para quién</p><h2>Vengas de donde <em>vengas.</em></h2>
+        <div class="tr-levels">${T.levels.map((l, i) => `<div class="tr-level"><small>${pad(i + 1)}</small><strong>${esc(l.name)}</strong><span>${esc(l.desc)}</span></div>`).join("")}</div></section>
+      <section class="tr-block"><p class="eyebrow">Cómo funciona</p><h2>Primero, <em>la lista.</em></h2>
+        <ol class="tr-steps">
+          <li><strong>Te apuntas.</strong> Es gratis y no te compromete a nada.</li>
+          <li><strong>${esc(who)} prepara las fechas</strong> según el nivel y los horarios de quienes se apuntan.</li>
+          <li><strong>Te escribimos los primeros</strong>, antes de anunciarlo, con fechas, plazas y precio.</li>
+        </ol></section>
+      <section class="tr-block" id="tr-form">${trainSaved() ? trainDone(trainSaved()) : trainForm(T)}</section>
+      <p class="muted tr-wa">¿Dudas? <a href="${wa(`Hola, me interesa la formación de barbería con ${who}.`)}" target="_blank" rel="noopener">Escríbenos por WhatsApp</a>.</p>` +
+      legalLinks(),
+  );
+  $("#tr-jump").onclick = (e) => {
+    e.preventDefault();
+    $("#tr-form").scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  bindTrainForm(T);
+}
+function bindTrainForm(T) {
+  $("#tr-edit")?.addEventListener("click", () => {
+    $("#tr-form").innerHTML = trainForm(T);
+    bindTrainForm(T);
+  });
+  const f = $("#train");
+  if (!f) return;
+  f.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    for (const el of f.querySelectorAll("input[required]:not([type=radio])")) if (!el.reportValidity()) return;
+    const fd = new FormData(f);
+    if (!fd.get("level")) {
+      f.querySelector("[name=level]").closest("fieldset").scrollIntoView({ behavior: "smooth", block: "center" });
+      return toast("Dinos tu nivel.");
+    }
+    const btn = f.querySelector("[type=submit]");
+    btn.disabled = true;
+    try {
+      await api("training/interest", {
+        name: fd.get("name"),
+        phone: fd.get("phone"),
+        email: fd.get("email"),
+        instagram: fd.get("instagram"),
+        level: fd.get("level"),
+        format: fd.get("format") || "",
+        topics: fd.getAll("topics"),
+        availability: fd.getAll("availability"),
+        message: fd.get("message"),
+        consent: fd.get("consent") === "on",
+      });
+      const saved = { name: String(fd.get("name") || "").trim(), at: Date.now() };
+      try {
+        localStorage.setItem(TR_KEY, JSON.stringify(saved));
+      } catch {}
+      tap();
+      $("#tr-form").innerHTML = trainDone(saved);
+      bindTrainForm(T);
+      $("#tr-form").scrollIntoView({ behavior: "smooth", block: "center" });
+    } catch (err) {
+      btn.disabled = false;
+      toast(err.message);
+    }
+  });
+}
+
+// Panel del dueño: quién quiere aprender y qué pide, para decidir fechas y grupos.
+let trainFilter = "all";
+async function staffTraining() {
+  let r;
+  try {
+    r = await api("staff/training");
+  } catch (e) {
+    if (e.status === 403) return show(staffTop("formacion") + `<p class="ag-free">${esc(e.message)}</p>`);
+    throw e;
+  }
+  const T = catalog.training,
+    S = r.stats;
+  const name = (list, id) => list.find((x) => (x.id || x) === id)?.name || id;
+  const bars = (title, counts, list) => {
+    const rows = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    if (!rows.length) return "";
+    const max = rows[0][1];
+    return `<div class="tr-bars"><p class="section-label">${title}</p>${rows
+      .map(([k, n]) => `<div class="tr-bar"><span>${esc(name(list, k))}</span><i style="--w:${Math.round((n / max) * 100)}%"></i><b>${n}</b></div>`)
+      .join("")}</div>`;
+  };
+  const shown = r.list.filter((t) => trainFilter === "all" || t.status === trainFilter);
+  const filters = [["all", "Todos", S.total], ["new", "Nuevos", S.fresh], ["contacted", "Contactados"], ["enrolled", "Apuntados", S.enrolled], ["discarded", "Descartados"]];
+  const link = location.origin + "/formacion";
+  show(
+    staffTop("formacion") +
+      `<div class="stat3 money"><div><strong>${S.total}</strong><span>Interesados</span></div><div><strong>${S.fresh}</strong><span>Sin contactar</span></div><div><strong>${S.enrolled}</strong><span>Apuntados</span></div></div>` +
+      `<div class="card tr-share"><div><strong>Enlace para compartir</strong><span>${esc(link.replace(/^https?:\/\//, ""))}</span></div><button type="button" class="btn small" id="tr-share">Compartir</button></div>` +
+      (S.total
+        ? `<details class="caja-more" ${S.total >= 3 ? "open" : ""}><summary>Qué piden</summary>${bars("Nivel", S.level, T.levels)}${bars("Formato", S.format, T.formats)}${bars("Les interesa", S.topics, T.topics)}${bars("Cuándo pueden", S.availability, T.availability)}</details>` +
+          `<div class="tr-filter" role="tablist">${filters
+            .map(([k, l, n]) => `<button type="button" class="${trainFilter === k ? "on" : ""}" data-f="${k}">${l}${n !== undefined ? ` <small>${n}</small>` : ""}</button>`)
+            .join("")}</div>` +
+          (shown.length
+            ? shown
+                .map((t) => {
+                  const [st, cls] = TR_STATUS[t.status] || TR_STATUS.new;
+                  const msg = `Hola ${first(t.name)}, soy ${first(staff.name)} de NOVA Studio. Te escribo por la formación de barbería que pediste en la app.`;
+                  return `<article class="card tr-item" data-id="${esc(t.id)}">
+                    <div class="tr-item-top"><div><strong>${esc(t.name)}</strong><span>${esc(name(T.levels, t.level))}${t.format ? " · " + esc(name(T.formats, t.format)) : ""}</span></div><span class="appt-state ${cls}">${st}</span></div>
+                    ${t.topics.length ? `<p class="tr-tags">${t.topics.map((x) => `<span>${esc(x)}</span>`).join("")}</p>` : ""}
+                    ${t.availability.length ? `<p class="tr-line">🕒 ${esc(t.availability.join(" · "))}</p>` : ""}
+                    ${t.message ? `<p class="tr-msg">«${esc(t.message)}»</p>` : ""}
+                    <p class="tr-line muted">${esc(t.phone)}${t.email ? " · " + esc(t.email) : ""}${t.instagram ? ` · <a href="https://instagram.com/${encodeURIComponent(t.instagram)}" target="_blank" rel="noopener">@${esc(t.instagram)}</a>` : ""} · ${esc(shortDate(t.created.slice(0, 10)))}</p>
+                    <div class="form-actions" style="margin-top:10px"><a class="btn small wa-btn" target="_blank" rel="noopener" href="https://wa.me/${esc(t.phone.replace(/\D/g, ""))}?text=${encodeURIComponent(msg)}">WhatsApp</a>
+                      <select class="tr-st" aria-label="Estado">${Object.entries(TR_STATUS).map(([k, [l]]) => `<option value="${k}" ${k === t.status ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+                    <button type="button" class="tr-del" data-del="${esc(t.id)}">Borrar sus datos</button>
+                  </article>`;
+                })
+                .join("")
+            : `<p class="ag-free">Nadie en este filtro.</p>`)
+        : `<p class="ag-free">Aún no se ha apuntado nadie. Comparte el enlace en tu Instagram para empezar a llenar la lista.</p>`),
+  );
+  $("#tr-share").onclick = async () => {
+    try {
+      if (navigator.share) await navigator.share({ title: "Formación de barbería", url: link });
+      else {
+        await navigator.clipboard.writeText(link);
+        toast("Enlace copiado.");
+      }
+    } catch {}
+  };
+  $$(".tr-filter [data-f]").forEach((b) => (b.onclick = () => ((trainFilter = b.dataset.f), render())));
+  $$(".tr-item .tr-st").forEach(
+    (s) =>
+      (s.onchange = async () => {
+        try {
+          await api("staff/training/" + s.closest(".tr-item").dataset.id, { status: s.value });
+          toast("Guardado.");
+          render();
+        } catch (e) {
+          toast(e.message);
+        }
+      }),
+  );
+  $$("[data-del]").forEach(
+    (b) =>
+      (b.onclick = async () => {
+        if (b.dataset.sure !== "1") {
+          b.dataset.sure = "1";
+          b.textContent = "Pulsa otra vez para borrar";
+          return;
+        }
+        try {
+          await api("staff/training/" + b.dataset.del, { delete: true });
+          toast("Datos borrados.");
+          render();
+        } catch (e) {
+          toast(e.message);
+        }
+      }),
+  );
+}
+
 // ── Tarjeta en garantía (Stripe) ───────────────────────────────────────────
 // La tarjeta la guarda Stripe; aquí solo se ve la marca y los 4 últimos números.
 const cardOn = () => !!catalog?.card?.enabled;
@@ -1839,7 +2288,7 @@ function loadStripe() {
 }
 const STRIPE_LOOK = {
   theme: "stripe",
-  variables: { colorPrimary: "#171717", colorText: "#171717", colorBackground: "#ffffff", colorDanger: "#a62a29", borderRadius: "12px", fontFamily: "Inter Tight, Arial, sans-serif", fontSizeBase: "16px" },
+  variables: { colorPrimary: "#171717", colorText: "#171717", colorBackground: "#ffffff", colorDanger: "#a62a29", borderRadius: "12px", fontFamily: "Albert Sans, Helvetica Neue, Arial, sans-serif", fontSizeBase: "16px" },
   rules: { ".Input": { border: "1px solid #ccc9c0", boxShadow: "none", padding: "13px" }, ".Input:focus": { border: "1px solid #171717", boxShadow: "0 0 0 1px #171717" } },
 };
 const fakeFields = () =>
@@ -2190,7 +2639,7 @@ async function render() {
 }
 
 // Rutas «bonitas» que llevan a una pantalla (por si se comparten).
-const entry = { "/acceder": "login", "/mis-citas": "bookings", "/perfil": "profile", "/equipo": "equipo", "/reservar": "home" }[location.pathname.replace(/\/$/, "")];
+const entry = { "/acceder": "login", "/mis-citas": "bookings", "/perfil": "profile", "/equipo": "equipo", "/reservar": "home", "/formacion": "formacion" }[location.pathname.replace(/\/$/, "")];
 if (entry && !location.hash) history.replaceState(null, "", "/#" + entry);
 
 // Intro con el logo: solo la primera vez en cada visita y como mínimo un instante, para que se vea.
