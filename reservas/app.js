@@ -114,7 +114,9 @@ let catalog = null,
   lastPage = "",
   staffDay = "",
   staffMonth = "",
-  staffAll = false;
+  staffAll = false,
+  cobroDay = "",
+  cobroPre = "";
 const availCache = new Map();
 
 function load(k) {
@@ -344,7 +346,7 @@ function homeHero() {
       team = catalog.providers;
   return `<section class="hero" aria-labelledby="hero-title">
     <div class="hero-media" id="hero-media">
-      <picture><source media="(orientation: landscape)" srcset="/assets/hero-nova-wide.jpg"><img class="hero-photo" src="/assets/hero-nova.jpg" alt="Herramientas de barbería de NOVA Studio con el logo" fetchpriority="high"></picture>
+      <picture><source media="(orientation: landscape)" srcset="${pic("hero-wide")}"><img class="hero-photo" src="${pic("hero")}" alt="Herramientas de barbería de NOVA Studio con el logo" fetchpriority="high"></picture>
     </div>
     <div class="hero-grain" aria-hidden="true"></div>
     <div class="hero-in" id="hero-in">
@@ -452,10 +454,10 @@ function homeExtras() {
   <p class="eyebrow">Barbería en Gran Canaria</p>
   <h2 id="about-title">Imagen <em class="serif">y estilo.</em></h2>
   <div class="about-photos">
-    <figure><img src="/assets/cabina.jpg" alt="Barbero trabajando con un cliente" loading="lazy"><figcaption>En cabina</figcaption></figure>
-    <figure><img src="/assets/acabado.jpg" alt="Detalle del acabado de un corte" loading="lazy"><figcaption>El acabado</figcaption></figure>
-    <figure><img src="/assets/oficio.jpg" alt="Herramientas de barbería" loading="lazy"><figcaption>El oficio</figcaption></figure>
-    <figure><img src="/assets/casa.jpg" alt="Espejo dorado del estudio" loading="lazy"><figcaption>La casa</figcaption></figure>
+    <figure><img src="${pic("cabina")}" alt="Barbero trabajando con un cliente" loading="lazy"><figcaption>En cabina</figcaption></figure>
+    <figure><img src="${pic("acabado")}" alt="Detalle del acabado de un corte" loading="lazy"><figcaption>El acabado</figcaption></figure>
+    <figure><img src="${pic("oficio")}" alt="Herramientas de barbería" loading="lazy"><figcaption>El oficio</figcaption></figure>
+    <figure><img src="${pic("casa")}" alt="Espejo dorado del estudio" loading="lazy"><figcaption>La casa</figcaption></figure>
   </div>
   <p>Un espacio donde la barbería se encuentra con la creatividad, la moda y la cultura urbana. Hacemos <strong>corte de pelo</strong>, degradados, <strong>corte y barba</strong> y <strong>corte privado</strong> en ${esc(B.street)}, Vecindario. Reserva en segundos, sin llamar y sin descargar nada.</p>
   <ul class="about-tags" aria-label="Servicios"><li>Corte de pelo</li><li>Degradado</li><li>Corte y barba</li><li>Corte privado</li><li>Fuera de horario</li><li>VIP a domicilio</li></ul>
@@ -465,8 +467,8 @@ function homeExtras() {
   <p class="eyebrow">${esc(catalog.shop.name)} · Clothing</p>
   <h2 id="shop-title">La ropa <em class="serif">de la casa.</em></h2>
   <div class="shop-pics">
-    <figure class="shop-main"><img src="/assets/supply.jpg" alt="Camisetas de ${esc(catalog.shop.name)} rosas y grises" loading="lazy" width="760" height="1350"></figure>
-    <figure class="shop-item"><img src="/assets/supply-rosa.jpg" alt="Camiseta rosa de ${esc(catalog.shop.name)} con el emblema en el pecho" loading="lazy" width="920" height="781"><figcaption>Camiseta · Rosa</figcaption></figure>
+    <figure class="shop-main"><img src="${pic("supply")}" alt="Camisetas de ${esc(catalog.shop.name)} rosas y grises" loading="lazy" width="760" height="1350"></figure>
+    <figure class="shop-item"><img src="${pic("supply-rosa")}" alt="Camiseta rosa de ${esc(catalog.shop.name)} con el emblema en el pecho" loading="lazy" width="920" height="781"><figcaption>Camiseta · Rosa</figcaption></figure>
   </div>
   <p>Algodón pesado, corte boxy y el emblema de la estrella. Diseñada en el estudio. <strong>Cada euro en ropa te suma ${catalog.points.perEuro} puntos</strong> en el Club, y desde ${esc(catalog.leagues.find((lg) => lg.perks.some((p) => /%.*Supply/.test(p)))?.name || "")} tienes descuento en cada prenda.</p>
   <div class="home-actions">
@@ -554,11 +556,11 @@ const LEGAL = {
     "Condiciones de reserva",
     () => `<p><b>1. Reservas.</b> Eliges servicio, barbero, día y hora entre los huecos libres. La cita queda confirmada al terminar y la ves en «Mis citas».</p>
     <p><b>2. Precio y pago.</b> Los precios incluyen impuestos. Se paga en el local, en efectivo o con tarjeta.</p>
-    <p><b>3. Cambios y cancelaciones.</b> Desde la app, hasta ${catalog.rules.cancelHours} horas antes. Con menos tiempo, escríbenos por WhatsApp.</p>
+    <p><b>3. Cambios y cancelaciones.</b> Puedes cambiar la cita desde la app hasta ${catalog.rules.cancelHours} horas antes, y cancelarla hasta la hora de la cita. Con menos de ${catalog.rules.cancelHours} horas, para cambiarla escríbenos por WhatsApp.</p>
     <p><b>4. Puntualidad.</b> Si llegas tarde puede que haya que acortar el servicio para no retrasar al siguiente. Si faltas varias veces sin avisar, podremos limitar tus reservas online.</p>
     ${
       catalog.card?.enabled
-        ? `<p><b>4 bis. Tarjeta en garantía y faltas.</b> Para reservar online dejas una tarjeta en garantía. Al guardarla no se cobra nada. Queda guardada en tu perfil (la custodia Stripe, nuestro proveedor de pagos) para tus próximas citas, y puedes cambiarla o quitarla cuando quieras desde tu perfil, salvo que tengas citas pendientes garantizadas con ella. <b>Si no vienes a la cita y no la has cancelado al menos ${catalog.rules.cancelHours} horas antes, autorizas a ${esc(catalog.business.name)} a cobrar en esa tarjeta el precio del servicio reservado</b>, sin necesidad de que estés presente. Antes de cobrar, tu barbero marca la cita como «No vino». Si tu banco pide confirmación o rechaza el cobro, te avisaremos y podrás pagarlo desde «Mis citas». Si crees que el cobro es un error, escríbenos y lo revisamos; si procede, te devolvemos el dinero.</p>`
+        ? `<p><b>4 bis. Tarjeta en garantía y faltas.</b> Para reservar online dejas una tarjeta en garantía. Al guardarla no se cobra nada. Queda guardada en tu perfil (la custodia Stripe, nuestro proveedor de pagos) para tus próximas citas, y puedes cambiarla o quitarla cuando quieras desde tu perfil, salvo que tengas citas pendientes garantizadas con ella. <b>Si no vienes a la cita, o la cancelas con menos de ${catalog.rules.cancelHours} horas de antelación, autorizas a ${esc(catalog.business.name)} a cobrar en esa tarjeta ${pctText(catalog.rules.noShowFeePct)} del servicio si no vienes y ${pctText(catalog.rules.lateFeePct)} si cancelas tarde</b>, sin necesidad de que estés presente. No es automático: tu barbero revisa cada caso y, si hay un motivo justificado, no se cobra. Si tu banco pide confirmación o rechaza el cobro, te avisaremos y podrás pagarlo desde «Mis citas». Si crees que el cobro es un error, escríbenos y lo revisamos; si procede, te devolvemos el dinero.</p>`
         : ""
     }
     <p><b>5. Club NOVA.</b> Es gratis. Los puntos, las ligas, los premios y los descuentos en NOVA Supply no tienen valor en dinero, no se pueden pasar a otra persona y pueden cambiar. Los puntos de la ropa los apunta el equipo al pagar en el estudio.</p>`,
@@ -730,8 +732,8 @@ const pages = {
           }
           ${cardOn() ? guaranteeBox(s) : ""}
           <button class="btn wide book-btn" type="submit">${cardOn() && !user?.card ? "Añadir tarjeta y reservar" : quick ? "Confirmar reserva" : cardOn() ? "Reservar" : "Reservar y pagar en el local"}</button>
-          <p class="terms-note">Al reservar aceptas las <a href="#condiciones" target="_blank">condiciones</a> y la <a href="#privacidad" target="_blank">privacidad</a>. Puedes cambiarla o cancelarla desde la app hasta ${catalog.rules.cancelHours} h antes.${
-            cardOn() ? ` <b>Si no vienes y no la cancelas a tiempo, autorizas a ${esc(catalog.business.name)} a cobrar ${euro(s.price)} en tu tarjeta.</b>` : ""
+          <p class="terms-note">Al reservar aceptas las <a href="#condiciones" target="_blank">condiciones</a> y la <a href="#privacidad" target="_blank">privacidad</a>. Puedes cambiarla desde la app hasta ${catalog.rules.cancelHours} h antes.${
+            cardOn() ? ` <b>Si no vienes o cancelas con menos de ${catalog.rules.cancelHours} h, autorizas a ${esc(catalog.business.name)} a cobrar hasta ${euro(Math.max(feePct(s, "noShow"), feePct(s, "late")))} en tu tarjeta.</b>` : ""
           }</p>
           <p class="pay-note">${svg(ICONS.card)} ${cardOn() ? "Ahora no se cobra nada. El servicio se paga en el local, en efectivo o con tarjeta." : "En el local puedes pagar en efectivo o con tarjeta."}</p>
         </form>`,
@@ -754,7 +756,7 @@ const pages = {
         if (refIn.value !== code) return;
         refOk = code;
         refState.className = "ref-state ok";
-        refState.innerHTML = `✓ Te invita <b>${esc(r.name)}</b>. Cuando vengas a tu primer corte, ${esc(r.name)} suma ${r.points} puntos.`;
+        refState.innerHTML = `✓ Te invita <b>${esc(r.name)}</b>. ${esc(r.name)} sumará ${r.points} puntos cuando vengas a tu primera cita.`;
       } catch (err) {
         if (refIn.value !== code) return;
         refOk = false;
@@ -881,7 +883,7 @@ const pages = {
         heading(esc(b.service.name), `${esc(longDay(b.date))} · ${esc(b.start)}`) +
         `<div class="pick-summary">${face(p)}<div><strong>Con ${esc(b.provider.name)}</strong><span>${b.service.duration} min · ${euro(b.service.price)} · pago en el local</span></div></div>` +
         `<div class="card"><dl class="detail-list">
-          <div><dt>Estado</dt><dd>${b.status === "canceled" ? "Cancelada" : b.attendance === "absent" ? "No vino" : r.past ? "Realizada" : "Confirmada"}</dd></div>
+          <div><dt>Estado</dt><dd>${b.status === "canceled" ? (b.late ? "Cancelada tarde" : "Cancelada") : b.attendance === "absent" ? "No vino" : r.past ? "Realizada" : "Confirmada"}</dd></div>
           <div><dt>Referencia</dt><dd>${esc(b.id)}</dd></div>
           <div><dt>Dónde</dt><dd>${esc(catalog.business.street)}</dd></div>
           ${b.guarantee && active ? `<div><dt>Garantía</dt><dd>${esc(cardLabel(b.guarantee))}</dd></div>` : ""}
@@ -894,7 +896,11 @@ const pages = {
               ${
                 r.canChange
                   ? `<a class="btn wide" href="#move/${esc(b.id)}">Cambiar día u hora</a><button class="btn wide danger" type="button" id="cancel">Cancelar cita</button>`
-                  : `<p class="warning">Quedan menos de ${catalog.rules.cancelHours} horas: para cambiarla o cancelarla, escríbenos.</p><a class="btn wide wa-btn" href="${wa(`Hola, tengo cita el ${longDay(b.date)} a las ${b.start} (ref. ${b.id}) y necesito cambiarla.`)}" target="_blank" rel="noopener">${svg(ICONS.chat)} WhatsApp</a>`
+                  : `<p class="warning">Quedan menos de ${catalog.rules.cancelHours} horas. Para cambiarla de hora, escríbenos. Si la cancelas ahora${
+                      r.lateFee ? `, según las condiciones se te pueden cobrar ${euro(r.lateFee)}: tu barbero lo revisará y, si hay un motivo justificado, no se cobra` : ", avísanos"
+                    }.</p><a class="btn wide wa-btn" href="${wa(`Hola, tengo cita el ${longDay(b.date)} a las ${b.start} (ref. ${b.id}) y necesito cambiarla.`)}" target="_blank" rel="noopener">${svg(ICONS.chat)} Escribir por WhatsApp</a>${
+                      r.canCancel ? `<button class="btn wide danger" type="button" id="cancel">Cancelar cita</button>` : ""
+                    }`
               }
             </div>`
           : `<a class="btn wide" href="#barber/${esc(b.service.id)}">Reservar otra igual</a>`),
@@ -902,16 +908,20 @@ const pages = {
     $("#pay-now")?.addEventListener("click", () => payPending(b).catch((e) => toast(e.message)));
     $("#cancel")?.addEventListener("click", () => {
       const sh = sheet(
-        `<h2>¿Cancelar la cita?</h2><p>${esc(b.service.name)} con ${esc(first(b.provider.name))}, ${esc(longDay(b.date))} a las ${esc(b.start)}. La hora quedará libre para otra persona.</p><div class="form-actions"><button type="button" class="btn secondary" id="no">No</button><button type="button" class="btn danger" id="yes">Sí, cancelar</button></div>`,
+        `<h2>¿Cancelar la cita?</h2><p>${esc(b.service.name)} con ${esc(first(b.provider.name))}, ${esc(longDay(b.date))} a las ${esc(b.start)}. La hora quedará libre para otra persona.</p>${
+          r.late && r.lateFee
+            ? `<p class="warning">Cancelas con menos de ${catalog.rules.cancelHours} h. Según las condiciones se te pueden cobrar <b>${euro(r.lateFee)}</b>. Lo decide tu barbero: si tienes un motivo justificado, escríbenos por WhatsApp.</p>`
+            : ""
+        }<div class="form-actions"><button type="button" class="btn secondary" id="no">No</button><button type="button" class="btn danger" id="yes">Sí, cancelar</button></div>`,
       );
       sh.el.querySelector("#no").onclick = sh.close;
       sh.el.querySelector("#yes").onclick = async (e) => {
         e.currentTarget.disabled = true;
         try {
-          await api(`bookings/${b.id}/cancel`, {});
+          const x = await api(`bookings/${b.id}/cancel`, {});
           availCache.clear();
           sh.close();
-          toast("Cita cancelada.");
+          toast(x.late ? "Cita cancelada. Tu barbero revisará si se cobra." : "Cita cancelada.");
           render();
         } catch (err) {
           e.currentTarget.disabled = false;
@@ -983,7 +993,7 @@ const pages = {
         <div class="card my-card">${
           user.card
             ? `<div class="mc-row"><span class="mc-chip">${esc((BRANDS[user.card.brand] || "Tarjeta").toUpperCase())}</span><div><strong>···· ${esc(user.card.last4)}</strong><span>Caduca ${esc(user.card.exp || "")}</span></div></div>
-               <p class="muted">Garantiza tus citas. Solo se usa si no vienes y no cancelas con ${catalog.rules.cancelHours} h: entonces se cobra el precio del servicio.</p>
+               <p class="muted">Garantiza tus citas. Solo se usa si no vienes o cancelas con menos de ${catalog.rules.cancelHours} h, y lo revisa tu barbero antes de cobrar.</p>
                <div class="form-actions" style="margin-top:6px"><button type="button" class="btn secondary" id="card-change">Cambiar</button><button type="button" class="btn danger" id="card-remove">Quitar</button></div>`
             : `<p class="muted" style="margin-top:0">Aún no tienes tarjeta guardada. Te la pediremos al reservar, para garantizar la cita. No se cobra nada salvo que faltes sin avisar.</p><button type="button" class="btn wide secondary" id="card-change">Añadir tarjeta</button>`
         }</div>`
@@ -1130,7 +1140,7 @@ const pages = {
   async equipo(args = []) {
     if (!staff) return staffLogin();
     try {
-      await ({ caja: staffCaja, faltas: staffFaltas, formacion: staffTraining, productos: staffProducts }[args[0]] || staffAgenda)();
+      await ({ cobrar: staffCobros, caja: staffCaja, faltas: staffFaltas, formacion: staffTraining, productos: staffProducts, ajustes: staffTeam, web: staffWeb }[args[0]] || staffAgenda)();
     } catch (e) {
       if (e.status !== 401) throw e;
       staff = null;
@@ -1446,7 +1456,7 @@ function supplyBlock(L) {
   const S = catalog.shop,
     disc = L ? shopDiscount(L.index) : null;
   return `<section class="supply">
-    <figure class="sp-photo"><img src="/assets/supply.jpg" alt="Camisetas de ${esc(S.name)}" loading="lazy" width="760" height="1350"></figure>
+    <figure class="sp-photo"><img src="${pic("supply")}" alt="Camisetas de ${esc(S.name)}" loading="lazy" width="760" height="1350"></figure>
     <div class="sp-txt">
       <span class="club-tag">${esc(S.name.toUpperCase())}</span>
       <h2>La ropa de <em class="serif">la casa.</em></h2>
@@ -1460,12 +1470,12 @@ function inviteBlock(m) {
   return `<section class="invite" id="amigos">
     <span class="club-tag">INVITA Y SUMA</span>
     <h2>+${catalog.points.perFriend} puntos por cada amigo</h2>
-    <p>Pásale tu código. Cuando venga a su primer corte, los puntos son tuyos.</p>
+    <p>Pásale tu código para que lo ponga al reservar. Los puntos son tuyos en cuanto venga a su primera cita.</p>
     <div class="inv-code"><strong id="my-code">${esc(user.ref || "—")}</strong><button type="button" id="copy-code" aria-label="Copiar código">${svg(ICONS.copy)}</button></div>
     <button type="button" class="btn wide club-btn" id="share-code">${svg(ICONS.share)} Compartir mi código</button>
     ${
       m.friends.length
-        ? `<div class="inv-friends">${m.friends.map((f) => `<span class="${f.counted ? "ok" : ""}">${esc(f.name)}${f.counted ? " ✓" : " · pendiente"}</span>`).join("")}</div>`
+        ? `<div class="inv-friends">${m.friends.map((f) => `<span class="${f.counted ? "ok" : ""}">${esc(f.name)}${f.counted ? " ✓" : " · aún no ha venido"}</span>`).join("")}</div>`
         : ""
     }
   </section>`;
@@ -1568,9 +1578,9 @@ function staffLogin() {
 function staffTop(tab) {
   return (
     `<div class="staff-top">${face(provById(staff.id), "who-face")}<div><p class="eyebrow">${staff.owner ? "Propietario" : "Panel de barbero"}</p><h1>Hola, ${esc(first(staff.name))}</h1></div></div>` +
-    `<div class="tabs" role="navigation" aria-label="Panel"><a href="#equipo" class="${tab === "agenda" ? "active" : ""}" ${tab === "agenda" ? 'aria-current="page"' : ""}>Agenda</a><a href="#equipo/caja" class="${tab === "caja" ? "active" : ""}" ${tab === "caja" ? 'aria-current="page"' : ""}>${staff.owner ? "Caja y comisiones" : "Mi caja"}</a><a href="#equipo/faltas" class="${tab === "faltas" ? "active" : ""}" ${tab === "faltas" ? 'aria-current="page"' : ""}>Faltas</a>${
+    `<div class="tabs" role="navigation" aria-label="Panel"><a href="#equipo" class="${tab === "agenda" ? "active" : ""}" ${tab === "agenda" ? 'aria-current="page"' : ""}>Agenda</a><a href="#equipo/cobrar" class="${tab === "cobrar" ? "active" : ""}" ${tab === "cobrar" ? 'aria-current="page"' : ""}>Cobrar</a><a href="#equipo/caja" class="${tab === "caja" ? "active" : ""}" ${tab === "caja" ? 'aria-current="page"' : ""}>${staff.owner ? "Caja y comisiones" : "Mi caja"}</a><a href="#equipo/faltas" class="${tab === "faltas" ? "active" : ""}" ${tab === "faltas" ? 'aria-current="page"' : ""}>Faltas</a>${
       staff.owner
-        ? `<a href="#equipo/formacion" class="${tab === "formacion" ? "active" : ""}" ${tab === "formacion" ? 'aria-current="page"' : ""}>Formación</a><a href="#equipo/productos" class="${tab === "productos" ? "active" : ""}" ${tab === "productos" ? 'aria-current="page"' : ""}>Productos</a>`
+        ? `<a href="#equipo/formacion" class="${tab === "formacion" ? "active" : ""}" ${tab === "formacion" ? 'aria-current="page"' : ""}>Formación</a><a href="#equipo/productos" class="${tab === "productos" ? "active" : ""}" ${tab === "productos" ? 'aria-current="page"' : ""}>Productos</a><a href="#equipo/ajustes" class="${tab === "ajustes" ? "active" : ""}" ${tab === "ajustes" ? 'aria-current="page"' : ""}>Equipo y normas</a><a href="#equipo/web" class="${tab === "web" ? "active" : ""}" ${tab === "web" ? 'aria-current="page"' : ""}>Web</a>`
         : ""
     }</div>`
   );
@@ -1611,7 +1621,7 @@ async function staffAgenda() {
                   (b) => `<button type="button" class="ag-item ${b.kind === "block" ? "block" : ""} ${b.status === "canceled" ? "canceled" : ""} ${b.attendance}" data-id="${esc(b.id)}">
                     <time>${esc(b.start)}<small>${esc(b.end)}</small></time>
                     <div><strong>${b.kind === "block" ? "⛔ " + esc(b.service.name) : esc(b.name)}${b.strikes ? ` <em class="strike" title="Ha faltado ${b.strikes} ${b.strikes === 1 ? "vez" : "veces"}">⚠ ${b.strikes}</em>` : ""}</strong><span>${b.kind === "block" ? "Bloqueado" : esc(b.service.name) + (b.phone ? " · " + esc(b.phone) : "")}</span></div>
-                    <span>${b.status === "canceled" ? "Cancelada" : b.attendance === "done" ? "✓ Vino" : b.attendance === "absent" ? "✗ No vino" : b.by === "staff" ? "Equipo" : "App"}</span>
+                    <span>${b.status === "canceled" ? (b.late ? "Cancelada tarde" : "Cancelada") : b.pay ? "✓ Cobrado" : b.attendance === "done" ? "✓ Vino" : b.attendance === "absent" ? "✗ No vino" : b.by === "staff" ? "Equipo" : "App"}</span>
                   </button>`,
                 )
                 .join("")
@@ -1667,12 +1677,19 @@ function cajaStats(p) {
   const rows = p.rows
     .map(
       (x) =>
-        `<li><time>${esc(shortDate(x.date))}<small>${esc(x.start)}</small></time><span><strong>${esc(x.name)}</strong>${esc(x.service)}</span><b>${euro(x.price)}${withComm ? `<small>${String(x.pct).replace(".", ",")} % · ${euro(x.commission)}</small>` : ""}</b></li>`,
+        `<li><time>${esc(shortDate(x.date))}<small>${esc(x.start)}</small></time><span><strong>${esc(x.name)}</strong>${esc(x.service)}${x.pay ? ` · ${esc(methodName(x.method))}` : " · sin cobro apuntado"}</span><b>${euro(x.price)}${withComm ? `<small>${String(x.pct).replace(".", ",")} % · ${euro(x.commission)}</small>` : ""}</b></li>`,
     )
     .join("");
   return (
     `<div class="stat3 money"><div><strong>${p.services}</strong><span>Servicios</span></div><div><strong>${euro(p.billed)}</strong><span>Facturado</span></div><div><strong>${euro(p.average)}</strong><span>Ticket medio</span></div></div>` +
     `<p class="caja-meta">${p.upcoming ? `Quedan ${p.upcoming} ${p.upcoming === 1 ? "cita" : "citas"} este mes (${euro(p.expected)})` : "No quedan citas este mes"} · ${p.absent} no ${p.absent === 1 ? "vino" : "vinieron"} · ${p.canceled} ${p.canceled === 1 ? "cancelada" : "canceladas"}${p.penalties ? ` · ${euro(p.penalties)} cobrados por faltas` : ""}</p>` +
+    (p.collected
+      ? `<p class="caja-meta">Cobrado en caja: <b>${euro(p.collected)}</b> (${(catalog.payMethods || [])
+          .filter((m) => p.methods?.[m.id])
+          .map((m) => `${esc(m.name.toLowerCase())} ${euro(p.methods[m.id])}`)
+          .join(" · ")})</p>`
+      : "") +
+    (p.unpaid ? `<p class="caja-meta">${p.unpaid} ${p.unpaid === 1 ? "cita hecha" : "citas hechas"} sin cobro apuntado: cuentan con el precio del servicio.</p>` : "") +
     (p.byService.length
       ? `<div class="card caja-svc"><dl class="detail-list">${p.byService.map((x) => `<div><dt>${esc(x.name)} <small>× ${x.count}</small></dt><dd>${euro(x.total)}</dd></div>`).join("")}</dl></div>`
       : "") +
@@ -1758,6 +1775,276 @@ function pctSheet(p, label) {
   });
 }
 
+// ── Equipo: cobrar en caja ─────────────────────────────────────────────────
+// La tablet del mostrador. Se elige quién ha hecho el servicio y el formulario
+// se rellena solo con su cliente de ahora (a las 11 se cobra al de las 10:30),
+// con su servicio y su precio. Todo se puede cambiar: un extra, otro importe…
+const methodName = (id) => (catalog.payMethods || []).find((m) => m.id === id)?.name || id || "";
+const cobroSvcs = () => catalog.services.filter((s) => !s.consult);
+const minOf = (hhmm) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+const money = (n) => `${(Math.round(Number(n) * 100) / 100).toFixed(2).replace(".", ",")} €`;
+
+// La cita que toca cobrar: la última que ya ha terminado (o está a punto),
+// si no la que está en marcha, y si no la siguiente.
+function guessBooking(list, nowStamp) {
+  if (!list.length) return null;
+  const now = minOf(nowStamp.slice(11, 16));
+  const ended = list.filter((b) => minOf(b.end) <= now + 10);
+  if (ended.length) return ended[ended.length - 1];
+  const started = list.filter((b) => minOf(b.start) <= now);
+  return started[started.length - 1] || list[0];
+}
+
+function cobroForm(r, x) {
+  const team = r.team.length ? r.team : catalog.providers;
+  const prov = x?.provider.id || (team.some((p) => p.id === staff.id) ? staff.id : team[0]?.id);
+  return `<form id="cobro" class="cobro" autocomplete="off">
+    <p class="cb-label">Quién ha hecho el servicio</p>
+    <div class="who cb-who" role="radiogroup" aria-label="Barbero">${team
+      .map(
+        (p) =>
+          `<label class="who-item"><input type="radio" name="provider" value="${esc(p.id)}" ${p.id === prov ? "checked" : ""}>${face(provById(p.id) || p, "who-face")}<span>${esc(first(p.name))}</span></label>`,
+      )
+      .join("")}</div>
+    <p class="cb-label">Cliente</p>
+    <div class="cb-chips" id="cb-clients"></div>
+    <input name="name" id="cb-name" placeholder="Nombre del cliente" maxlength="60" aria-label="Nombre del cliente">
+    <input type="hidden" name="booking">
+    <p class="cb-label">Servicio</p>
+    <div class="cb-chips" role="radiogroup" aria-label="Servicio">${cobroSvcs()
+      .map((s) => `<label class="cb-chip"><input type="radio" name="service" value="${esc(s.id)}"><span>${esc(s.name)}</span><small>${euro(s.price)}</small></label>`)
+      .join("")}</div>
+    ${
+      (catalog.extras || []).length
+        ? `<p class="cb-label">Extras</p><div class="cb-chips">${catalog.extras
+            .map((e) => `<label class="cb-chip cb-extra"><input type="checkbox" name="extras" value="${esc(e.id)}"><span>+ ${esc(e.name)}</span><small>${euro(e.price)}</small></label>`)
+            .join("")}</div>`
+        : ""
+    }
+    <p class="cb-label">Importe</p>
+    <div class="cb-amount"><input name="amount" id="cb-amount" inputmode="decimal" aria-label="Importe en euros" required><span>€</span></div>
+    <p class="cb-hint" id="cb-hint"></p>
+    <p class="cb-label">Forma de pago</p>
+    <div class="cb-chips cb-pay" role="radiogroup" aria-label="Forma de pago">${(catalog.payMethods || [])
+      .map((m, i) => `<label class="cb-chip"><input type="radio" name="method" value="${esc(m.id)}" ${(x ? x.method === m.id : i === 0) ? "checked" : ""}><span>${esc(m.name)}</span></label>`)
+      .join("")}</div>
+    <button class="btn wide cb-go" type="submit">Cobrar</button>
+  </form>`;
+}
+
+function bindCobroForm(root, r, x, done) {
+  const f = root.querySelector("#cobro");
+  const amount = f.querySelector("#cb-amount"),
+    hint = f.querySelector("#cb-hint"),
+    go_ = f.querySelector(".cb-go");
+  let touched = !!x;
+  const nameIn = f.querySelector("[name=name]"),
+    bookIn = f.querySelector("[name=booking]");
+  const val = (n) => f.querySelector(`[name=${n}]:checked`)?.value || "";
+  const parse = (v) => Math.round(Number(String(v).replace(",", ".")) * 100) / 100;
+  const base = () => {
+    const s = svcById(val("service"));
+    const ex = [...f.querySelectorAll("[name=extras]:checked")].map((i) => catalog.extras.find((e) => e.id === i.value)).filter(Boolean);
+    return { s, ex, total: (Number(s?.price) || 0) + ex.reduce((a, e) => a + e.price, 0) };
+  };
+  const refresh = () => {
+    const b = base();
+    if (!touched) amount.value = b.total ? String(b.total).replace(".", ",") : "";
+    const n = parse(amount.value);
+    const diff = Math.round((n - b.total) * 100) / 100;
+    hint.textContent = !b.s
+      ? "Elige el servicio."
+      : `${b.s.name} ${euro(b.s.price)}${b.ex.map((e) => ` + ${e.name.toLowerCase()} ${euro(e.price)}`).join("")}` +
+        (n && diff ? ` · ${diff > 0 ? "+" : "−"}${money(Math.abs(diff))} a mano` : "") +
+        (touched && diff ? "" : " · puedes cambiar el importe a mano");
+    go_.textContent = (x ? "Guardar · " : "Cobrar ") + (n > 0 ? money(n) : "");
+  };
+  // Clientes de ese barbero que quedan por cobrar hoy (y la cita del cobro que se edita).
+  const clients = (prov) => {
+    const list = r.pending.filter((b) => b.provider === prov);
+    if (x?.booking && x.provider.id === prov && !list.some((b) => b.id === x.booking))
+      list.unshift({ id: x.booking, provider: prov, name: x.name, start: x.time, end: x.time, service: x.items.find((i) => !i.extra)?.id });
+    return list;
+  };
+  const pick = (b, keepService) => {
+    bookIn.value = b?.id || "";
+    nameIn.value = b ? b.name : "";
+    if (b?.service && !keepService) {
+      const radio = f.querySelector(`[name=service][value="${b.service}"]`);
+      if (radio) radio.checked = true;
+    }
+    if (!keepService) f.querySelectorAll("[name=extras]").forEach((i) => (i.checked = false));
+    [...root.querySelectorAll("#cb-clients .cb-chip")].forEach((c) => c.classList.toggle("on", c.dataset.id === (b?.id || "")));
+    if (!keepService) touched = false;
+    refresh();
+  };
+  const drawClients = () => {
+    const prov = val("provider");
+    const list = clients(prov);
+    // Solo los servicios que hace ese barbero (el corte privado es de Airam).
+    f.querySelectorAll("[name=service]").forEach((i) => {
+      const s = svcById(i.value);
+      i.closest("label").hidden = !!s?.providers?.length && !s.providers.includes(prov);
+      if (i.closest("label").hidden && i.checked) i.checked = false;
+    });
+    root.querySelector("#cb-clients").innerHTML =
+      list.map((b) => `<button type="button" class="cb-chip" data-id="${esc(b.id)}"><span>${esc(b.start)}</span><small>${esc(b.name)}</small></button>`).join("") +
+      `<button type="button" class="cb-chip" data-id=""><span>Sin cita</span><small>Entra sin reservar</small></button>`;
+    [...root.querySelectorAll("#cb-clients .cb-chip")].forEach((c) => (c.onclick = () => pick(list.find((b) => b.id === c.dataset.id) || null)));
+    return list;
+  };
+
+  if (x) {
+    drawClients();
+    const main = x.items.find((i) => !i.extra);
+    if (main) f.querySelector(`[name=service][value="${main.id}"]`) && (f.querySelector(`[name=service][value="${main.id}"]`).checked = true);
+    x.items.filter((i) => i.extra).forEach((i) => {
+      const c = f.querySelector(`[name=extras][value="${i.id}"]`);
+      if (c) c.checked = true;
+    });
+    amount.value = String(x.amount).replace(".", ",");
+    pick(clients(x.provider.id).find((b) => b.id === x.booking) || null, true);
+    nameIn.value = x.name;
+  } else {
+    const preset = cobroPre && r.pending.find((b) => b.id === cobroPre);
+    cobroPre = "";
+    if (preset) f.querySelector(`[name=provider][value="${preset.provider}"]`) && (f.querySelector(`[name=provider][value="${preset.provider}"]`).checked = true);
+    const list = drawClients();
+    pick(preset || (r.date === r.today ? guessBooking(list, r.now) : null));
+    if (!val("service")) {
+      const first = f.querySelector("[name=service]");
+      if (first) first.checked = true;
+      refresh();
+    }
+  }
+
+  f.querySelectorAll("[name=provider]").forEach(
+    (i) =>
+      (i.onchange = () => {
+        const list = drawClients();
+        pick(r.date === r.today ? guessBooking(list, r.now) : null);
+        if (!val("service")) {
+          const s = [...f.querySelectorAll("[name=service]")].find((i) => !i.closest("label").hidden);
+          if (s) (s.checked = true), refresh();
+        }
+      }),
+  );
+  f.querySelectorAll("[name=service], [name=extras]").forEach((i) => (i.onchange = () => ((touched = false), refresh())));
+  amount.oninput = () => ((touched = true), refresh());
+
+  f.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    go_.disabled = true;
+    try {
+      const body = {
+        provider: val("provider"),
+        booking: bookIn.value,
+        name: nameIn.value,
+        service: val("service"),
+        extras: [...f.querySelectorAll("[name=extras]:checked")].map((i) => i.value),
+        amount: amount.value,
+        method: val("method"),
+      };
+      const out = await api(x ? "staff/cobros/" + x.id : "staff/cobros", body);
+      done(out.cobro);
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      if (document.body.contains(go_)) go_.disabled = false;
+    }
+  });
+}
+
+async function staffCobros() {
+  const today = isoDay(new Date());
+  if (!cobroDay) cobroDay = today;
+  const r = await api("staff/cobros?date=" + cobroDay);
+  const isToday = r.date === r.today;
+  const t = r.totals;
+  const dayNav = `<div class="month-nav"><button type="button" class="cal-nav" data-d="-1" aria-label="Día anterior">‹</button><strong>${esc(isToday ? "Hoy · " + longDay(r.date) : longDay(r.date))}</strong><button type="button" class="cal-nav" data-d="1" aria-label="Día siguiente" ${isToday ? "disabled" : ""}>›</button></div>`;
+  const row = (x) => {
+    const other = x.provider.id !== staff.id;
+    return `<button type="button" class="ag-item cb-row" data-pay="${esc(x.id)}">
+      <time>${esc(x.time)}</time>
+      <div><strong>${esc(x.name)}</strong><span>${esc(x.items.map((i) => i.name).join(" + "))}${staff.owner || other ? " · " + esc(first(x.provider.name)) : ""}${x.by !== x.provider.id ? ` · apuntó ${esc(first(provById(x.by)?.name || x.by))}` : ""}</span></div>
+      <span class="cb-amt"><b>${money(x.amount)}</b><small>${esc(methodName(x.method))}</small></span>
+    </button>`;
+  };
+  const summary =
+    `<div class="stat3 money"><div><strong>${euro(t.total)}</strong><span>${staff.owner ? "Todo el salón" : "Tus cobros"}</span></div>${t.methods
+      .slice(0, 2)
+      .map((m) => `<div><strong>${euro(m.total)}</strong><span>${esc(m.name)}</span></div>`)
+      .join("")}</div>` +
+    `<p class="caja-meta">${t.count} ${t.count === 1 ? "cobro" : "cobros"}${t.methods
+      .slice(2)
+      .map((m) => ` · ${esc(m.name.toLowerCase())} ${euro(m.total)}`)
+      .join("")}</p>` +
+    (staff.owner && t.people.length
+      ? `<div class="cb-people">${t.people
+          .map((p) => `<div class="cb-person">${face(provById(p.id) || p, "who-face")}<div><strong>${esc(first(p.name))}</strong><span>${p.count} ${p.count === 1 ? "servicio" : "servicios"}</span></div><b>${money(p.total)}</b></div>`)
+          .join("")}</div>`
+      : "");
+  show(
+    staffTop("cobrar") +
+      dayNav +
+      (isToday ? `<div class="card cb-card">${cobroForm(r)}</div>` : "") +
+      `<p class="section-label">${isToday ? "Cobros de hoy" : "Cobros del día"}</p>` +
+      summary +
+      (r.cobros.length ? r.cobros.map(row).join("") : `<p class="ag-free">Aún no hay cobros este día.</p>`),
+  );
+  $$(".month-nav [data-d]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        const d = dayDate(cobroDay);
+        d.setDate(d.getDate() + Number(b.dataset.d));
+        cobroDay = isoDay(d) > today ? today : isoDay(d);
+        render();
+      }),
+  );
+  if (isToday)
+    bindCobroForm($("#app"), r, null, (c) => {
+      toast(`Cobrados ${money(c.amount)} a ${first(c.provider.name)}${c.name ? " · " + c.name : ""}.`);
+      render();
+    });
+  $$("[data-pay]").forEach((el) => (el.onclick = () => cobroSheet(r, r.cobros.find((x) => x.id === el.dataset.pay))));
+}
+
+function cobroSheet(r, x) {
+  if (!x) return;
+  const mayEdit = staff.owner || x.provider.id === staff.id || x.by === staff.id;
+  const sh = sheet(
+    `<p class="eyebrow">Cobro · ${esc(longDay(x.date))} · ${esc(x.time)}</p><h2>${esc(x.name)} · ${money(x.amount)}</h2>` +
+      `<p class="muted">Apuntado por ${esc(first(provById(x.by)?.name || x.by))}${x.edited ? ` · cambiado a las ${esc(x.edited.slice(11, 16))}` : ""}.</p>` +
+      (mayEdit
+        ? cobroForm(r, x) + `<button type="button" class="btn wide danger" style="margin-top:12px" id="cb-del">Quitar este cobro</button>`
+        : `<div class="card"><dl class="detail-list"><div><dt>Servicio</dt><dd>${esc(x.items.map((i) => i.name).join(" + "))}</dd></div><div><dt>Pago</dt><dd>${esc(methodName(x.method))}</dd></div></dl></div>`),
+  );
+  if (!mayEdit) return;
+  bindCobroForm(sh.el, r, x, () => {
+    sh.close();
+    toast("Cobro cambiado.");
+    render();
+  });
+  const del = sh.el.querySelector("#cb-del");
+  del.onclick = async () => {
+    if (del.dataset.sure !== "1") {
+      del.dataset.sure = "1";
+      del.textContent = "Pulsa otra vez para quitarlo";
+      return;
+    }
+    del.disabled = true;
+    try {
+      await api(`staff/cobros/${x.id}/delete`, {});
+      sh.close();
+      toast("Cobro quitado.");
+      render();
+    } catch (e) {
+      del.disabled = false;
+      toast(e.message);
+    }
+  };
+}
+
 // ── Equipo: hojas ──────────────────────────────────────────────────────────
 function staffSheet(b) {
   if (!b) return;
@@ -1770,12 +2057,19 @@ function staffSheet(b) {
         : (b.strikes ? `<p class="strike-warn">⚠ Este cliente ha faltado ${b.strikes} ${b.strikes === 1 ? "vez" : "veces"} sin avisar.</p>` : "") +
           `<div class="card"><dl class="detail-list"><div><dt>Servicio</dt><dd>${esc(b.service.name)} · ${euro(b.service.price)}</dd></div><div><dt>Barbero</dt><dd>${esc(b.provider.name)}</dd></div><div><dt>Teléfono</dt><dd>${esc(b.phone || "—")}</dd></div><div><dt>Correo</dt><dd>${esc(b.email || "—")}</dd></div><div><dt>Reservada por</dt><dd>${b.by === "staff" ? "Equipo" : "App"}</dd></div></dl></div>`) +
       (b.status !== "confirmed"
-        ? `<p class="warning">Cancelada.</p>`
+        ? b.late && mine
+          ? `<p class="warning">La canceló el cliente con poca antelación${b.canceledAt ? " (" + esc(b.canceledAt.slice(11)) + " del " + esc(shortDate(b.canceledAt.slice(0, 10))) + ")" : ""}.</p>` + staffCharge(b)
+          : `<p class="warning">Cancelada${b.late ? " tarde" : ""}.</p>`
         : !mine
           ? `<p class="muted">Es una cita de ${esc(first(b.provider.name))}: solo la pueden cambiar ${esc(first(b.provider.name))} o el dueño.</p>`
           : (block
               ? ""
-              : `<div class="seg"><button type="button" class="${b.attendance === "done" ? "" : "secondary"}" data-att="done">✓ Vino</button><button type="button" class="${b.attendance === "absent" ? "" : "secondary"}" data-att="absent">✗ No vino</button></div>` +
+              : (b.pay
+                  ? `<p class="cb-paid">✓ Cobrado en caja: <b>${euro(b.pay.amount)}</b> · ${esc(methodName(b.pay.method))}</p>`
+                  : b.attendance !== "absent"
+                    ? `<button type="button" class="btn wide sp-staff-btn" id="sh-cobrar" style="margin-bottom:10px">Cobrar en caja</button>`
+                    : "") +
+                `<div class="seg"><button type="button" class="${b.attendance === "done" ? "" : "secondary"}" data-att="done">✓ Vino</button><button type="button" class="${b.attendance === "absent" ? "" : "secondary"}" data-att="absent">✗ No vino</button></div>` +
                 staffCharge(b) +
                 (b.email && b.attendance !== "absent" ? `<button type="button" class="btn wide secondary sp-staff-btn" id="sh-shop">${svg(ICONS.bag)} Se lleva ropa de ${esc(catalog.shop.name)}</button>` : "") +
                 (b.phone ? `<div class="form-actions"><a class="btn secondary" href="tel:${esc(b.phone.replace(/\s/g, ""))}">Llamar</a><a class="btn wa-btn" target="_blank" rel="noopener" href="https://wa.me/${esc(b.phone.replace(/\D/g, ""))}">WhatsApp</a></div>` : "")) +
@@ -1797,6 +2091,8 @@ function staffSheet(b) {
       }),
   );
   bindStaffCharge(sh, b);
+  const cobrar = sh.el.querySelector("#sh-cobrar");
+  if (cobrar) cobrar.onclick = () => (sh.close(), (cobroPre = b.id), (cobroDay = b.date), go("equipo/cobrar"));
   const shop = sh.el.querySelector("#sh-shop");
   if (shop) shop.onclick = () => (sh.close(), staffShop(b.email));
   const c = sh.el.querySelector("#sh-cancel");
@@ -1888,23 +2184,30 @@ function staffShop(email) {
 // ── Equipo: faltas y cobros ────────────────────────────────────────────────
 // Dentro de la ficha de una cita marcada «No vino»: cobrar el servicio en la
 // tarjeta que el cliente dejó en garantía, y ver cómo ha ido el cobro.
+// Lo que se cobra según las normas que puso el dueño (100 % = el servicio entero).
+const feeOf = (b) => b.fee ?? Math.round((Number(b.service.price) || 0) * (b.late ? catalog.rules.lateFeePct : catalog.rules.noShowFeePct)) / 100;
 function staffCharge(b) {
-  if (b.kind !== "booking" || b.attendance !== "absent") return "";
+  const late = b.status === "canceled" && b.late;
+  if (b.kind !== "booking" || !(late || (b.status === "confirmed" && b.attendance === "absent"))) return "";
   const c = b.charge,
-    price = euro(b.service.price);
+    price = euro(feeOf(b)),
+    why = late ? `Canceló con ${String(b.hoursLeft ?? "menos de " + catalog.rules.cancelHours).replace(".", ",")} h de antelación` : "No vino y no avisó";
+  const forgive = `<button type="button" class="btn wide secondary" id="chg-waive">No cobrar (motivo justificado)</button>`;
+  if (b.waived) return `<div class="chg"><strong>No se cobra</strong><span>${esc(why)}. Se decidió no cobrar${b.waived.note ? ": " + esc(b.waived.note) : ""}.</span><button type="button" class="btn small secondary" id="chg-unwaive">Deshacer</button></div>`;
+  if (!feeOf(b)) return `<div class="chg"><strong>${esc(why)}</strong><span>Con las normas actuales no se cobra nada.</span></div>`;
   if (c?.status === "succeeded")
-    return `<div class="chg ok"><strong>✓ Falta cobrada: ${euro(c.amount)}</strong><span>${esc(cardLabel(c))} · ${esc(shortDate(c.at.slice(0, 10)))}</span>${
+    return `<div class="chg ok"><strong>✓ Cobrado: ${euro(c.amount)}</strong><span>${esc(cardLabel(c))} · ${esc(shortDate(c.at.slice(0, 10)))}</span>${
       staff.owner ? `<button type="button" class="btn small secondary" id="chg-refund">Devolver el dinero</button>` : ""
     }</div>`;
   if (c?.status === "refunded") return `<div class="chg"><strong>Cobro devuelto</strong><span>Se le devolvieron ${euro(c.amount)}.</span></div>`;
   if (c?.status === "requires_action")
     return `<div class="chg wait"><strong>⏳ Pendiente de que el cliente lo confirme</strong><span>Su banco pide confirmación. Le hemos avisado: lo verá en «Mis citas» al entrar en la app.</span></div>`;
   const past = new Date(`${b.date}T${b.start}:00`) < new Date();
-  if (!past) return `<p class="muted chg-hint">Cuando pase la hora de la cita podrás cobrarle la falta.</p>`;
-  if (!b.card) return `<div class="chg"><strong>Sin tarjeta guardada</strong><span>Este cliente no dejó tarjeta (cita apuntada a mano o de antes). Habla con él por WhatsApp.</span></div>`;
+  if (!late && !past) return `<p class="muted chg-hint">Cuando pase la hora de la cita podrás cobrarle la falta.</p>`;
+  if (!b.card) return `<div class="chg"><strong>${esc(why)} · sin tarjeta guardada</strong><span>Este cliente no dejó tarjeta (cita apuntada a mano o de antes). Habla con él por WhatsApp.</span>${forgive}</div>`;
   return `<div class="chg${c ? " bad" : ""}">${
-    c ? `<strong>✗ No se pudo cobrar</strong><span>${esc(c.error || "El banco rechazó el cobro.")}</span>` : `<strong>No vino y no avisó</strong><span>Según las condiciones que aceptó, se le cobra el servicio.</span>`
-  }<button type="button" class="btn wide" id="chg-go">${c ? "Reintentar" : "Cobrar"} ${price} por no venir</button></div>`;
+    c ? `<strong>✗ No se pudo cobrar</strong><span>${esc(c.error || "El banco rechazó el cobro.")}</span>` : `<strong>${esc(why)}</strong><span>Según las condiciones que aceptó se le pueden cobrar ${price}. Tú decides: si tuvo un motivo justificado, no lo cobres.</span>`
+  }<button type="button" class="btn wide" id="chg-go">${c ? "Reintentar" : "Cobrar"} ${price}</button>${forgive}</div>`;
 }
 function bindStaffCharge(sh, b) {
   const go2 = sh.el.querySelector("#chg-go");
@@ -1912,7 +2215,7 @@ function bindStaffCharge(sh, b) {
     go2.onclick = async () => {
       if (go2.dataset.sure !== "1") {
         go2.dataset.sure = "1";
-        go2.textContent = `Pulsa otra vez para cobrar ${euro(b.service.price)}`;
+        go2.textContent = `Pulsa otra vez para cobrar ${euro(feeOf(b))}`;
         return;
       }
       go2.disabled = true;
@@ -1925,6 +2228,34 @@ function bindStaffCharge(sh, b) {
         staffSheet({ ...b, charge: r.charge });
       } catch (e) {
         go2.disabled = false;
+        toast(e.message);
+      }
+    };
+  const wv = sh.el.querySelector("#chg-waive"),
+    uw = sh.el.querySelector("#chg-unwaive");
+  if (wv)
+    wv.onclick = async () => {
+      wv.disabled = true;
+      try {
+        await api(`staff/bookings/${b.id}/waive`, {});
+        toast("Hecho: no se le cobra.");
+        sh.close();
+        await render();
+        staffSheet({ ...b, waived: { at: "" } });
+      } catch (e) {
+        wv.disabled = false;
+        toast(e.message);
+      }
+    };
+  if (uw)
+    uw.onclick = async () => {
+      try {
+        await api(`staff/bookings/${b.id}/waive`, { undo: true });
+        sh.close();
+        await render();
+        const { waived, ...rest } = b;
+        staffSheet(rest);
+      } catch (e) {
         toast(e.message);
       }
     };
@@ -1956,7 +2287,9 @@ async function staffFaltas() {
   const r = await api("staff/noshows?month=" + staffMonth);
   const label = monthLabel(r.month);
   const status = (b) =>
-    b.charge?.status === "succeeded"
+    b.waived
+      ? ["No se cobra", ""]
+      : b.charge?.status === "succeeded"
       ? ["Cobrada", "st-done"]
       : b.charge?.status === "refunded"
         ? ["Devuelta", ""]
@@ -1970,17 +2303,17 @@ async function staffFaltas() {
   show(
     staffTop("faltas") +
       `<div class="month-nav"><button type="button" class="cal-nav" data-m="-1" aria-label="Mes anterior">‹</button><strong>${esc(label)}</strong><button type="button" class="cal-nav" data-m="1" aria-label="Mes siguiente" ${staffMonth >= nowKey ? "disabled" : ""}>›</button></div>` +
-      `<div class="stat3 money"><div><strong>${r.list.length}</strong><span>${r.list.length === 1 ? "Falta" : "Faltas"}</span></div><div><strong>${euro(r.charged)}</strong><span>Cobrado</span></div><div><strong>${r.uncharged}</strong><span>Sin cobrar</span></div></div>` +
+      `<div class="stat3 money"><div><strong>${r.list.length}</strong><span>${r.list.length === 1 ? "Falta" : "Faltas y tardías"}</span></div><div><strong>${euro(r.charged)}</strong><span>Cobrado</span></div><div><strong>${r.uncharged}</strong><span>Sin cobrar</span></div></div>` +
       (r.pending ? `<p class="caja-meta">${euro(r.pending)} pendientes de que el cliente confirme o pague.</p>` : "") +
       (r.list.length
         ? `<div class="faltas">${r.list
             .map((b) => {
               const [t, cls] = status(b);
-              return `<button type="button" class="ag-item falta" data-id="${esc(b.id)}"><time>${esc(shortDate(b.date))}<small>${esc(b.start)}</small></time><div><strong>${esc(b.name)}</strong><span>${esc(b.service.name)} · ${euro(b.service.price)}${staff.owner ? " · " + esc(first(b.provider.name)) : ""}${b.strikes > 1 ? ` · ⚠ ${b.strikes} faltas` : ""}</span></div><span class="appt-state ${cls}">${t}</span></button>`;
+              return `<button type="button" class="ag-item falta" data-id="${esc(b.id)}"><time>${esc(shortDate(b.date))}<small>${esc(b.start)}</small></time><div><strong>${esc(b.name)}</strong><span>${b.late ? "Canceló tarde · " : "No vino · "}${esc(b.service.name)} · ${euro(b.fee ?? b.service.price)}${staff.owner ? " · " + esc(first(b.provider.name)) : ""}${b.strikes > 1 ? ` · ⚠ ${b.strikes} faltas` : ""}</span></div><span class="appt-state ${cls}">${t}</span></button>`;
             })
             .join("")}</div>`
         : `<p class="ag-free">Nadie ha faltado este mes. 🙌</p>`) +
-      `<p class="muted" style="margin-top:18px">Para apuntar una falta, abre la cita en la Agenda y pulsa «✗ No vino».</p>`,
+      `<p class="muted" style="margin-top:18px">Aquí salen quienes no vinieron y quienes cancelaron con menos de ${catalog.rules.cancelHours} h. Tú decides en cada caso si se cobra. Para apuntar que alguien no vino, abre la cita en la Agenda y pulsa «✗ No vino».</p>`,
   );
   $$(".month-nav [data-m]").forEach((b) => (b.onclick = () => ((staffMonth = shiftMonth(staffMonth, Number(b.dataset.m))), render())));
   $$(".falta[data-id]").forEach((el) => (el.onclick = () => staffSheet(r.list.find((b) => b.id === el.dataset.id))));
@@ -2209,6 +2542,286 @@ function productSheet(p) {
     };
 }
 
+// ── Equipo y normas (solo el dueño) ────────────────────────────────────────
+// Airam pone aquí cuántas horas antes se puede cancelar gratis, cuánto se
+// cobra si alguien cancela tarde o no viene, y lleva el equipo: altas,
+// cambios, horario, servicios, comisión, clave y bajas.
+// ── Fotos de la web y reseñas (solo el dueño) ──────────────────────────────
+// Cada foto de la web tiene un hueco. Si Airam sube otra desde su panel
+// (pestaña «Web»), sale la suya; si no, la original.
+const PIC_DEFAULT = { hero: "/assets/hero-nova.jpg", "hero-wide": "/assets/hero-nova-wide.jpg", cabina: "/assets/cabina.jpg", acabado: "/assets/acabado.jpg", oficio: "/assets/oficio.jpg", casa: "/assets/casa.jpg", supply: "/assets/supply.jpg", "supply-rosa": "/assets/supply-rosa.jpg", formacion: "/assets/oficio.jpg" };
+const pic = (slot) => {
+  const v = catalog?.site?.photos?.[slot];
+  return v ? `/api/site/${slot}/photo?v=${encodeURIComponent(v)}` : PIC_DEFAULT[slot];
+};
+// Reduce la foto en el móvil antes de subirla, sin recortarla, hasta que pese poco.
+async function shrinkFit(file, max) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    let k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    for (let i = 0; i < 6; i++) {
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.naturalWidth * k);
+      c.height = Math.round(img.naturalHeight * k);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      for (const q of [0.82, 0.72, 0.62]) {
+        const d = c.toDataURL("image/jpeg", q);
+        if (d.length < 850000) return d;
+      }
+      k *= 0.8;
+    }
+    throw Error("big");
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+async function staffWeb() {
+  if (!staff.owner) return show(staffTop("web") + `<p class="ag-free">Esto lo lleva el dueño.</p>`);
+  const r = await api("staff/site");
+  const R = r.rating,
+    when = R.at ? new Date(R.at).toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+  show(
+    staffTop("web") +
+      `<p class="section-label">Reseñas de ${esc(catalog.business.rating.source)}</p>
+      <div class="card web-rating">
+        <div class="wr-now"><strong>★ ${esc(R.shown.score)}</strong><span>${R.shown.count} reseñas<small>${
+          R.mode === "manual" ? "Puestas a mano" : R.ok === false ? `No se pudo leer Booksy (${esc(when)}). Se ven las últimas buenas.` : `Se leen solas de Booksy · última vez ${esc(when)}`
+        }</small></span></div>
+        <div class="form-actions" style="margin-top:12px"><button type="button" class="btn secondary" id="wr-auto">${R.mode === "manual" ? "Volver a leerlas de Booksy" : "Actualizar ahora"}</button><button type="button" class="btn secondary" id="wr-manual">Poner a mano</button></div>
+      </div>
+      <p class="section-label">Fotos de la web</p>
+      <p class="muted" style="margin-top:-4px">Toca una foto para cambiarla. Se ve al momento en la web; puedes volver a la original cuando quieras.</p>
+      <div class="web-grid">${r.slots
+        .map((x) => {
+          const mine = !!r.photos[x.id];
+          return `<button type="button" class="web-slot" data-slot="${esc(x.id)}"><span class="ws-pic${x.id === "hero-wide" ? " wide" : ""}"><img src="${mine ? `/api/site/${x.id}/photo?v=${esc(r.photos[x.id])}` : esc(x.def)}" alt="" loading="lazy">${mine ? `<em>Tuya</em>` : ""}</span><strong>${esc(x.label)}</strong><small>${esc(x.where)}</small></button>`;
+        })
+        .join("")}</div>`,
+  );
+  const reload = async () => {
+    catalog = null;
+    await loadCatalog();
+    render();
+  };
+  $("#wr-auto").onclick = async (e) => {
+    e.currentTarget.disabled = true;
+    try {
+      const x = await api("staff/site", { rating: { mode: "auto" } });
+      toast(x.rating.ok ? `Leídas de Booksy: ★ ${x.rating.shown.score} · ${x.rating.shown.count} reseñas.` : "Booksy no responde ahora. Prueba más tarde o ponlas a mano.");
+      reload();
+    } catch (err) {
+      toast(err.message);
+    }
+  };
+  $("#wr-manual").onclick = () => {
+    const sh = sheet(
+      `<p class="eyebrow">Reseñas</p><h2>Poner a mano</h2><p class="muted">Úsalo solo si Booksy deja de leerse solo. Mientras esté a mano, no se actualiza.</p>
+      <form id="wr-form"><label for="wr-s">Nota (de 1 a 5)</label><input id="wr-s" name="score" inputmode="decimal" required value="${esc(R.shown.score)}">
+      <label for="wr-c">Número de reseñas</label><input id="wr-c" name="count" inputmode="numeric" required value="${esc(R.shown.count)}">
+      <button class="btn wide" style="margin-top:16px" type="submit">Guardar</button></form>`,
+    );
+    sh.el.querySelector("#wr-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const d = new FormData(e.target);
+      try {
+        await api("staff/site", { rating: { mode: "manual", score: d.get("score"), count: d.get("count") } });
+        sh.close();
+        toast("Reseñas guardadas.");
+        reload();
+      } catch (err) {
+        toast(err.message);
+      }
+    });
+  };
+  $$("[data-slot]").forEach(
+    (el) =>
+      (el.onclick = () => {
+        const x = r.slots.find((y) => y.id === el.dataset.slot),
+          mine = !!r.photos[x.id];
+        const sh = sheet(
+          `<p class="eyebrow">${esc(x.where)}</p><h2>${esc(x.label)}</h2>
+          <span class="ws-pic big${x.id === "hero-wide" ? " wide" : ""}"><img src="${mine ? `/api/site/${x.id}/photo?v=${esc(r.photos[x.id])}` : esc(x.def)}" alt=""></span>
+          <div class="stack" style="margin-top:14px"><label class="btn wide" style="margin:0">${svg(ICONS.camera)} Hacer o elegir foto<input type="file" accept="image/*" class="sr-only" id="ws-file"></label>
+          ${mine ? `<button type="button" class="btn wide secondary" id="ws-reset">Volver a la original</button>` : ""}</div>
+          <p class="muted" style="font-size:13px;margin-top:12px">${x.id === "hero" ? "Mejor una foto en vertical." : x.id === "hero-wide" ? "Mejor una foto en horizontal y ancha." : "Se ajusta sola al hueco; lo importante, en el centro."}</p>`,
+        );
+        sh.el.querySelector("#ws-file").onchange = async (e) => {
+          const f = e.target.files[0];
+          if (!f) return;
+          try {
+            toast("Subiendo foto…");
+            await api("staff/site", { slot: x.id, photo: await shrinkFit(f, x.max) });
+            sh.close();
+            toast("Foto cambiada.");
+            reload();
+          } catch (err) {
+            toast(err.message === "big" ? "Esa foto es demasiado grande. Prueba con otra." : err.message || "No se ha podido leer esa foto.");
+          }
+        };
+        const rs = sh.el.querySelector("#ws-reset");
+        if (rs)
+          rs.onclick = async () => {
+            try {
+              await api("staff/site", { slot: x.id, reset: true });
+              sh.close();
+              toast("Vuelve a estar la original.");
+              reload();
+            } catch (err) {
+              toast(err.message);
+            }
+          };
+      }),
+  );
+}
+
+const DAYS_ES = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
+async function staffTeam() {
+  if (!staff.owner) return show(staffTop("ajustes") + `<p class="ag-free">Esto lo lleva el dueño.</p>`);
+  const [n, t] = await Promise.all([api("staff/rules"), api("staff/team")]);
+  const hoursTxt = (p) => {
+    const on = WEEK_ORDER.filter((d) => p.hours?.[d]?.length);
+    if (!on.length) return "Sin horario";
+    return on.map((d) => DAYS_ES[d].slice(0, 3)).join(" ") + " · " + p.hours[on[0]][0].join("–");
+  };
+  show(
+    staffTop("ajustes") +
+      `<p class="section-label">Normas de cancelación</p>
+      <form id="norms" class="card norms">
+        <label for="n-hours" style="margin-top:0">Se puede cancelar gratis hasta</label>
+        <div class="pct-field"><input id="n-hours" name="cancelHours" inputmode="numeric" required value="${n.cancelHours}"><span>h antes</span></div>
+        <label for="n-late">Si cancela con menos tiempo, se le puede cobrar</label>
+        <div class="pct-field"><input id="n-late" name="lateFeePct" inputmode="numeric" required value="${n.lateFeePct}"><span>% del servicio</span></div>
+        <label for="n-abs">Si no viene, se le puede cobrar</label>
+        <div class="pct-field"><input id="n-abs" name="noShowFeePct" inputmode="numeric" required value="${n.noShowFeePct}"><span>% del servicio</span></div>
+        <p class="muted" style="font-size:13px;margin:12px 0 0">Nunca se cobra solo: cada barbero decide en su pestaña «Faltas» si cobra o no, por si hay un motivo justificado. Con 0 % no se cobra nunca.</p>
+        <button class="btn wide" style="margin-top:14px" type="submit">Guardar normas</button>
+      </form>
+      <p class="section-label">Equipo</p>
+      <div class="team-admin">${t.team
+        .map(
+          (p) => `<button type="button" class="ag-item tm-row${p.active === false ? " off" : ""}" data-w="${esc(p.id)}">${face(p, "pr-thumb")}<div><strong>${esc(p.name)}</strong><span>${esc(p.role || "")} · ${esc(hoursTxt(p))}</span></div><span>${
+            p.active === false ? `<span class="appt-state">De baja</span>` : p.owner ? `<span class="appt-state st-done">Dueño</span>` : `<span class="appt-state st-ok">${String(p.commission ?? 0).replace(".", ",")} %</span>`
+          }</span></button>`,
+        )
+        .join("")}</div>
+      <button type="button" class="btn wide" style="margin-top:12px" id="w-new">+ Añadir trabajador</button>`,
+  );
+  onForm("norms", async (d) => {
+    await api("staff/rules", d);
+    catalog = null;
+    await loadCatalog();
+    toast("Normas guardadas.");
+    render();
+  });
+  $("#w-new").onclick = () => workerSheet(null, t.services);
+  $$("[data-w]").forEach((el) => (el.onclick = () => workerSheet(t.team.find((p) => p.id === el.dataset.w), t.services)));
+}
+
+function workerSheet(p, services) {
+  let photo = "";
+  const salon = catalog.business.week || {};
+  const hours = p?.hours || salon;
+  const timeSel = (name, sel) => {
+    let o = "";
+    for (let m = 7 * 60; m <= 23 * 60; m += 30) {
+      const v = addMin("00:00", m);
+      o += `<option ${v === sel ? "selected" : ""}>${v}</option>`;
+    }
+    return `<select name="${name}" aria-label="${name.startsWith("a") ? "Entrada" : "Salida"}">${o}</select>`;
+  };
+  const owner = !!p?.owner;
+  const sh = sheet(
+    `<p class="eyebrow">${p ? (owner ? "Dueño" : "Trabajador") : "Nuevo trabajador"}</p><h2>${p ? esc(p.name) : "Añadir al equipo"}</h2>
+    <form id="w-form">
+      <label class="pr-photo w-photo" id="w-photo">${p?.image ? `<img src="${esc(p.image)}" alt="">` : `<span>${svg(ICONS.camera)}Foto</span>`}<input type="file" accept="image/*" class="sr-only" id="w-file"></label>
+      <label for="w-name">Nombre</label><input id="w-name" name="name" required maxlength="60" value="${esc(p?.name || "")}">
+      <label for="w-role">Puesto <small>(se ve en su tarjeta)</small></label><input id="w-role" name="role" maxlength="40" value="${esc(p?.role || "Barbero")}">
+      <fieldset class="tr-field"><legend>Horario</legend><div class="w-hours">${WEEK_ORDER.map((d) => {
+        const r = hours[d]?.[0];
+        return `<div class="w-day"><label class="check"><input type="checkbox" name="on${d}" ${r ? "checked" : ""}><span>${DAYS_ES[d]}</span></label>${timeSel("a" + d, r?.[0] || "10:00")}${timeSel("b" + d, r?.[1] || "20:00")}</div>`;
+      }).join("")}</div></fieldset>
+      <fieldset class="tr-field"><legend>Servicios que hace</legend><div class="tchips">${services
+        .map((x) => {
+          const blocked = x.only.length && !x.only.includes(p?.id);
+          const on = p ? !p.services?.length || p.services.includes(x.id) : !x.only.length;
+          return `<label class="tchip${blocked ? " dis" : ""}"><input type="checkbox" name="svc" value="${esc(x.id)}" ${on && !blocked ? "checked" : ""} ${blocked ? "disabled" : ""}><span>${esc(x.name)}${blocked ? " · solo " + esc(x.only.join(", ")) : ""}</span></label>`;
+        })
+        .join("")}</div></fieldset>
+      ${owner ? "" : `<label for="w-comm">Su comisión para ti</label><div class="pct-field"><input id="w-comm" name="commission" inputmode="decimal" value="${String(p?.commission ?? 40).replace(".", ",")}"><span>%</span></div><p class="muted" style="font-size:12px;margin:6px 0 0">Para cambiarla solo desde un mes en adelante, usa «Cambiar %» en Caja y comisiones.</p>`}
+      <label for="w-pin">${p ? "Nueva clave del panel <small>(déjalo vacío para no cambiarla)</small>" : "Clave del panel <small>(4 a 8 números)</small>"}</label><input id="w-pin" name="pin" inputmode="numeric" autocomplete="new-password" maxlength="8" ${p ? "" : "required"} placeholder="${p?.hasPin ? "••••" : ""}">
+      ${owner ? "" : `<label class="check" style="margin-top:16px"><input type="checkbox" name="active" ${p?.active === false ? "" : "checked"}><span>En activo (sale para reservar y puede entrar a su panel)</span></label>`}
+      <button class="btn wide" style="margin-top:18px" type="submit">${p ? "Guardar cambios" : "Añadir al equipo"}</button>
+    </form>`,
+  );
+  const f = sh.el.querySelector("#w-form");
+  sh.el.querySelector("#w-file").onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      photo = await shrinkPortrait(file);
+      const box = sh.el.querySelector("#w-photo");
+      box.querySelector("img, span")?.remove();
+      box.insertAdjacentHTML("afterbegin", `<img src="${photo}" alt="">`);
+    } catch {
+      toast("No se ha podido leer esa foto.");
+    }
+  };
+  f.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const d = new FormData(f),
+      btn = f.querySelector("[type=submit]");
+    const hrs = {};
+    for (const day of WEEK_ORDER) hrs[day] = d.get("on" + day) ? [d.get("a" + day), d.get("b" + day)] : null;
+    btn.disabled = true;
+    try {
+      const r = await api("staff/team", {
+        id: p?.id,
+        name: d.get("name"),
+        role: d.get("role"),
+        hours: hrs,
+        services: d.getAll("svc"),
+        commission: d.get("commission") ?? undefined,
+        pin: d.get("pin"),
+        active: owner ? true : d.get("active") === "on",
+        photo,
+      });
+      sh.close();
+      catalog = null;
+      await loadCatalog();
+      toast(r.pending ? `Guardado. Ojo: le quedan ${r.pending} citas pendientes; muévelas o cancélalas desde la Agenda.` : p ? "Guardado." : `${first(r.worker.name)} ya está en el equipo.`);
+      render();
+    } catch (err) {
+      btn.disabled = false;
+      toast(err.message);
+    }
+  });
+}
+// Foto de trabajador en vertical (3:4), como las tarjetas de «Elige a tu barbero».
+async function shrinkPortrait(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    const W = 480,
+      H = 640,
+      r = Math.min(img.naturalWidth / W, img.naturalHeight / H),
+      sw = W * r,
+      sh = H * r,
+      c = document.createElement("canvas");
+    c.width = W;
+    c.height = H;
+    c.getContext("2d").drawImage(img, (img.naturalWidth - sw) / 2, (img.naturalHeight - sh) / 3, sw, sh, 0, 0, W, H);
+    return c.toDataURL("image/jpeg", 0.8);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 // ── Avisos y calendario de cada barbero ────────────────────────────────────
 // Cada barbero pone el correo donde quiere que le avisen de sus citas y
 // conecta su agenda con Google Calendar o con el calendario del móvil.
@@ -2304,7 +2917,7 @@ function trainingCard() {
   const a = provById(catalog.training.teacher);
   return `<section class="home-block" aria-labelledby="train-title">
     <a class="train-card" href="#formacion">
-      <span class="tc-photo"><img src="/assets/oficio.jpg" alt="" loading="lazy"></span>
+      <span class="tc-photo"><img src="${pic("formacion")}" alt="" loading="lazy"></span>
       <span class="tc-txt"><small>Formación · ${esc(catalog.training.status)}</small>
         <strong id="train-title">¿Quieres aprender <em class="serif">a cortar?</em></strong>
         <span>${esc(first(a?.name || "Airam"))} prepara clases para empezar desde cero o para afinar tu técnica.</span>
@@ -2527,11 +3140,13 @@ const BRANDS = { visa: "Visa", mastercard: "Mastercard", amex: "American Express
 const cardLabel = (c) => (c ? `${BRANDS[c.brand] || "Tarjeta"} ···· ${c.last4}` : "");
 const isPending = (c) => c && ["requires_action", "requires_payment_method"].includes(c.status);
 
+const feePct = (s, kind) => Math.round((Number(s.price) || 0) * (kind === "late" ? catalog.rules.lateFeePct : catalog.rules.noShowFeePct)) / 100;
+const pctText = (n) => (Number(n) >= 100 ? "el precio entero" : `el ${n} %`);
 function guaranteeBox(s) {
-  const fee = euro(s.price);
+  const fee = euro(Math.max(feePct(s, "noShow"), feePct(s, "late")));
   return user?.card
-    ? `<div class="guarantee has"><span class="g-ic">${svg(ICONS.shieldCheck)}</span><div><strong>Cita garantizada con ${esc(cardLabel(user.card))}</strong><span>No se cobra nada ahora. Solo si no vienes y no cancelas con ${catalog.rules.cancelHours} h se cobran ${fee}.</span></div><button type="button" class="g-link" id="g-change">Cambiar</button></div>`
-    : `<div class="guarantee"><span class="g-ic">${svg(ICONS.card)}</span><div><strong>Tarjeta en garantía</strong><span>Para reservar dejas una tarjeta. <b>No se cobra nada ahora</b>: solo si no vienes y no cancelas con ${catalog.rules.cancelHours} h se cobra el servicio (${fee}). Se guarda en tu perfil y no la vuelves a poner.</span></div></div>`;
+    ? `<div class="guarantee has"><span class="g-ic">${svg(ICONS.shieldCheck)}</span><div><strong>Cita garantizada con ${esc(cardLabel(user.card))}</strong><span>No se cobra nada ahora. Solo si no vienes o cancelas con menos de ${catalog.rules.cancelHours} h se te pueden cobrar ${fee}.</span></div><button type="button" class="g-link" id="g-change">Cambiar</button></div>`
+    : `<div class="guarantee"><span class="g-ic">${svg(ICONS.card)}</span><div><strong>Tarjeta en garantía</strong><span>Para reservar dejas una tarjeta. <b>No se cobra nada ahora</b>: solo si no vienes o cancelas con menos de ${catalog.rules.cancelHours} h se te pueden cobrar ${fee}. Se guarda en tu perfil y no la vuelves a poner.</span></div></div>`;
 }
 
 let stripeP = null;
@@ -2604,11 +3219,15 @@ function paySheet({ eyebrow, title, text, cta, mount, submit }) {
 // Estado del cobro por no presentarse, tal como lo ve el cliente.
 function chargeNote(b) {
   const c = b.charge;
-  if (!c) return "";
-  if (c.status === "succeeded") return `<p class="charge-note">Se cobraron ${euro(c.amount)} en tu ${esc(cardLabel(c))} por no venir ni cancelar a tiempo.</p>`;
+  if (!c) {
+    if (b.waived) return `<p class="charge-note ok">Tu barbero ha decidido no cobrarte nada por esta cita.</p>`;
+    if (b.late) return `<p class="charge-note">La cancelaste con menos de ${catalog.rules.cancelHours} h. Tu barbero revisará si se cobra; si tienes un motivo justificado, <a href="${wa(`Hola, cancelé tarde mi cita del ${longDay(b.date)} (ref. ${b.id}) porque…`)}" target="_blank" rel="noopener">cuéntaselo por WhatsApp</a>.</p>`;
+    return "";
+  }
+  if (c.status === "succeeded") return `<p class="charge-note">Se cobraron ${euro(c.amount)} en tu ${esc(cardLabel(c))} por ${c.kind === "late" ? "cancelar con poca antelación" : "no venir ni cancelar a tiempo"}.</p>`;
   if (c.status === "refunded") return `<p class="charge-note ok">El cobro de ${euro(c.amount)} por esta cita se te ha devuelto.</p>`;
   if (isPending(c))
-    return `<div class="warning"><strong>Pago pendiente: ${euro(c.amount)}</strong><br>No viniste y no la cancelaste a tiempo, así que según las condiciones se cobra el servicio. ${
+    return `<div class="warning"><strong>Pago pendiente: ${euro(c.amount)}</strong><br>${c.kind === "late" ? "La cancelaste con poca antelación" : "No viniste y no la cancelaste a tiempo"}, así que según las condiciones se cobra. ${
       c.status === "requires_action" ? "Tu banco pide que lo confirmes." : "Tu tarjeta no se pudo cobrar."
     }</div><button type="button" class="btn wide" id="pay-now">Pagar ${euro(c.amount)}</button>`;
   return "";
@@ -2843,7 +3462,7 @@ document.addEventListener(
 );
 
 // ── Motor ──────────────────────────────────────────────────────────────────
-const teamFor = (s) => catalog.providers.filter((p) => !s.providers?.length || s.providers.includes(p.id));
+const teamFor = (s) => catalog.providers.filter((p) => (!s.providers?.length || s.providers.includes(p.id)) && (!p.services?.length || p.services.includes(s.id)));
 const addMin = (hhmm, n) => {
   const [h, m] = hhmm.split(":").map(Number),
     t = h * 60 + m + n;

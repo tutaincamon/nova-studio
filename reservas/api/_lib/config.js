@@ -112,6 +112,21 @@ export const PROVIDERS = [
 // ponga allí manda sobre esto, desde el mes que elija en adelante).
 export const COMMISSION = { ehedey: 40, noa: 40 };
 
+// Cobros en la caja del local. Los extras se suman al servicio al cobrar
+// (el cliente venía a cortarse y se hace también la barba). PENDIENTE de
+// cerrar precios con NOVA; el importe final siempre se puede tocar a mano.
+export const EXTRAS = [
+  { id: "barba", name: "Barba", price: 4 },
+  { id: "cejas", name: "Cejas", price: 3 },
+  { id: "diseno", name: "Diseño / líneas", price: 3 },
+  { id: "lavado", name: "Lavado", price: 3 },
+];
+export const PAY_METHODS = [
+  { id: "efectivo", name: "Efectivo" },
+  { id: "tarjeta", name: "Tarjeta" },
+  { id: "bizum", name: "Bizum" },
+];
+
 // Claves del panel del equipo: una por barbero, en Vercel como
 // STAFF_PIN_AIRAM, STAFF_PIN_EHEDEY y STAFF_PIN_NOA. El dueño también entra
 // con STAFF_PIN (la clave única de antes). En local, sin variables, es 1234.
@@ -231,5 +246,7 @@ export function publicCatalog() {
     medals: MEDALS,
     medalGroups: MEDAL_GROUPS,
     rewards: REWARDS,
+    extras: EXTRAS,
+    payMethods: PAY_METHODS,
   };
 }
