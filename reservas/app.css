@@ -350,7 +350,7 @@ img.face, img.na-face { object-position: 50% 18%; }
 .na-info { display: grid; gap: 2px; min-width: 0; }
 .na-time { font-size: 30px; letter-spacing: -1px; line-height: 1; }
 .na-info span { font-size: 14px; color: #ffffffc8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.na-face { width: 58px; height: 58px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--ink); font-weight: 900; font-size: 22px; box-shadow: 0 0 0 2px #0d1a10, 0 0 0 4px #34d27a; }
+.na-face { width: 58px; height: 58px; border-radius: 50%; object-fit: cover; flex: none; display: grid; place-items: center; background: var(--accent); color: var(--ink); font-weight: 900; font-size: 22px; box-shadow: 0 0 0 2px #0d1a10, 0 0 0 4px #34d27a; }
 .na-foot { display: flex; justify-content: space-between; align-items: center; padding-top: 12px; border-top: 1px solid #ffffff1a; font-size: 13px; color: #ffffffb8; }
 .na-foot b { color: var(--ink); background: var(--accent); padding: 9px 14px; border-radius: 0; font-size: 14px; }
 .booked-hero { text-align: center; padding: 20px 0 6px; }
