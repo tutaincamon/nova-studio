@@ -162,7 +162,8 @@ export const LEAGUES = [
 ];
 
 // Medallas. `metric` es lo que se cuenta y `goal` cuánto hace falta.
-// `bonus` son los puntos extra que da al conseguirla.
+// `bonus` son los puntos extra que da al conseguirla. La de la reseña va a 0
+// a propósito: Google no deja dar nada a cambio de una reseña.
 export const MEDALS = [
   { id: "cut-1", group: "silla", code: "SIL-01", icon: "scissors", name: "Primera silla", metric: "cuts", goal: 1, bonus: 50 },
   { id: "cut-5", group: "silla", code: "SIL-05", icon: "comb", name: "Habitual", metric: "cuts", goal: 5, bonus: 100 },
@@ -190,6 +191,7 @@ export const MEDALS = [
   { id: "team", group: "especiales", code: "ESP-EQ", icon: "users", name: "Todo el equipo", metric: "barbers", goal: 3, bonus: 100, desc: "Prueba a los 3 barberos" },
   { id: "privado", group: "especiales", code: "ESP-VIP", icon: "gem", name: "Sesión privada", metric: "privado", goal: 1, bonus: 150, desc: "Un corte privado" },
   { id: "profile", group: "especiales", code: "ESP-ID", icon: "camera", name: "Perfil completo", metric: "profile", goal: 1, bonus: 50, desc: "Foto y teléfono en tu perfil" },
+  { id: "review", group: "especiales", code: "ESP-RS", icon: "star", name: "Tu opinión cuenta", metric: "review", goal: 1, bonus: 0, desc: "Por dejarnos tu reseña en Google" },
   { id: "year", group: "especiales", code: "ESP-1A", icon: "cake", name: "Aniversario", metric: "year", goal: 1, bonus: 300, desc: "Un año en el Club" },
 ];
 export const MEDAL_GROUPS = [

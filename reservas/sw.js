@@ -5,7 +5,7 @@
 //   móvil (no cambian; una versión nueva lleva otro «?v=»).
 // - La página: primero la red (para estrenar cambios al momento) y, sin red,
 //   lo guardado.
-const CACHE = "nova-v24";
+const CACHE = "nova-v25";
 const SHELL = ["/", "/app.css?v=24", "/i18n.js?v=24", "/app.js?v=24", "/assets/logo.png", "/assets/icon-192.png"];
 
 self.addEventListener("install", (e) => {

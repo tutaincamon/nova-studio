@@ -1413,7 +1413,7 @@ const pages = {
     if (!staff) return staffLogin();
     try {
       if (staff.caja) return await staffCobros();
-      await ({ cobrar: staffCobros, caja: staffCaja, progreso: staffProgress, faltas: staffFaltas, formacion: staffTraining, productos: staffProducts, ajustes: staffTeam, web: staffWeb, clientes: staffClients }[args[0]] || staffAgenda)();
+      await ({ cobrar: staffCobros, caja: staffCaja, progreso: staffProgress, faltas: staffFaltas, formacion: staffTraining, productos: staffProducts, ajustes: staffTeam, web: staffWeb, clientes: staffClients, ropa: staffRopa }[args[0]] || staffAgenda)();
     } catch (e) {
       if (e.status !== 401) throw e;
       staff = null;
@@ -1725,8 +1725,20 @@ const toGo = (pts) =>
 function medalCard(md, st) {
   const sub = st.got ? "✓ Conseguida" : medalLeft(md, st),
     bar = !st.got && md.goal > 1 ? `<div class="md-bar" title="${st.progress}/${md.goal}"><i style="width:${Math.max(4, Math.round((st.progress / md.goal) * 100))}%"></i></div>` : "";
-  return `<div class="md${st.got ? " got" : ""}" title="${esc(md.desc || md.name)}"><div class="md-art">${medalArt(md, st.got)}${st.got ? "" : `<span class="md-lock">${svg(ICONS.lock)}</span>`}</div><strong>${esc(md.name)}</strong><span class="md-sub">${esc(sub)}</span>${bar}<span class="md-chip">${svg(ICONS.gift)}+${nf(md.bonus)} pts</span></div>`;
+  return `<div class="md${st.got ? " got" : ""}" title="${esc(md.desc || md.name)}"><div class="md-art">${medalArt(md, st.got)}${st.got ? "" : `<span class="md-lock">${svg(ICONS.lock)}</span>`}</div><strong>${esc(md.name)}</strong><span class="md-sub">${esc(sub)}</span>${bar}${medalAction(md, st)}</div>`;
 }
+// Las medallas sin puntos (la de la reseña) no enseñan «+0 pts».
+const pts = (md) => (md.bonus ? `+${nf(md.bonus)}` : "");
+function medalAction(md, st) {
+  if (md.metric === "review" && !st.got && catalog.reviews)
+    return `<a class="md-chip md-act" href="/api/resena" target="_blank" rel="noopener">${svg(ICONS.star)}${L("Dejar reseña", "Leave a review")}</a>`;
+  return md.bonus ? `<span class="md-chip">${svg(ICONS.gift)}+${nf(md.bonus)} pts</span>` : "";
+}
+// Al volver de dejar la reseña, la medalla ya sale conseguida.
+document.addEventListener("click", (e) => {
+  if (!e.target.closest?.(".md-act")) return;
+  addEventListener("focus", () => render(), { once: true });
+});
 function medalsBlock(m) {
   const all = catalog.medals.map((md, i) => [md, m.medals[i]]),
     got = m.medals.filter((x) => x.got).length;
@@ -1765,7 +1777,7 @@ function nextBlock(m, L) {
         ([md, s]) =>
           `<div class="nx"><span class="nx-art">${medalArt(md, false)}</span><div><strong>${esc(md.name)}</strong><span>${esc(medalLeft(md, s))}${md.desc && MEDAL_UNIT[md.metric] && md.goal > 1 ? ` · ${esc(tx(md.desc))}` : ""}</span>${
             md.goal > 1 ? `<div class="md-bar"><i style="width:${Math.max(4, Math.round((s.progress / md.goal) * 100))}%"></i></div>` : ""
-          }</div><b>+${nf(md.bonus)}</b></div>`,
+          }</div><b>${pts(md)}</b></div>`,
       )
       .join("") +
     `</div>`
@@ -1796,7 +1808,7 @@ function celebrate(m, L) {
       (fresh.length
         ? `<div class="cel-medals"><p class="eyebrow">${fresh.length === 1 ? "Medalla nueva" : tl(`${fresh.length} medallas nuevas`, `${fresh.length} new medals`)}</p>${fresh
             .slice(0, 4)
-            .map((md) => `<div class="nx"><span class="nx-art">${medalArt(md, true)}</span><div><strong>${esc(md.name)}</strong><span>${esc(md.desc || "Conseguida")}</span></div><b>+${nf(md.bonus)}</b></div>`)
+            .map((md) => `<div class="nx"><span class="nx-art">${medalArt(md, true)}</span><div><strong>${esc(md.name)}</strong><span>${esc(md.desc || "Conseguida")}</span></div><b>${pts(md)}</b></div>`)
             .join("")}${fresh.length > 4 ? `<p class="muted" style="text-align:center;margin:4px 0 0">${tl(`y ${fresh.length - 4} más en tu perfil`, `and ${fresh.length - 4} more on your profile`)}</p>` : ""}</div>`
         : "") +
       `<button type="button" class="btn wide" id="cel-ok">Seguir</button>`,
@@ -1947,7 +1959,7 @@ function staffTop(tab) {
     `<div class="staff-top">${face(provById(staff.id), "who-face")}<div><p class="eyebrow">${staff.owner ? "Propietario" : "Panel de barbero"}</p><h1>Hola, ${esc(first(staff.name))}</h1></div></div>` +
     `<div class="tabs" role="navigation" aria-label="Panel"><a href="#equipo" class="${tab === "agenda" ? "active" : ""}" ${tab === "agenda" ? 'aria-current="page"' : ""}>Agenda</a><a href="#equipo/cobrar" class="${tab === "cobrar" ? "active" : ""}" ${tab === "cobrar" ? 'aria-current="page"' : ""}>Cobrar</a><a href="#equipo/caja" class="${tab === "caja" ? "active" : ""}" ${tab === "caja" ? 'aria-current="page"' : ""}>${staff.owner ? "Caja y comisiones" : "Mi caja"}</a><a href="#equipo/progreso" class="${tab === "progreso" ? "active" : ""}" ${tab === "progreso" ? 'aria-current="page"' : ""}>Progreso</a><a href="#equipo/faltas" class="${tab === "faltas" ? "active" : ""}" ${tab === "faltas" ? 'aria-current="page"' : ""}>Faltas</a>${
       staff.owner
-        ? `<a href="#equipo/formacion" class="${tab === "formacion" ? "active" : ""}" ${tab === "formacion" ? 'aria-current="page"' : ""}>Formación</a><a href="#equipo/productos" class="${tab === "productos" ? "active" : ""}" ${tab === "productos" ? 'aria-current="page"' : ""}>Productos</a><a href="#equipo/ajustes" class="${tab === "ajustes" ? "active" : ""}" ${tab === "ajustes" ? 'aria-current="page"' : ""}>Equipo y normas</a><a href="#equipo/web" class="${tab === "web" ? "active" : ""}" ${tab === "web" ? 'aria-current="page"' : ""}>Web</a><a href="#equipo/clientes" class="${tab === "clientes" ? "active" : ""}" ${tab === "clientes" ? 'aria-current="page"' : ""}>Clientes</a>`
+        ? `<a href="#equipo/formacion" class="${tab === "formacion" ? "active" : ""}" ${tab === "formacion" ? 'aria-current="page"' : ""}>Formación</a><a href="#equipo/productos" class="${tab === "productos" ? "active" : ""}" ${tab === "productos" ? 'aria-current="page"' : ""}>Productos</a><a href="#equipo/ajustes" class="${tab === "ajustes" ? "active" : ""}" ${tab === "ajustes" ? 'aria-current="page"' : ""}>Equipo y normas</a><a href="#equipo/web" class="${tab === "web" ? "active" : ""}" ${tab === "web" ? 'aria-current="page"' : ""}>Web</a><a href="#equipo/clientes" class="${tab === "clientes" ? "active" : ""}" ${tab === "clientes" ? 'aria-current="page"' : ""}>Clientes</a><a href="#equipo/ropa" class="${tab === "ropa" ? "active" : ""}" ${tab === "ropa" ? 'aria-current="page"' : ""}>Ropa</a>`
         : ""
     }</div>`
   );
@@ -2750,54 +2762,92 @@ function staffSheet(b) {
 // ── Equipo: venta de ropa de NOVA Supply ───────────────────────────────────
 // El barbero apunta lo que se lleva el socio y el Club le suma los puntos.
 // Se busca al socio por su correo o por su código del Club.
-function staffShop(email) {
+// ── Ropa (NOVA Supply): vender, entregar reservas de la web y llevar el stock ──
+// Lo mismo que se ve aquí lo ve la tienda (novasupply.es): las dos partes leen
+// el mismo stock y las mismas ventas.
+const ESTADO_ROPA = { disponible: ["A la venta", "st-ok"], agotado: ["Agotada", "st-cancel"], proximamente: ["Próximamente", "st-wait"], oculto: ["Oculta", ""] };
+const ropaFoto = (r, p) => (p.foto ? `${r.tienda.replace(/\/$/, "")}/${encodeURIComponent(p.foto)}` : "");
+const ropaNombre = (p) => p.nombre + (p.variante ? " · " + p.variante : "");
+const unidadesTxt = (t) => (t.stock === null ? "sin contar" : `${t.libres} libre${t.libres === 1 ? "" : "s"}${t.apartadas ? ` · ${t.apartadas} apartada${t.apartadas === 1 ? "" : "s"}` : ""}`);
+
+async function staffShop(email) {
+  let r;
+  try {
+    r = await api("staff/ropa");
+  } catch (e) {
+    return toast(e.message);
+  }
   const S = catalog.shop,
     P = catalog.points;
   const sh = sheet(`<p class="eyebrow">${esc(S.name)}</p><h2>Venta de ropa</h2><div id="sp-flow"></div>`);
   const flow = sh.el.querySelector("#sp-flow");
-  const find = () => {
-    flow.innerHTML = `<p class="muted" style="margin-top:0">Pídele su correo o su código del Club (sale en su perfil, en «Invita y suma»).</p>
-      <form id="sp-find"><label for="sp-q">Correo o código</label><input id="sp-q" name="q" required autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="cliente@correo.com o CARLOS482"><button class="btn wide" style="margin-top:14px" type="submit">Buscar socio</button></form>`;
-    const f = flow.querySelector("#sp-find");
-    f.q.focus();
+  const venta = r.prendas.filter((p) => p.tallas.length && p.estado !== "oculto" && p.estado !== "proximamente");
+  const pick = { prenda: venta.find((p) => p.efectivo === "disponible")?.id || venta[0]?.id || "", talla: "" };
+  const draw = () => {
+    const p = venta.find((x) => x.id === pick.prenda);
+    flow.innerHTML =
+      (r.pendientes.length
+        ? `<button type="button" class="btn wide secondary" id="sp-web" style="margin-bottom:14px">Entregar una reserva de la web <span class="cb-badge">${r.pendientes.length}</span></button>`
+        : "") +
+      (!venta.length
+        ? `<p class="ag-free">No hay prendas a la venta. ${r.owner ? "Añádelas en la pestaña «Ropa»." : "Díselo al dueño."}</p>`
+        : `<form id="sp-sale">
+        <p class="section-label" style="margin-top:0">Prenda</p>
+        <div class="rp-pick">${venta
+          .map(
+            (x) => `<button type="button" class="rp-opt${x.id === pick.prenda ? " on" : ""}" data-pr="${esc(x.id)}">${ropaFoto(r, x) ? `<img src="${esc(ropaFoto(r, x))}" alt="" loading="lazy">` : ""}<strong>${esc(ropaNombre(x))}</strong><small>${x.precio != null ? euro(x.precio) : "Sin precio"}</small></button>`,
+          )
+          .join("")}</div>
+        <p class="section-label">Talla</p>
+        <div class="tchips">${p.tallas
+          .map((t) => {
+            const out = t.libres === 0;
+            return `<label class="tchip${out ? " dis" : ""}"><input type="radio" name="talla" value="${esc(t.talla)}" ${out ? "disabled" : ""} ${pick.talla === t.talla ? "checked" : ""}><span>${esc(t.talla)}${t.stock !== null ? ` <small>${t.libres}</small>` : ""}</span></label>`;
+          })
+          .join("")}</div>
+        <div class="form-row2" style="margin-top:6px"><div><label for="sp-n">Cuántas</label><select id="sp-n" name="cantidad">${[1, 2, 3, 4, 5].map((n) => `<option>${n}</option>`).join("")}</select></div>
+          <div><label for="sp-amount">Cobrado (€)</label><input id="sp-amount" name="importe" required inputmode="decimal" value="${p.precio != null ? Number(p.precio).toFixed(2).replace(".", ",") : ""}" autocomplete="off"></div></div>
+        <label for="sp-socio">Socio del Club <small>(opcional: correo o código, para sumarle puntos)</small></label>
+        <input id="sp-socio" name="socio" autocomplete="off" autocapitalize="none" spellcheck="false" value="${esc(email || "")}" placeholder="cliente@correo.com o CARLOS482">
+        <p class="sp-preview" id="sp-preview"></p>
+        <button class="btn wide" style="margin-top:6px" type="submit">Apuntar venta</button>
+        <p class="muted" style="font-size:12px;margin-top:10px">Se descuenta del stock y sale también en la web de la tienda.</p>
+      </form>`);
+    flow.querySelector("#sp-web")?.addEventListener("click", () => (sh.close(), ropaRecogidas(r)));
+    const f = flow.querySelector("#sp-sale");
+    if (!f) return;
+    const price = () => (p.precio != null ? p.precio : 0);
+    const pv = flow.querySelector("#sp-preview");
+    const upd = () => {
+      const n = Number(String(f.importe.value).replace(",", "."));
+      pv.innerHTML = f.socio.value.trim() && n > 0 ? `Le suma <b>+${nf(Math.round(n * P.perEuro))} puntos</b> en el Club.` : "";
+    };
+    flow.querySelectorAll("[data-pr]").forEach((b) => (b.onclick = () => ((pick.prenda = b.dataset.pr), (pick.talla = ""), draw())));
+    f.cantidad.onchange = () => {
+      if (p.precio != null) f.importe.value = (price() * Number(f.cantidad.value)).toFixed(2).replace(".", ",");
+      upd();
+    };
+    f.importe.oninput = upd;
+    f.socio.oninput = upd;
+    upd();
     f.onsubmit = async (e) => {
       e.preventDefault();
-      try {
-        load((await api("staff/member?q=" + encodeURIComponent(f.q.value.trim()))).member);
-      } catch (err) {
-        toast(err.message);
-      }
-    };
-  };
-  const load = (mb) => {
-    const L = leagueOf(mb.earned),
-      disc = shopDiscount(L.index);
-    flow.innerHTML = `<div class="pick-summary sp-who" style="${leagueVars(L.league)}">${leagueArt(L.league)}<div><strong>${esc(mb.name || mb.email)}</strong><span>Socio Nº ${String(mb.no || 0).padStart(4, "0")} · ${esc(L.label)}${disc ? ` · <b>${esc(disc)}</b>` : ""}</span></div></div>
-      <form id="sp-sale"><div class="form-row2"><div><label for="sp-amount">Importe pagado (€)</label><input id="sp-amount" name="amount" required inputmode="decimal" placeholder="47,50" autocomplete="off"></div><div><label for="sp-items">Prendas</label><input id="sp-items" name="items" required type="number" min="1" max="30" value="1"></div></div>
-      <p class="sp-preview" id="sp-preview">Suma ${P.perEuro} puntos por cada euro.</p>
-      <button class="btn wide" style="margin-top:6px" type="submit">Sumar puntos</button></form>`;
-    const f = flow.querySelector("#sp-sale"),
-      pv = flow.querySelector("#sp-preview");
-    f.amount.focus();
-    f.amount.oninput = () => {
-      const n = Number(f.amount.value.replace(",", "."));
-      pv.innerHTML = n > 0 ? `Le suma <b>+${nf(Math.round(n * P.perEuro))} puntos</b>` : `Suma ${P.perEuro} puntos por cada euro.`;
-    };
-    f.onsubmit = async (e) => {
-      e.preventDefault();
+      const d = new FormData(f);
+      if (!d.get("talla")) return toast("Elige la talla.");
       const btn = f.querySelector("[type=submit]");
       btn.disabled = true;
       try {
-        const { purchase: p } = await api("staff/shop", { email: mb.email, amount: f.amount.value, items: f.items.value });
-        flow.innerHTML = `<div class="booked-hero"><span class="booked-check">✓</span><h2>+${nf(p.points)} puntos</h2><p class="sub">Para ${esc(first(mb.name || mb.email))} · ${p.items} ${p.items === 1 ? "prenda" : "prendas"} · ${euro(p.amount)}</p></div>
+        const x = await api("staff/ropa/venta", { prenda: p.id, talla: d.get("talla"), cantidad: d.get("cantidad"), importe: d.get("importe"), socio: d.get("socio") });
+        flow.innerHTML = `<div class="booked-hero"><span class="booked-check">✓</span><h2>Venta apuntada</h2><p class="sub">${esc(ropaNombre(p))} · ${esc(x.venta.talla)}${x.venta.cantidad > 1 ? " × " + x.venta.cantidad : ""} · ${euro(x.venta.importe)}${x.puntos ? ` · <b>+${nf(x.puntos)} puntos</b>` : ""}</p></div>
           <div class="form-actions"><button type="button" class="btn secondary" id="sp-undo">Deshacer</button><button type="button" class="btn" id="sp-ok">Hecho</button></div>`;
-        flow.querySelector("#sp-ok").onclick = sh.close;
+        flow.querySelector("#sp-ok").onclick = () => (sh.close(), render());
         flow.querySelector("#sp-undo").onclick = async (ev) => {
           ev.currentTarget.disabled = true;
           try {
-            await api(`staff/shop/${p.id}/delete`, {});
-            toast("Venta quitada.");
+            await api(`staff/ropa/venta/${x.venta.id}/deshacer`, {});
+            toast("Venta deshecha: la prenda vuelve al stock.");
             sh.close();
+            render();
           } catch (err) {
             toast(err.message);
           }
@@ -2808,11 +2858,155 @@ function staffShop(email) {
       }
     };
   };
-  if (!email) return find();
-  api("staff/member?q=" + encodeURIComponent(email))
-    .then((r) => load(r.member))
-    .catch((err) => (toast(err.message), find()));
+  draw();
 }
+
+// Reservas hechas en novasupply.es que esperan a que el cliente pase a por ellas.
+function ropaRecogidas(r) {
+  const sh = sheet(
+    `<p class="eyebrow">Reservas de la web</p><h2>Para recoger</h2>
+    ${
+      r.pendientes.length
+        ? r.pendientes
+            .map(
+              (x) => `<div class="card rp-ped"><div class="tr-item-top"><div><strong>${esc(x.nombre || "")}</strong><span>${esc(x.prendaNombre)} · talla ${esc(x.talla)} · ref. <b>${esc(x.ref)}</b></span></div><span class="appt-state st-wait">${esc(shortDate(String(x.fecha || "").slice(0, 10)))}</span></div>
+                ${x.tel ? `<p class="tr-line muted">${esc(x.tel)}${x.correo ? " · " + esc(x.correo) : ""}</p>` : ""}
+                <div class="form-actions" style="margin-top:10px"><input class="rp-imp" inputmode="decimal" aria-label="Importe cobrado" value="${x.precio != null ? Number(x.precio).toFixed(2).replace(".", ",") : ""}"><button type="button" class="btn" data-entrega="${esc(x.ref)}">Entregada y cobrada</button></div>
+                ${r.owner ? `<button type="button" class="tr-del" data-anula="${esc(x.ref)}">Anular reserva (no viene)</button>` : ""}
+              </div>`,
+            )
+            .join("")
+        : `<p class="ag-free">No hay reservas pendientes.</p>`
+    }`,
+  );
+  sh.el.querySelectorAll("[data-entrega]").forEach(
+    (b) =>
+      (b.onclick = async () => {
+        b.disabled = true;
+        try {
+          const x = await api("staff/ropa/recogida", { ref: b.dataset.entrega, importe: b.parentElement.querySelector(".rp-imp").value });
+          toast(`Entregada: ${euro(x.venta.importe)}${x.puntos ? ` · +${nf(x.puntos)} puntos` : ""}.`);
+          sh.close();
+          render();
+        } catch (e) {
+          b.disabled = false;
+          toast(e.message);
+        }
+      }),
+  );
+  sh.el.querySelectorAll("[data-anula]").forEach(
+    (b) =>
+      (b.onclick = async () => {
+        if (b.dataset.sure !== "1") {
+          b.dataset.sure = "1";
+          b.textContent = "Pulsa otra vez: la prenda vuelve a estar libre";
+          return;
+        }
+        try {
+          await api("staff/ropa/anular", { ref: b.dataset.anula });
+          toast("Reserva anulada.");
+          sh.close();
+          render();
+        } catch (e) {
+          toast(e.message);
+        }
+      }),
+  );
+}
+
+// Pestaña «Ropa» (dueño): stock de cada prenda, reservas de la web y ventas.
+async function staffRopa() {
+  const r = await api("staff/ropa");
+  show(
+    staffTop("ropa") +
+      `<div class="stat3 money"><div><strong>${r.mes.unidades}</strong><span>Prendas este mes</span></div><div><strong>${euro(r.mes.importe)}</strong><span>Vendido</span></div><div><strong>${r.pendientes.length}</strong><span>Por recoger</span></div></div>
+      <p class="caja-meta">${r.mes.estudio} ${r.mes.estudio === 1 ? "venta" : "ventas"} en el estudio · ${r.mes.web} ${r.mes.web === 1 ? "recogida" : "recogidas"} de la web</p>
+      <div class="staff-bar"><button type="button" class="btn" id="rp-sell">${svg(ICONS.bag)} Vender</button>${r.pendientes.length ? `<button type="button" class="btn secondary" id="rp-web">Reservas web (${r.pendientes.length})</button>` : ""}</div>
+      <p class="section-label">Stock</p>
+      <div class="rp-list">${r.prendas
+        .map((p) => {
+          const [st, cls] = ESTADO_ROPA[p.efectivo] || ESTADO_ROPA.oculto;
+          return `<button type="button" class="ag-item rp-row" data-ed="${esc(p.id)}">${ropaFoto(r, p) ? `<img class="pr-thumb" src="${esc(ropaFoto(r, p))}" alt="" loading="lazy">` : `<span class="pr-thumb pr-noimg">${svg(ICONS.shirt)}</span>`}
+            <div><strong>${esc(ropaNombre(p))}</strong><span>${p.tallas.length ? p.tallas.map((t) => `${esc(t.talla)} ${t.stock === null ? "·" : `<b>${t.libres}</b>`}`).join(" &nbsp; ") : "Sin tallas"}${p.precio != null ? " · " + euro(p.precio) : ""}</span></div>
+            <span class="appt-state ${cls}">${st}</span></button>`;
+        })
+        .join("")}</div>
+      <button type="button" class="btn wide secondary" style="margin-top:10px" id="rp-new">+ Añadir prenda</button>
+      <p class="muted" style="font-size:12px">«·» = esa talla no se cuenta (se vende sin límite). Cuando una prenda a la venta se queda sin tallas libres, la tienda la pone como agotada sola.</p>
+      <p class="section-label">Últimas ventas</p>
+      ${
+        r.ventas.length
+          ? r.ventas
+              .map(
+                (v) => `<div class="ag-item rp-sale"><time>${esc(shortDate(String(v.fecha).slice(0, 10)))}<small>${esc(String(v.fecha).slice(11, 16))}</small></time><div><strong>${esc(v.nombre)} · ${esc(v.talla)}${v.cantidad > 1 ? " × " + v.cantidad : ""}</strong><span>${v.canal === "web" ? "Reserva web" : "Estudio"}${v.cliente ? " · " + esc(v.cliente) : ""}${v.ref ? " · " + esc(v.ref) : ""}</span></div><span class="rp-amt"><b>${euro(v.importe)}</b>${v.canal === "estudio" ? `<button type="button" class="tr-del" data-undo="${esc(v.id)}">Deshacer</button>` : ""}</span></div>`,
+              )
+              .join("")
+          : `<p class="ag-free">Aún no hay ventas apuntadas.</p>`
+      }`,
+  );
+  $("#rp-sell").onclick = () => staffShop("");
+  $("#rp-web")?.addEventListener("click", () => ropaRecogidas(r));
+  $("#rp-new").onclick = () => prendaSheet(null, r);
+  $$("[data-ed]").forEach((b) => (b.onclick = () => prendaSheet(r.prendas.find((p) => p.id === b.dataset.ed), r)));
+  $$("[data-undo]").forEach(
+    (b) =>
+      (b.onclick = async () => {
+        if (b.dataset.sure !== "1") {
+          b.dataset.sure = "1";
+          b.textContent = "¿Seguro?";
+          return;
+        }
+        try {
+          await api(`staff/ropa/venta/${b.dataset.undo}/deshacer`, {});
+          toast("Venta deshecha.");
+          render();
+        } catch (e) {
+          toast(e.message);
+        }
+      }),
+  );
+}
+function prendaSheet(p, r) {
+  const TALLAS = ["XS", "S", "M", "L", "XL", "XXL", "3XL"];
+  const has = (t) => p?.tallas.find((x) => x.talla === t);
+  const sh = sheet(
+    `<p class="eyebrow">${p ? "Prenda" : "Nueva prenda"}</p><h2>${p ? esc(ropaNombre(p)) : "Añadir prenda"}</h2>
+    ${p && ropaFoto(r, p) ? `<img class="rp-big" src="${esc(ropaFoto(r, p))}" alt="">` : ""}
+    <form id="rp-form">
+      <div class="form-row2"><div><label for="rp-n" style="margin-top:0">Nombre</label><input id="rp-n" name="nombre" required maxlength="40" value="${esc(p?.nombre || "")}" placeholder="Camiseta"></div>
+      <div><label for="rp-v" style="margin-top:0">Variante</label><input id="rp-v" name="variante" maxlength="30" value="${esc(p?.variante || "")}" placeholder="Gris"></div></div>
+      <div class="form-row2"><div><label for="rp-c">Color <small>(una palabra)</small></label><input id="rp-c" name="color" maxlength="20" value="${esc(p?.color || "")}" placeholder="gris"></div>
+      <div><label for="rp-p">Precio (€)</label><input id="rp-p" name="precio" inputmode="decimal" value="${p?.precio != null ? Number(p.precio).toFixed(2).replace(".", ",") : ""}"></div></div>
+      <label for="rp-e">Estado</label><select id="rp-e" name="estado">${Object.entries(ESTADO_ROPA)
+        .map(([k, [l]]) => `<option value="${k}" ${(p?.estado || "disponible") === k ? "selected" : ""}>${l}</option>`)
+        .join("")}</select>
+      <p class="section-label">Tallas y unidades en el estudio</p>
+      <p class="muted" style="font-size:12px;margin-top:-4px">Marca las tallas que hay. Si pones unidades, se descuentan con cada venta y reserva; si lo dejas vacío, no se cuentan.</p>
+      <div class="rp-sizes">${TALLAS.map((t) => {
+        const x = has(t);
+        return `<div class="rp-size"><label class="check" style="margin:0"><input type="checkbox" name="t-${t}" ${x ? "checked" : ""}><span>${t}</span></label><input name="s-${t}" inputmode="numeric" placeholder="—" value="${x && x.stock !== null ? x.stock : ""}" aria-label="Unidades de la ${t}">${x?.apartadas ? `<small>${x.apartadas} apart.</small>` : "<small></small>"}</div>`;
+      }).join("")}</div>
+      ${p ? "" : `<label for="rp-f">Foto <small>(nombre del archivo en la web de la tienda, p. ej. gris-delante.jpg)</small></label><input id="rp-f" name="foto" maxlength="80">`}
+      <button class="btn wide" style="margin-top:16px" type="submit">Guardar</button>
+      <p class="muted" style="font-size:12px;margin-top:10px">Los cambios se ven también en novasupply.es.</p>
+    </form>`,
+  );
+  sh.el.querySelector("#rp-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const d = new FormData(e.target),
+      tallas = TALLAS.filter((t) => d.get("t-" + t)),
+      stock = Object.fromEntries(tallas.map((t) => [t, String(d.get("s-" + t) || "").trim()]));
+    try {
+      await api("staff/ropa/prenda", { id: p?.id, nombre: d.get("nombre"), variante: d.get("variante"), color: d.get("color"), precio: d.get("precio"), estado: d.get("estado"), tallas, stock, foto: d.get("foto") || "" });
+      sh.close();
+      toast("Guardado. Ya se ve en la tienda.");
+      render();
+    } catch (err) {
+      toast(err.message);
+    }
+  });
+}
+
 
 // ── Equipo: faltas y cobros ────────────────────────────────────────────────
 // Dentro de la ficha de una cita marcada «No vino»: cobrar el servicio en la
@@ -3336,7 +3530,7 @@ function autoStatus(n) {
   if (!n.cron) return `<p class="warning" style="margin-top:12px">Falta activar las tareas automáticas en Vercel (variable CRON_SECRET) para que salgan los recordatorios.</p>`;
   const c = n.lastCron;
   return c
-    ? `<p class="muted" style="font-size:12px;margin-top:10px">Última pasada: ${esc(c.at)}${c.error ? ` · <b>falló: ${esc(c.error)}</b>` : ""} · ${c.reminders || 0} recordatorios de mañana · ${c.soon || 0} de hoy${c.reviews ? ` · ${c.reviews} reseñas pedidas` : ""}${c.winback ? ` · ${c.winback} correos a clientes perdidos` : ""}</p>`
+    ? `<p class="muted" style="font-size:12px;margin-top:10px">Última pasada: ${esc(c.at)}${c.error ? ` · <b>falló: ${esc(c.error)}</b>` : ""} · ${c.reminders || 0} recordatorios de mañana · ${c.soon || 0} de hoy${c.reviews ? ` · ${c.reviews} reseñas pedidas` : ""}${c.rebook ? ` · ${c.rebook} «¿cuándo vuelves?»` : ""}${c.winback ? ` · ${c.winback} correos a clientes perdidos` : ""}</p>`
     : "";
 }
 
@@ -3567,7 +3761,7 @@ async function staffTeam() {
         <label class="check"><input type="checkbox" name="remindSoon" ${n.remindSoon ? "checked" : ""}><span>Otro recordatorio unas 2 horas antes (no a quien reservó ese mismo día)</span></label>
         <label class="check"><input type="checkbox" name="waitlist" ${n.waitlist ? "checked" : ""}><span>En los días completos, los clientes pueden pedir aviso. Si alguien cancela, se les escribe al momento</span></label>
         <label class="check"><input type="checkbox" name="dailyClose" ${n.dailyClose ? "checked" : ""}><span>Cada mañana, el resumen de caja de ayer a tu correo (con las citas que quedaron sin cobrar)</span></label>
-        <label class="check"><input type="checkbox" name="reviews" ${n.reviews ? "checked" : ""}><span>Pedir reseña por correo una hora después de cada corte marcado como hecho (como mucho una vez cada 6 meses por cliente)</span></label>
+        <label class="check"><input type="checkbox" name="reviews" ${n.reviews ? "checked" : ""}><span>Correo una hora después de cada corte marcado como hecho: a quien no ha dejado reseña se le pide (como mucho una vez cada 6 meses); a quien ya pulsó «Dejar mi reseña» se le pregunta cuándo vuelve, si no tiene otra cita</span></label>
         <label for="n-review">Enlace donde se deja la reseña</label>
         <input id="n-review" name="reviewUrl" type="url" inputmode="url" placeholder="https://g.page/r/…/review" value="${esc(n.reviewUrl || "")}">
         <p class="muted" style="font-size:12px;margin:6px 0 0">En Google: tu ficha de empresa → «Pedir reseñas» → copiar enlace.</p>

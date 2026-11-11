@@ -1,10 +1,11 @@
 // Una sola función para toda la API: vercel.json manda aquí /api/<lo que sea>.
 import crypto from "node:crypto";
 import { cmd, pipe, getJSON, setJSON, hgetall, usingMemory, scanKeys, dumpKeys, claim, hit } from "./_lib/store.js";
-import { SERVICES, PROVIDERS, RULES, BUSINESS, POINTS, MEDALS, REWARDS, COMMISSION, TRAINING, EXTRAS, PAY_METHODS, publicCatalog } from "./_lib/config.js";
+import { SERVICES, PROVIDERS, RULES, BUSINESS, POINTS, MEDALS, REWARDS, COMMISSION, TRAINING, EXTRAS, PAY_METHODS, SHOP, publicCatalog } from "./_lib/config.js";
 import * as T from "./_lib/time.js";
 import { codeMail, send, bookingLines, mailReady } from "./_lib/mail.js";
 import * as Card from "./_lib/stripe.js";
+import * as Sup from "./_lib/supply.js";
 
 const ON_VERCEL = !!process.env.VERCEL;
 // Mientras se prueba, se entra solo con el correo. Para producción hay que
@@ -241,6 +242,7 @@ async function clubOf(u) {
     look: new Set(purchases.filter((p) => cutDays.has(p.date)).map((p) => p.date)).size,
     profile: u.photo && u.phone ? 1 : 0,
     year: T.absMin(now.date, "00:00") - T.absMin(since, "00:00") >= 365 * 1440 ? 1 : 0,
+    review: (await cmd("GET", "reviewed:" + u.email)) ? 1 : 0,
   };
   const medals = MEDALS.map((m) => ({ id: m.id, progress: Math.min(metrics[m.metric] || 0, m.goal), got: (metrics[m.metric] || 0) >= m.goal }));
 
@@ -809,7 +811,7 @@ async function cronTick(req) {
   if ((await cmd("SET", "lock:cron", "1", "NX", "EX", 900)) !== "OK") return { skipped: "ya en marcha" };
   const now = T.nowLocal(),
     host = hostOf(req);
-  const out = { at: now.stamp, soon: 0, reviews: 0, reminders: 0, winback: 0, close: false, backup: false, mail: mailReady() };
+  const out = { at: now.stamp, soon: 0, reviews: 0, rebook: 0, reminders: 0, winback: 0, close: false, backup: false, mail: mailReady() };
   const once = async (key, seconds) => (await cmd("SET", key, "1", "NX", "EX", seconds)) === "OK";
   const changeLink = (b) =>
     host ? `<a href="https://${host}/#booking/${b.id}">Cámbiala o cancélala desde la app</a>` : "Cámbiala o cancélala desde la app";
@@ -838,21 +840,50 @@ async function cronTick(req) {
         if (ok) out.soon++;
       }
 
-    // 2) Reseña: cortes hechos (marcados «Vino» o cobrados en caja) que acabaron
-    //    hace más de una hora. Una petición cada 6 meses por persona como mucho.
-    if (NORMS.reviews && NORMS.reviewUrl && daytime) {
+    // 2) Después del corte (marcado «Vino» o cobrado en caja, acabado hace más
+    //    de una hora). A quien nunca ha pulsado «Dejar mi reseña» se le pide,
+    //    como mucho una vez cada 6 meses. A quien ya la dejó no se le vuelve a
+    //    pedir: se le pregunta cuándo vuelve, si no tiene ya otra cita.
+    if (daytime && NORMS.reviews) {
       const yesterday = await bookingsByIds(await cmd("SMEMBERS", "day:" + T.addDays(now.date, -1)));
       for (const b of [...yesterday, ...todays]) {
         if (!live(b) || b.attendance !== "done" || T.minutesUntil(b.date, b.end) > -60) continue;
         if (await cmd("GET", "nomkt:" + b.email)) continue;
+        const first = b.name ? String(b.name).split(" ")[0] : "";
+        const barber = b.provider.name.split(" ")[0];
+        if (await cmd("GET", "reviewed:" + b.email)) {
+          if (!host) continue;
+          const mine = await bookingsByIds(await cmd("SMEMBERS", "ubk:" + b.email));
+          if (mine.some((x) => x.id !== b.id && x.kind === "booking" && isActive(x, now))) continue;
+          if (!(await once("revask:" + b.id, 7 * 86400)) || !(await once("backmail:" + b.email, 14 * 86400))) continue;
+          const h = habitOf(mine, now);
+          const every = h?.every && h.every >= 7 && h.every <= 70 ? h.every : 0;
+          const hint = every
+            ? `Sueles volver cada ${every % 7 ? every + " días" : every / 7 === 1 ? "semana" : every / 7 + " semanas"}: te tocaría hacia el ${htmlEsc(T.niceDate(T.addDays(b.date, every)))}.`
+            : `Los buenos cortes se mantienen mejor si vuelves en 3 o 4 semanas.`;
+          const ok = await send(
+            b.email,
+            `¿Ya sabes cuándo vuelves${first ? ", " + first : ""}?`,
+            `Gracias por venir${first ? ", " + first : ""}`,
+            `<p style="margin:0 0 12px">Esperamos que ${htmlEsc(barber)} te haya dejado como querías.</p>
+             <p style="margin:0 0 14px">${hint} Si lo dejas reservado ya, te aseguras tu hueco.</p>
+             <p style="margin:0 0 12px"><a href="https://${host}/#time/${encodeURIComponent(b.provider.id)}" style="display:inline-block;background:#171717;color:#fff;padding:12px 18px;text-decoration:none">Ver huecos con ${htmlEsc(barber)}</a></p>
+             <p style="margin:0;color:#64645e;font-size:13px">Y si algo no fue bien, responde a este correo: lo lee el equipo.</p>`,
+            await ownerMail(),
+          );
+          if (ok) out.rebook++;
+          continue;
+        }
+        if (!NORMS.reviewUrl || !host) continue;
         if (!(await once("revask:" + b.id, 7 * 86400)) || !(await once("revmail:" + b.email, 180 * 86400))) continue;
+        const link = `https://${host}/api/resena/${encodeURIComponent(b.email)}/${await reviewToken(b.email)}`;
         const ok = await send(
           b.email,
           `¿Qué tal tu ${b.service.name.toLowerCase()}?`,
-          `Gracias por venir${b.name ? ", " + String(b.name).split(" ")[0] : ""}`,
-          `<p style="margin:0 0 12px">Esperamos que ${htmlEsc(b.provider.name.split(" ")[0])} te haya dejado como querías.</p>
+          `Gracias por venir${first ? ", " + first : ""}`,
+          `<p style="margin:0 0 12px">Esperamos que ${htmlEsc(barber)} te haya dejado como querías.</p>
            <p style="margin:0 0 14px">Si te ha gustado, nos ayudas muchísimo contándolo. Es un minuto:</p>
-           <p style="margin:0 0 12px"><a href="${htmlEsc(NORMS.reviewUrl)}" style="display:inline-block;background:#171717;color:#fff;padding:12px 18px;text-decoration:none">Dejar mi reseña</a></p>
+           <p style="margin:0 0 12px"><a href="${htmlEsc(link)}" style="display:inline-block;background:#171717;color:#fff;padding:12px 18px;text-decoration:none">Dejar mi reseña</a></p>
            <p style="margin:0;color:#64645e;font-size:13px">Y si algo no fue bien, responde a este correo: lo lee el equipo.</p>`,
           await ownerMail(),
         );
@@ -975,6 +1006,16 @@ async function unsubToken(email) {
   }
   return sha(k + ":" + email).slice(0, 24);
 }
+// Enlace personal de «Dejar mi reseña»: al pulsarlo se apunta la medalla
+// (sin puntos) y ya no se le vuelve a pedir reseña.
+const reviewToken = async (email) => (await unsubToken("rev:" + email));
+async function markReviewed(email) {
+  if (email && EMAIL.test(email)) await cmd("SET", "reviewed:" + email, T.nowLocal().stamp, "NX");
+}
+const goReview = () =>
+  NORMS.reviewUrl
+    ? { redirect: NORMS.reviewUrl }
+    : { raw: `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><body style="font-family:Arial;padding:40px 20px;text-align:center"><h1 style="font-size:22px">¡Gracias!</h1><p>El enlace de reseñas no está disponible ahora mismo. Prueba más tarde.</p></body>`, type: "text/html; charset=utf-8" };
 async function winbackMail(c, host) {
   if (c.optout || !c.email) return false;
   const t = await unsubToken(c.email);
@@ -1002,6 +1043,17 @@ async function backup(part) {
   return { app: "nova-reservas", part, version: 1, created: T.nowLocal().stamp, count: data.length, data };
 }
 
+// Puntos del Club por una compra de ropa (la misma ficha que lee clubOf).
+async function clubPurchase(u, amount, items, by) {
+  const now = T.nowLocal();
+  const p = { id: "S" + crypto.randomBytes(3).toString("hex").toUpperCase(), email: u.email, name: u.name, amount, items, points: Math.round(amount * POINTS.perEuro), date: now.date, created: now.stamp, by };
+  await pipe([
+    ["SET", "sh:" + p.id, JSON.stringify(p)],
+    ["SADD", "ush:" + u.email, p.id],
+  ]);
+  return p;
+}
+
 // ── Rutas ──────────────────────────────────────────────────────────────────
 const routes = {
   "GET catalog": async ({ res }) => {
@@ -1017,6 +1069,7 @@ const routes = {
       site: { photos: site.photos, theme: site.theme },
       providers: activeTeam().map(publicProvider),
       rules: { ...c.rules, cancelHours: NORMS.cancelHours, lateFeePct: NORMS.lateFeePct, noShowFeePct: NORMS.noShowFeePct, recurring: NORMS.recurring, recurringMax: NORMS.recurringMax },
+      reviews: !!NORMS.reviewUrl,
       card: Card.cardPublic(),
     };
   },
@@ -1482,6 +1535,163 @@ const routes = {
 
   // NOVA Supply: el barbero apunta una compra de ropa a la cuenta de un socio
   // (por su correo o su código del Club) y le suma los puntos.
+  // ── Ropa (NOVA Supply): stock, ventas y reservas de la web ──────────────
+  // Lo ve todo el equipo y la caja del mostrador (para vender y entregar);
+  // cambiar prendas y unidades, solo el dueño.
+  "GET staff/ropa": async ({ req }) => {
+    const me = await needCaja(req);
+    const r = await Sup.leer({ ventas: 80 });
+    const pendientes = r.pedidos
+      .filter((x) => !x.estado || x.estado === "pendiente")
+      .map(({ _raw, _i, ...x }) => {
+        const p = Sup.prendaDePedido(r.prendas, x);
+        return { ...x, prendaId: p?.id || "", prendaNombre: p ? p.nombre + (p.variante ? " · " + p.variante : "") : x.color, precio: p?.precio ?? null };
+      });
+    const mes = T.nowLocal().date.slice(0, 7);
+    const delMes = r.ventas.filter((v) => String(v.fecha || "").startsWith(mes));
+    return {
+      owner: !!me.owner,
+      tienda: SHOP.url,
+      prendas: r.prendas,
+      pendientes,
+      ventas: r.ventas.slice(0, 40),
+      mes: { unidades: delMes.reduce((a, v) => a + (v.cantidad || 1), 0), importe: cents(delMes.reduce((a, v) => a + (Number(v.importe) || 0), 0)), estudio: delMes.filter((v) => v.canal === "estudio").length, web: delMes.filter((v) => v.canal === "web").length },
+    };
+  },
+
+  "POST staff/ropa/prenda": async ({ req, body }) => {
+    const me = await needStaff(req);
+    if (!me.owner) fail(403, "Las prendas las lleva el dueño.");
+    const r = await Sup.leer({ ventas: 1 });
+    const prev = body.id ? r.prendas.find((p) => p.id === body.id) : null;
+    if (body.id && !prev) fail(404, "Esa prenda ya no existe.");
+    const nombre = clean(body.nombre, 40);
+    if (!nombre) fail(400, "Ponle un nombre.");
+    if (!Sup.ESTADOS.includes(body.estado)) fail(400, "Elige si está a la venta, próximamente, agotada u oculta.");
+    const tallas = Sup.TALLAS.filter((t) => [].concat(body.tallas || []).includes(t));
+    if (body.estado === "disponible" && !tallas.length) fail(400, "Marca al menos una talla.");
+    const precio = body.precio === "" || body.precio == null ? null : Math.round(Number(String(body.precio).replace(",", ".")) * 100) / 100;
+    if (precio !== null && !(precio >= 0 && precio < 10000)) fail(400, "Revisa el precio.");
+    const stock = {};
+    for (const t of tallas) {
+      const v = body.stock?.[t];
+      if (v === "" || v === null || v === undefined) stock[t] = "";
+      else {
+        const n = Math.round(Number(v));
+        if (!(n >= 0 && n < 10000)) fail(400, `Revisa las unidades de la ${t}.`);
+        stock[t] = n;
+      }
+    }
+    const item = await Sup.guardarPrenda(
+      { id: prev?.id, nombre, variante: clean(body.variante, 30), color: clean(body.color, 20).toLowerCase(), precio, estado: body.estado, tallas, foto: prev?.foto || clean(body.foto, 80), stock },
+      r.prendas,
+    );
+    return { ok: true, prenda: item };
+  },
+
+  // Venta en el estudio: baja el stock, queda apuntada para las dos webs y, si
+  // es socio, le suma los puntos del Club.
+  "POST staff/ropa/venta": async ({ req, body }) => {
+    const me = await needCaja(req);
+    const r = await Sup.leer({ ventas: 1 });
+    const p = r.prendas.find((x) => x.id === body.prenda);
+    if (!p) fail(400, "Elige la prenda.");
+    const t = p.tallas.find((x) => x.talla === body.talla);
+    if (!t) fail(400, "Elige la talla.");
+    const n = Math.round(Number(body.cantidad || 1));
+    if (!(n >= 1 && n <= 20)) fail(400, "Revisa cuántas se lleva.");
+    const importe = Math.round(Number(String(body.importe ?? "").replace(",", ".")) * 100) / 100;
+    if (!(importe >= 0 && importe <= 5000)) fail(400, "Pon el importe cobrado.");
+    let socio = null;
+    if (String(body.socio || "").trim()) {
+      socio = await findMember(body.socio);
+      if (!socio) fail(404, "No encontramos a ese socio. Prueba con su correo o su código del Club.");
+    }
+    if (!(await Sup.bajarStock(p.id, t.talla, n)))
+      fail(409, `No quedan ${n > 1 ? n + " unidades libres" : "unidades libres"} de la ${t.talla}${t.apartadas ? ` (hay ${t.apartadas} apartada${t.apartadas > 1 ? "s" : ""} por reservas de la web)` : ""}.`);
+    const now = T.nowLocal();
+    const club = socio && importe > 0 ? await clubPurchase(socio, importe, n, me.id) : null;
+    const venta = await Sup.apuntarVenta({
+      fecha: now.stamp,
+      canal: "estudio",
+      prenda: p.id,
+      nombre: p.nombre + (p.variante ? " · " + p.variante : ""),
+      talla: t.talla,
+      cantidad: n,
+      importe,
+      cliente: socio?.name || clean(body.cliente, 60),
+      email: socio?.email || "",
+      por: me.id,
+      club: club?.id || "",
+    });
+    return { ok: true, venta, puntos: club?.points || 0 };
+  },
+
+  // Recogida de una reserva de la web: se entrega, se cobra y cuenta como venta.
+  "POST staff/ropa/recogida": async ({ req, body }) => {
+    const me = await needCaja(req);
+    const ref = clean(body.ref, 20).toUpperCase();
+    const r = await Sup.leer({ ventas: 1 });
+    const ped0 = r.pedidos.find((x) => x.ref === ref);
+    if (!ped0) fail(404, "No encontramos esa reserva.");
+    const p = Sup.prendaDePedido(r.prendas, ped0);
+    const importe = body.importe === undefined || body.importe === "" ? (p?.precio ?? 0) : Math.round(Number(String(body.importe).replace(",", ".")) * 100) / 100;
+    if (!(importe >= 0 && importe <= 5000)) fail(400, "Revisa el importe.");
+    const now = T.nowLocal();
+    const ped = await Sup.marcarPedido(ref, { estado: "recogida", recogida: now.stamp, por: me.id });
+    if (!ped) fail(404, "No encontramos esa reserva.");
+    if (ped.yaCerrada) fail(400, `Esa reserva ya está ${ped.estado}.`);
+    if (p) await Sup.bajarStock(p.id, ped.talla, 1, { force: true });
+    const u = ped.correo ? await getJSON("user:" + normEmail(ped.correo)) : null;
+    const club = u && importe > 0 ? await clubPurchase(u, importe, 1, me.id) : null;
+    const venta = await Sup.apuntarVenta({
+      fecha: now.stamp,
+      canal: "web",
+      prenda: p?.id || "",
+      nombre: p ? p.nombre + (p.variante ? " · " + p.variante : "") : "Prenda",
+      talla: ped.talla,
+      cantidad: 1,
+      importe,
+      cliente: ped.nombre || "",
+      email: ped.correo || "",
+      ref,
+      por: me.id,
+      club: club?.id || "",
+    });
+    return { ok: true, venta, puntos: club?.points || 0 };
+  },
+
+  "POST staff/ropa/anular": async ({ req, body }) => {
+    const me = await needStaff(req);
+    if (!me.owner) fail(403, "Solo el dueño anula reservas.");
+    const ped = await Sup.marcarPedido(clean(body.ref, 20).toUpperCase(), { estado: "anulada", anulada: T.nowLocal().stamp, por: me.id });
+    if (!ped) fail(404, "No encontramos esa reserva.");
+    if (ped.yaCerrada) fail(400, `Esa reserva ya está ${ped.estado}.`);
+    return { ok: true };
+  },
+
+  // Deshacer una venta apuntada por error: vuelve la unidad al stock y se
+  // quitan los puntos. La caja solo deshace las de hoy.
+  "POST staff/ropa/venta/:id/deshacer": async ({ req, params }) => {
+    const me = await needCaja(req);
+    const r = await Sup.leer({ ventas: 400 });
+    const v = r.ventas.find((x) => x.id === params.id);
+    if (!v) fail(404, "No encontramos esa venta.");
+    if (v.canal === "web") fail(400, "Las recogidas de la web no se deshacen aquí: habla con el dueño.");
+    if (!me.owner && v.por !== me.id && !(me.caja && String(v.fecha).startsWith(T.nowLocal().date))) fail(403, "Solo la puede deshacer quien la apuntó o el dueño.");
+    await Sup.quitarVenta(v.id);
+    if (v.prenda) await Sup.subirStock(v.prenda, v.talla, v.cantidad || 1);
+    if (v.club) {
+      const sp = await getJSON("sh:" + v.club);
+      if (sp)
+        await pipe([
+          ["DEL", "sh:" + sp.id],
+          ["SREM", "ush:" + sp.email, sp.id],
+        ]);
+    }
+    return { ok: true };
+  },
+
   "GET staff/member": async ({ req, q }) => {
     await needCaja(req); // también la tablet del mostrador, que es donde se vende la ropa
     const u = await findMember(q.get("q"));
@@ -1491,6 +1701,7 @@ const routes = {
   },
 
   "POST staff/shop": async ({ req, body }) => {
+    // (Antigua: solo puntos, sin prenda. La venta de ropa nueva usa staff/ropa/venta.)
     const me = await needCaja(req);
     const u = await findMember(body.email);
     if (!u) fail(404, "No encontramos a ese socio.");
@@ -2181,6 +2392,19 @@ const routes = {
   "GET cron/tick": async ({ req }) => cronTick(req),
   "GET cron/daily": async ({ req }) => cronTick(req),
 
+  // Desde el correo: enlace firmado, vale sin haber entrado en la app.
+  "GET resena/:email/:t": async ({ params }) => {
+    const email = normEmail(decodeURIComponent(params.email));
+    if (EMAIL.test(email) && same(String(params.t), await reviewToken(email))) await markReviewed(email);
+    return goReview();
+  },
+  // Desde el Club, con la sesión abierta.
+  "GET resena": async ({ req }) => {
+    const u = await currentUser(req);
+    if (u) await markReviewed(u.email);
+    return goReview();
+  },
+
   "GET unsub/:email/:t": async ({ params }) => {
     const email = normEmail(decodeURIComponent(params.email));
     if (!EMAIL.test(email) || !same(String(params.t), await unsubToken(email))) fail(400, "Enlace no válido.");
@@ -2635,6 +2859,11 @@ export default async function handler(req, res) {
     await loadTeam();
     const out = await hit.fn({ req, res, body, q: url.searchParams, params: hit.params });
     res.statusCode = 200;
+    if (out?.redirect) {
+      res.statusCode = 302;
+      res.setHeader("Location", out.redirect);
+      return res.end();
+    }
     if (out?.raw !== undefined) {
       res.setHeader("Content-Type", out.type);
       res.setHeader("Cache-Control", out.cache || "no-store");

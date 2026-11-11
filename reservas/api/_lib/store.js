@@ -212,6 +212,67 @@ export const hgetall = (arr) => {
 };
 export const usingMemory = () => !creds();
 
+// ── Claves compartidas con la web de la tienda (NOVA Supply) ────────────────
+// La tienda (novasupply.es) usa la misma base pero SIN prefijo: «supply:*» para
+// el catálogo, el stock y las ventas, y «preventa:*» para las reservas de la web.
+// Estas órdenes van tal cual, sin añadir «bnova:».
+export async function sharedPipe(list) {
+  if (!list.length) return [];
+  if (!creds()) {
+    if (process.env.VERCEL) throw Error("La base de datos no está conectada.");
+    return list.map(sharedLocal);
+  }
+  const j = await rest("/pipeline", list);
+  return j.map((x) => {
+    if (x.error) throw Error(x.error);
+    return x.result;
+  });
+}
+// En local, la memoria también entiende listas (las reservas de la tienda).
+function sharedLocal([cmd, ...a]) {
+  const c = String(cmd).toUpperCase(),
+    k = a[0];
+  const list = () => {
+    const e = alive(k) || { v: [], exp: 0 };
+    if (!Array.isArray(e.v)) e.v = [];
+    mem.set(k, e);
+    return e.v;
+  };
+  if (c === "LPUSH") return (list().unshift(...a.slice(1).map(String).reverse()), list().length);
+  if (c === "LRANGE") {
+    const l = list(),
+      end = Number(a[2]) < 0 ? l.length + Number(a[2]) : Number(a[2]);
+    return l.slice(Number(a[1]), end + 1);
+  }
+  if (c === "LTRIM") {
+    const l = list(),
+      end = Number(a[2]) < 0 ? l.length + Number(a[2]) : Number(a[2]);
+    mem.set(k, { v: l.slice(Number(a[1]), end + 1), exp: 0 });
+    return "OK";
+  }
+  if (c === "LINDEX") return list()[Number(a[1])] ?? null;
+  if (c === "LSET") return ((list()[Number(a[1])] = String(a[2])), "OK");
+  if (c === "LREM") {
+    const l = list(),
+      i = l.indexOf(String(a[2]));
+    if (i >= 0) l.splice(i, 1);
+    return i >= 0 ? 1 : 0;
+  }
+  if (c === "HGET") {
+    const e = alive(k);
+    return e && e.v instanceof Map ? (e.v.has(String(a[1])) ? e.v.get(String(a[1])) : null) : null;
+  }
+  if (c === "HINCRBY") {
+    const e = alive(k) || { v: new Map(), exp: 0 };
+    if (!(e.v instanceof Map)) e.v = new Map();
+    const n = Number(e.v.get(String(a[1])) || 0) + Number(a[2]);
+    e.v.set(String(a[1]), String(n));
+    mem.set(k, e);
+    return n;
+  }
+  return local([c, ...a]);
+}
+
 // ── Copias de seguridad ─────────────────────────────────────────────────────
 // Lista las claves de esta app (sin el prefijo) que encajan con `match`
 // (solo admite «*» al final o «*» suelto).
