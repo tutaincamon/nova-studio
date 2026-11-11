@@ -1,6 +1,6 @@
 // Una sola función para toda la API: vercel.json manda aquí /api/<lo que sea>.
 import crypto from "node:crypto";
-import { cmd, pipe, getJSON, setJSON, hgetall, usingMemory } from "./_lib/store.js";
+import { cmd, pipe, getJSON, setJSON, hgetall, usingMemory, scanKeys, dumpKeys } from "./_lib/store.js";
 import { SERVICES, PROVIDERS, RULES, BUSINESS, POINTS, MEDALS, REWARDS, COMMISSION, TRAINING, EXTRAS, PAY_METHODS, publicCatalog } from "./_lib/config.js";
 import * as T from "./_lib/time.js";
 import { codeMail, send, bookingLines, mailReady } from "./_lib/mail.js";
@@ -62,7 +62,7 @@ async function readBody(req) {
   let raw = "";
   for await (const chunk of req) {
     raw += chunk;
-    if (raw.length > 1000000) fail(413, "Demasiados datos.");
+    if (raw.length > 4000000) fail(413, "Demasiados datos.");
   }
   try {
     return raw ? JSON.parse(raw) : {};
@@ -87,11 +87,19 @@ async function currentUser(req) {
 }
 // La sesión del equipo guarda quién es (airam, ehedey, noa). Las sesiones de
 // la clave única de antes guardaban "1" y ya no valen: hay que volver a entrar.
-async function staffOf(req) {
+// La tablet del mostrador entra como «caja» (con la clave de cualquiera del
+// equipo) y solo puede cobrar: el resto del panel no la reconoce.
+async function staffOf(req, allowCaja = false) {
   const t = cookies(req)[STAFF];
   const id = t && (await cmd("GET", "staffsess:" + sha(t)));
+  if (id === "caja") return allowCaja ? { id: "caja", name: "Caja", owner: false, caja: true } : null;
   const p = id && TEAM.find((x) => x.id === id && x.active !== false);
   return p ? { id: p.id, name: p.name, owner: !!p.owner } : null;
+}
+async function needCaja(req) {
+  const me = await staffOf(req, true);
+  if (!me) fail(401, "Solo para el equipo.", { staff: true });
+  return me;
 }
 async function needStaff(req) {
   const me = await staffOf(req);
@@ -144,6 +152,7 @@ async function ensureUser(email, name, phone, extra = {}) {
     u = { email, name: name || "", phone: phone || "", no, created: T.nowLocal().stamp, ...extra };
     u.ref = await makeRefCode(email, name);
     await setJSON("user:" + email, u);
+    await cmd("SADD", "users", email);
   } else if ((name && !u.name) || (phone && !u.phone) || !u.ref) {
     u = { ...u, name: u.name || name, phone: u.phone || phone };
     if (!u.ref) u.ref = await makeRefCode(email, u.name);
@@ -324,7 +333,18 @@ const ratingOut = (r) => ({
 // Se carga al principio de cada petición (ver `handler`), así que provider()
 // y TEAM se pueden usar sin await en todo el archivo.
 let TEAM = PROVIDERS;
-let NORMS = { cancelHours: RULES.cancelHours, lateFeePct: 100, noShowFeePct: 100 };
+let NORMS = {
+  cancelHours: RULES.cancelHours,
+  lateFeePct: 100,
+  noShowFeePct: 100,
+  reminders: true, // correo el día antes de cada cita
+  recurring: false, // los clientes pueden reservar citas que se repiten
+  recurringMax: 6, // como mucho, cuántas citas de una vez
+  lapseDays: 45, // a partir de cuántos días sin venir alguien «se ha perdido»
+  winbackAuto: false, // mandarles un correo solo (una vez cada 60 días como mucho)
+  winbackText: "Hace tiempo que no te vemos por el estudio. Tu hueco te está esperando: reserva en un minuto desde la app.",
+  winbackOffer: "",
+};
 const WEEK = [0, 1, 2, 3, 4, 5, 6];
 async function loadTeam() {
   let t = await getJSON("team");
@@ -368,8 +388,8 @@ async function busyOf(providerId, month, exceptId) {
   return busy;
 }
 
-function freeTimes(p, s, date, busy, now) {
-  const last = T.addDays(now.date, RULES.daysAhead);
+function freeTimes(p, s, date, busy, now, horizon = RULES.daysAhead) {
+  const last = T.addDays(now.date, horizon);
   if (date < now.date || date > last) return [];
   const out = [];
   for (const [a, b] of p.hours[T.weekday(date)] || []) {
@@ -470,6 +490,170 @@ async function notifyOne(to, b, title) {
   );
 }
 
+// ── Citas que se repiten ───────────────────────────────────────────────────
+// A partir de una cita ya guardada, reserva las siguientes cada `every` semanas
+// a la misma hora y con el mismo barbero. Las fechas que no estén libres se
+// saltan y se avisa. Todas comparten `series` para poder cancelarlas juntas.
+async function makeSeries(first, s, p, repeat, maxTimes, extra, staffMade = false) {
+  const every = Math.round(Number(repeat?.every)),
+    times = Math.round(Number(repeat?.times));
+  if (!(every >= 1 && every <= 4) || !(times >= 2)) return null;
+  const n = Math.min(times, maxTimes);
+  const id = "S" + crypto.randomBytes(4).toString("hex").toUpperCase();
+  const now = T.nowLocal();
+  const made = [first.id],
+    skipped = [];
+  await setJSON("bk:" + first.id, { ...first, series: id });
+  for (let i = 1; i < n; i++) {
+    const date = T.addDays(first.date, 7 * every * i);
+    const busy = await busyOf(p.id, monthOf(date));
+    let ok;
+    if (staffMade) {
+      const [x, y] = [T.toMin(first.start), T.toMin(first.start) + s.duration];
+      ok = (p.hours?.[T.weekday(date)] || []).length > 0 && !(busy[date] || []).some(([a, b]) => x < b && y > a);
+    } else ok = freeTimes(p, s, date, busy, now, 7 * every * n + 7).includes(first.start);
+    if (!ok) {
+      skipped.push(date);
+      continue;
+    }
+    const b = makeBooking(s, p, date, first.start, { ...extra, series: id });
+    try {
+      await holdSlot(b);
+      await saveNew(b);
+      made.push(b.id);
+    } catch {
+      skipped.push(date);
+    }
+  }
+  await cmd("SADD", "series:" + id, ...made);
+  const dates = (await bookingsByIds(made)).map((b) => b.date).sort();
+  return { id, every, made: made.length, dates, skipped };
+}
+
+// ── Lo que suele pedir cada cliente ─────────────────────────────────────────
+// Sin IA: se miran sus últimos cortes hechos y se saca el día de la semana,
+// la hora, el barbero y el servicio que más repite, y cada cuánto viene.
+const mode = (arr) => {
+  const c = {};
+  let best = null;
+  for (const x of arr) if ((c[x] = (c[x] || 0) + 1) > (c[best] || 0)) best = x;
+  return best;
+};
+const daysBetween = (a, b) => Math.round((Date.UTC(...b.split("-").map((n, i) => (i === 1 ? n - 1 : +n))) - Date.UTC(...a.split("-").map((n, i) => (i === 1 ? n - 1 : +n)))) / 86400000);
+function habitOf(list, now) {
+  const done = list
+    .filter((b) => b.kind === "booking" && b.status === "confirmed" && b.attendance !== "absent" && isPast(b, now))
+    .sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
+  if (!done.length) return null;
+  const last = done[done.length - 1];
+  const recent = done.slice(-8);
+  const weekday = Number(mode(recent.map((b) => T.weekday(b.date))));
+  const sameDay = recent.filter((b) => T.weekday(b.date) === weekday);
+  const gaps = [];
+  for (let i = 1; i < done.length; i++) gaps.push(daysBetween(done[i - 1].date, done[i].date));
+  const g = gaps.slice(-6).sort((a, b) => a - b);
+  let every = g.length ? g[Math.floor(g.length / 2)] : null;
+  if (every && Math.abs(every - Math.round(every / 7) * 7) <= 2 && every >= 5) every = Math.round(every / 7) * 7; // «cada 2 semanas»
+  const since = daysBetween(last.date, now.date);
+  return {
+    visits: done.length,
+    weekday,
+    sameDay: sameDay.length,
+    start: mode(sameDay.map((b) => b.start)),
+    provider: mode(recent.map((b) => b.provider.id)),
+    service: mode(recent.map((b) => b.service.id)),
+    every, // días entre cortes (null si solo ha venido una vez)
+    last: last.date,
+    since,
+    due: every ? since >= every : false,
+  };
+}
+
+// ── Clientes que han dejado de venir ───────────────────────────────────────
+// Para cada socio: cuándo vino por última vez, cada cuánto suele venir y si
+// tiene cita. «Perdido» = sin cita y más días sin venir que lapseDays (o que
+// el doble de lo que suele tardar, si es más).
+async function allClients() {
+  let emails = await cmd("SMEMBERS", "users");
+  if (!(await cmd("GET", "usersidx"))) {
+    // Una vez: los socios de antes de existir el índice.
+    const old = (await scanKeys("user:*")).map((k) => k.slice(5));
+    if (old.length) await cmd("SADD", "users", ...old);
+    await cmd("SET", "usersidx", "1");
+    emails = [...new Set([...emails, ...old])];
+  }
+  if (!emails.length) return [];
+  const now = T.nowLocal();
+  const [users, sets, contacts, optout] = await Promise.all([
+    cmd("MGET", ...emails.map((e) => "user:" + e)),
+    pipe(emails.map((e) => ["SMEMBERS", "ubk:" + e])),
+    cmd("MGET", ...emails.map((e) => "winback:" + e)),
+    cmd("MGET", ...emails.map((e) => "nomkt:" + e)),
+  ]);
+  const all = await bookingsByIds([...new Set(sets.flat())]);
+  const byEmail = {};
+  for (const b of all) (byEmail[b.email] ||= []).push(b);
+  return emails
+    .map((e, i) => {
+      const u = users[i] ? JSON.parse(users[i]) : { email: e };
+      const list = byEmail[e] || [];
+      const h = habitOf(list, now);
+      const next = list.filter((b) => isActive(b, now)).sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start))[0];
+      const limit = Math.max(NORMS.lapseDays, h?.every ? h.every * 2 : 0);
+      const status = !h ? "nuevo" : next ? "con-cita" : h.since > limit ? "perdido" : h.due ? "le-toca" : "al-dia";
+      return {
+        email: e,
+        name: u.name || "",
+        phone: u.phone || "",
+        visits: h?.visits || 0,
+        last: h?.last || "",
+        since: h?.since ?? null,
+        every: h?.every || null,
+        habit: h && { weekday: h.weekday, start: h.start, provider: h.provider, service: h.service },
+        next: next ? { date: next.date, start: next.start } : null,
+        status,
+        contacted: contacts[i] ? JSON.parse(contacts[i]) : null,
+        optout: !!optout[i],
+      };
+    })
+    .filter((c) => c.visits || c.next);
+}
+// Enlace para darse de baja de los correos de «te echamos de menos».
+async function unsubToken(email) {
+  let k = await cmd("GET", "secret:unsub");
+  if (!k) {
+    await cmd("SET", "secret:unsub", token(), "NX");
+    k = await cmd("GET", "secret:unsub");
+  }
+  return sha(k + ":" + email).slice(0, 24);
+}
+async function winbackMail(c, host) {
+  if (c.optout || !c.email) return false;
+  const t = await unsubToken(c.email);
+  const base = host ? `https://${host}` : "";
+  const off = NORMS.winbackOffer ? `<p style="margin:0 0 12px;padding:12px;border:1px solid #dcdad3;background:#f5f4f0"><b>${htmlEsc(NORMS.winbackOffer)}</b></p>` : "";
+  return send(
+    c.email,
+    `${c.name ? c.name.split(" ")[0] + ", t" : "T"}e echamos de menos en ${BUSINESS.short}`,
+    "Te echamos de menos",
+    `<p style="margin:0 0 12px">${c.name ? "Hola " + htmlEsc(c.name.split(" ")[0]) + ": " : ""}${htmlEsc(NORMS.winbackText)}</p>${off}
+     ${base ? `<p style="margin:0 0 12px"><a href="${base}/#home" style="display:inline-block;background:#171717;color:#fff;padding:12px 18px;text-decoration:none">Reservar cita</a></p>` : ""}
+     <p style="margin:12px 0 0;color:#64645e;font-size:12px">¿No quieres más correos así? ${base ? `<a href="${base}/api/unsub/${encodeURIComponent(c.email)}/${t}">Darte de baja</a>` : "Respóndenos y te quitamos."}</p>`,
+  );
+}
+
+// ── Copias de seguridad ────────────────────────────────────────────────────
+// Todo lo que hay en la base de esta app, en un JSON que se puede guardar y
+// volver a cargar. Se dejan fuera sesiones, códigos y cerrojos (caducan solos
+// y no hacen falta). Las fotos van en un archivo aparte porque pesan mucho.
+const SKIP = /^(sess:|staffsess:|rl:|code:|lock:|chargelock:|rdlock:|secret:)/;
+const PHOTOKEY = /^(siteimg:|prodimg:|teamimg:)/;
+async function backup(part) {
+  const keys = (await scanKeys("*")).filter((k) => !SKIP.test(k) && (part === "photos" ? PHOTOKEY.test(k) : !PHOTOKEY.test(k)));
+  const data = await dumpKeys(keys.sort());
+  return { app: "nova-reservas", part, version: 1, created: T.nowLocal().stamp, count: data.length, data };
+}
+
 // ── Rutas ──────────────────────────────────────────────────────────────────
 const routes = {
   "GET catalog": async () => {
@@ -480,7 +664,7 @@ const routes = {
       business: { ...c.business, rating: ratingOut(site.rating) },
       site: { photos: site.photos },
       providers: activeTeam().map(publicProvider),
-      rules: { ...c.rules, cancelHours: NORMS.cancelHours, lateFeePct: NORMS.lateFeePct, noShowFeePct: NORMS.noShowFeePct },
+      rules: { ...c.rules, cancelHours: NORMS.cancelHours, lateFeePct: NORMS.lateFeePct, noShowFeePct: NORMS.noShowFeePct, recurring: NORMS.recurring, recurringMax: NORMS.recurringMax },
       card: Card.cardPublic(),
     };
   },
@@ -495,11 +679,20 @@ const routes = {
       await cmd("EXPIRE", "sess:" + sha(ck[SESSION]), YEAR);
       cookie(res, req, SESSION, ck[SESSION], YEAR);
     }
-    if (ck[STAFF] && (await staffOf(req))) {
+    if (ck[STAFF] && (await staffOf(req, true))) {
       await cmd("EXPIRE", "staffsess:" + sha(ck[STAFF]), YEAR);
       cookie(res, req, STAFF, ck[STAFF], YEAR);
     }
-    return { user: publicUser(u), staff: await staffOf(req), mail: mailReady(), loginCode: LOGIN_CON_CODIGO };
+    const st = await staffOf(req, true);
+    // Si el correo de esta cuenta es el de alguien del equipo, se le ofrece su panel
+    // (la clave se pide una vez y luego la sesión dura un año).
+    let staffHint = null;
+    if (u && !st) {
+      const cfgs = await cmd("MGET", ...activeTeam().map((p) => "staffcfg:" + p.id));
+      const hit = activeTeam().find((p, i) => (p.email && p.email === u.email) || (cfgs[i] && JSON.parse(cfgs[i]).email === u.email));
+      if (hit) staffHint = { id: hit.id, name: hit.name };
+    }
+    return { user: publicUser(u), staff: st, staffHint, mail: mailReady(), loginCode: LOGIN_CON_CODIGO };
   },
 
   "GET referral/:code": async ({ params }) => {
@@ -545,7 +738,7 @@ const routes = {
 
     const now = T.nowLocal();
     const mine = await bookingsByIds(await cmd("SMEMBERS", "ubk:" + email));
-    if (mine.filter((b) => isActive(b, now)).length >= RULES.maxActive)
+    if (mine.filter((b) => isActive(b, now) && !b.series).length >= RULES.maxActive)
       fail(400, `Ya tienes ${RULES.maxActive} citas pendientes. Cuando pase alguna podrás reservar otra.`);
 
     const busy = await busyOf(p.id, monthOf(body.date));
@@ -561,6 +754,9 @@ const routes = {
     });
     await holdSlot(b);
     await saveNew(b);
+    // Cita que se repite (si el dueño lo permite): cada 1-4 semanas, hasta recurringMax veces.
+    let series = null;
+    if (body.repeat && NORMS.recurring) series = await makeSeries(b, s, p, body.repeat, NORMS.recurringMax, { email, name, phone, by: "client", ...(b.guarantee ? { guarantee: b.guarantee } : {}) });
 
     // Cuenta: si el correo es nuevo, se crea y se queda dentro en este móvil.
     // Si ya existía, la cita se guarda igual pero para verla hay que entrar con código.
@@ -583,7 +779,7 @@ const routes = {
       ),
       notifySalon(b, "Nueva cita"),
     ]);
-    return { id: b.id, session, existing };
+    return { id: b.id, session, existing, series };
   },
 
   "GET bookings": async ({ req }) => {
@@ -594,7 +790,7 @@ const routes = {
     const key = (b) => b.date + " " + b.start;
     const upcoming = list.filter((b) => isActive(b, now)).sort((a, b) => key(a).localeCompare(key(b)));
     const past = list.filter((b) => !isActive(b, now)).sort((a, b) => key(b).localeCompare(key(a)));
-    return { upcoming, past, now: now.stamp };
+    return { upcoming, past, now: now.stamp, habit: habitOf(list, now) };
   },
 
   "GET bookings/:id": async ({ req, params }) => {
@@ -613,7 +809,7 @@ const routes = {
     };
   },
 
-  "POST bookings/:id/cancel": async ({ req, params }) => {
+  "POST bookings/:id/cancel": async ({ req, params, body }) => {
     const b = await getJSON("bk:" + params.id);
     const u = await currentUser(req),
       staff = canManage(await staffOf(req), b?.provider.id);
@@ -632,7 +828,18 @@ const routes = {
       ...(late ? { late: true, hoursLeft: Math.max(0, Math.round(T.minutesUntil(b.date, b.start) / 6) / 10) } : {}),
     };
     await setJSON("bk:" + b.id, done);
-    if (!staff && b.kind === "booking") await notifySalon(b, late ? "Cancelación tardía" : "Cita cancelada");
+    // «Cancelar también las siguientes» de una cita que se repite.
+    let more = 0;
+    if (body?.series === true && b.series) {
+      const ids = await cmd("SMEMBERS", "series:" + b.series);
+      for (const x of await bookingsByIds(ids)) {
+        if (x.id === b.id || x.status !== "confirmed" || x.date + x.start <= b.date + b.start) continue;
+        await releaseSlot(x);
+        await setJSON("bk:" + x.id, { ...x, status: "canceled", canceledBy: staff ? "staff" : "client", canceledAt: T.nowLocal().stamp, seriesCancel: true });
+        more++;
+      }
+    }
+    if (!staff && b.kind === "booking") await notifySalon(b, late ? "Cancelación tardía" : more ? `Cita cancelada (y ${more} más de la serie)` : "Cita cancelada");
     return { ok: true, late, fee: late ? feeFor(b, "late") : 0 };
   },
 
@@ -855,6 +1062,14 @@ const routes = {
   // ── Equipo ──────────────────────────────────────────────────────────────
   "POST staff/login": async ({ req, res, body }) => {
     await limit("staff:" + ip(req), 8, 900);
+    if (body.provider === "caja") {
+      const pin = String(body.pin || "");
+      if (!pin || !activeTeam().some((x) => pinOk(x, pin))) fail(400, "Clave incorrecta. Vale la de cualquiera del equipo.");
+      const t = token();
+      await cmd("SET", "staffsess:" + sha(t), "caja", "EX", YEAR);
+      cookie(res, req, STAFF, t, YEAR);
+      return { ok: true };
+    }
     const p = provider(body.provider);
     if (!p || p.active === false) fail(400, "Elige quién eres.");
     if (!p.pinHash && !pinOf(p)) fail(400, `La clave de ${p.name.split(" ")[0]} aún no está puesta. Pídesela al dueño.`);
@@ -1327,7 +1542,9 @@ const routes = {
     await holdSlot(b);
     await saveNew(b);
     if (b.email) await ensureUser(b.email, b.name, b.phone);
-    return { id: b.id };
+    let series = null;
+    if (!body.block && body.repeat) series = await makeSeries(b, service(b.service.id), p, body.repeat, 12, { name: b.name, phone: b.phone, email: b.email, by: "staff", byStaff: me.id }, true);
+    return { id: b.id, series };
   },
 
   // Caja del mes. Cada barbero ve solo lo suyo y sin comisiones; el dueño ve
@@ -1395,21 +1612,22 @@ const routes = {
   // quien hizo el servicio. Cada barbero ve solo los suyos (y los que ha
   // apuntado él hoy, para poder corregirlos); el dueño los ve todos.
   "GET staff/cobros": async ({ req, q }) => {
-    const me = await needStaff(req);
+    const me = await needCaja(req);
     const now = T.nowLocal();
-    const date = q.get("date") || now.date;
+    // La caja solo ve el día de hoy (para cuadrar y corregir), sin totales por barbero.
+    const date = me.caja ? now.date : q.get("date") || now.date;
     if (!T.isDate(date)) fail(400, "Fecha incorrecta.");
     const [ids, bids] = await Promise.all([cmd("SMEMBERS", "payday:" + date), cmd("SMEMBERS", "day:" + date)]);
     const [pays, books] = await Promise.all([bookingsByIds2("pay:", ids), bookingsByIds(bids)]);
     const seen = pays
-      .filter((x) => me.owner || x.provider.id === me.id || (x.by === me.id && x.date === now.date))
+      .filter((x) => me.owner || me.caja || x.provider.id === me.id || (x.by === me.id && x.date === now.date))
       .sort((a, b) => b.created.localeCompare(a.created));
     // Citas del día sin cobrar, de todo el equipo: con ellas se rellena el formulario.
     const pending = books
       .filter((b) => b.date === date && b.kind === "booking" && b.status === "confirmed" && b.attendance !== "absent" && !b.pay)
       .sort((a, b) => a.start.localeCompare(b.start))
       .map((b) => ({ id: b.id, provider: b.provider.id, name: b.name, start: b.start, end: b.end, service: b.service.id }));
-    const mine = seen.filter((x) => me.owner || x.provider.id === me.id);
+    const mine = seen.filter((x) => me.owner || me.caja || x.provider.id === me.id);
     const sum = (list) => cents(list.reduce((a, x) => a + x.amount, 0));
     return {
       date,
@@ -1433,7 +1651,7 @@ const routes = {
   },
 
   "POST staff/cobros": async ({ req, body }) => {
-    const me = await needStaff(req);
+    const me = await needCaja(req);
     const now = T.nowLocal();
     const x = { id: "C" + crypto.randomBytes(4).toString("hex").toUpperCase(), ...readPay(body), date: now.date, time: now.stamp.slice(11, 16), created: now.stamp, by: me.id };
     await linkPay(x, x.booking);
@@ -1446,7 +1664,7 @@ const routes = {
   },
 
   "POST staff/cobros/:id": async ({ req, params, body }) => {
-    const me = await needStaff(req);
+    const me = await needCaja(req);
     const prev = await getJSON("pay:" + params.id);
     if (!prev) fail(404, "No existe ese cobro.");
     if (!canTouchPay(me, prev)) fail(403, "Ese cobro solo lo puede cambiar quien lo hizo o el dueño.");
@@ -1458,7 +1676,7 @@ const routes = {
   },
 
   "POST staff/cobros/:id/delete": async ({ req, params }) => {
-    const me = await needStaff(req);
+    const me = await needCaja(req);
     const x = await getJSON("pay:" + params.id);
     if (!x) fail(404, "No existe ese cobro.");
     if (!canTouchPay(me, x)) fail(403, "Ese cobro solo lo puede quitar quien lo hizo o el dueño.");
@@ -1521,10 +1739,128 @@ const routes = {
     return { ok: true, photos };
   },
 
+  // ── Tareas diarias (Vercel Cron, una vez al día) ───────────────────────
+  // Recordatorio de la cita de mañana, correo a clientes perdidos (si el dueño
+  // lo activa) y, los lunes, copia de seguridad por correo al dueño.
+  "GET cron/daily": async ({ req }) => {
+    const secret = process.env.CRON_SECRET;
+    if (ON_VERCEL && (!secret || !same(String(req.headers.authorization || ""), "Bearer " + secret))) fail(401, "No.");
+    if ((await cmd("SET", "lock:cron", "1", "NX", "EX", 1800)) !== "OK") return { skipped: "ya en marcha" };
+    const now = T.nowLocal(),
+      host = process.env.PUBLIC_HOST || req.headers.host || "";
+    const out = { reminders: 0, winback: 0, backup: false, mail: mailReady() };
+    // 1) Recordatorios de mañana.
+    if (NORMS.reminders && mailReady()) {
+      const tomorrow = T.addDays(now.date, 1);
+      for (const b of await bookingsByIds(await cmd("SMEMBERS", "day:" + tomorrow))) {
+        if (b.date !== tomorrow || b.kind !== "booking" || b.status !== "confirmed" || !b.email || b.reminded) continue;
+        const ok = await send(
+          b.email,
+          `Mañana tienes cita · ${b.start} con ${b.provider.name.split(" ")[0]}`,
+          "Te esperamos mañana",
+          bookingLines(b, T.niceDate(b.date)) +
+            `<p style="margin:14px 0 0">${htmlEsc(BUSINESS.street)} · ${htmlEsc(BUSINESS.city)}</p>
+             <p style="margin:14px 0 0;color:#64645e;font-size:13px">¿No puedes venir? ${host ? `<a href="https://${host}/#booking/${b.id}">Cámbiala o cancélala desde la app</a>` : "Cámbiala o cancélala desde la app"} y deja el hueco libre para otro.</p>`,
+        );
+        if (ok) {
+          await setJSON("bk:" + b.id, { ...b, reminded: now.stamp });
+          out.reminders++;
+        }
+      }
+    }
+    // 2) Clientes que se han perdido (como mucho 15 correos al día, y 1 cada 60 días por persona).
+    if (NORMS.winbackAuto && mailReady()) {
+      for (const c of (await allClients()).filter((x) => x.status === "perdido" && !x.optout)) {
+        if (out.winback >= 15) break;
+        if (c.contacted && daysBetween(c.contacted.at.slice(0, 10), now.date) < 60) continue;
+        if (await winbackMail(c, host)) {
+          await setJSON("winback:" + c.email, { at: now.stamp, by: "auto", channel: "email" });
+          out.winback++;
+        }
+      }
+    }
+    // 3) Los lunes, copia de seguridad (sin fotos) al correo del dueño.
+    if (T.weekday(now.date) === 1 && mailReady()) {
+      const owner = TEAM.find((p) => p.owner);
+      const to = owner?.email || (owner && (await staffCfg(owner.id)).email) || BUSINESS.email;
+      const data = await backup("data");
+      out.backup = await send(
+        to,
+        `Copia de seguridad · ${now.date}`,
+        "Copia de seguridad semanal",
+        `<p style="margin:0">Adjunta va la copia de los datos de la app (${data.count} registros). Guárdala: con ella se puede recuperar todo desde el panel, en «Equipo y normas».</p>`,
+        undefined,
+        [{ filename: `nova-copia-${now.date}.json`, content: Buffer.from(JSON.stringify(data)).toString("base64") }],
+      );
+    }
+    await setJSON("cronlast", { at: now.stamp, ...out });
+    await cmd("DEL", "lock:cron");
+    return out;
+  },
+
+  "GET unsub/:email/:t": async ({ params }) => {
+    const email = normEmail(decodeURIComponent(params.email));
+    if (!EMAIL.test(email) || !same(String(params.t), await unsubToken(email))) fail(400, "Enlace no válido.");
+    await cmd("SET", "nomkt:" + email, T.nowLocal().stamp);
+    return { raw: `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><body style="font-family:Arial;padding:40px 20px;text-align:center"><h1 style="font-size:22px">Hecho</h1><p>No te mandaremos más correos de este tipo. Los avisos de tus citas sí te seguirán llegando.</p></body>`, type: "text/html; charset=utf-8" };
+  },
+
+  // ── Clientes (solo el dueño) ────────────────────────────────────────────
+  "GET staff/clients": async ({ req }) => {
+    const me = await needStaff(req);
+    if (!me.owner) fail(403, "Los clientes los lleva el dueño.");
+    const list = (await allClients()).sort((a, b) => (b.since ?? -1) - (a.since ?? -1));
+    const count = (st) => list.filter((c) => c.status === st).length;
+    return { list, stats: { total: list.length, lost: count("perdido"), due: count("le-toca"), booked: count("con-cita") }, mail: mailReady() };
+  },
+  "POST staff/clients/contact": async ({ req, body }) => {
+    const me = await needStaff(req);
+    if (!me.owner) fail(403, "Los clientes los lleva el dueño.");
+    const email = normEmail(body.email);
+    const c = (await allClients()).find((x) => x.email === email);
+    if (!c) fail(404, "No encontramos a ese cliente.");
+    if (body.channel === "email") {
+      if (!mailReady()) fail(400, "El envío de correos aún no está activado.");
+      if (c.optout) fail(400, "Este cliente pidió no recibir estos correos.");
+      if (!(await winbackMail(c, req.headers.host))) fail(502, "No se ha podido enviar.");
+    }
+    await setJSON("winback:" + email, { at: T.nowLocal().stamp, by: me.id, channel: body.channel === "email" ? "email" : "whatsapp" });
+    return { ok: true };
+  },
+
+  // ── Copias de seguridad (solo el dueño) ─────────────────────────────────
+  "GET staff/backup": async ({ req, q }) => {
+    const me = await needStaff(req);
+    if (!me.owner) fail(403, "Solo el dueño.");
+    const part = q.get("part") === "photos" ? "photos" : "data";
+    const data = await backup(part);
+    return { raw: JSON.stringify(data), type: "application/json; charset=utf-8", filename: `nova-${part === "photos" ? "fotos" : "datos"}-${T.nowLocal().date}.json` };
+  },
+  // Cargar una copia: escribe lo que trae (no borra lo que no viene en ella).
+  "POST staff/restore": async ({ req, body }) => {
+    const me = await needStaff(req);
+    if (!me.owner) fail(403, "Solo el dueño.");
+    if (body.confirm !== "RESTAURAR") fail(400, "Escribe RESTAURAR para confirmar.");
+    const b = body.backup;
+    if (!b || b.app !== "nova-reservas" || !Array.isArray(b.data)) fail(400, "Ese archivo no es una copia de esta app.");
+    const ops = [];
+    for (const e of b.data) {
+      if (!e || typeof e.k !== "string" || SKIP.test(e.k)) continue;
+      if (e.t === "string" && typeof e.v === "string") ops.push(["SET", e.k, e.v]);
+      else if (e.t === "set" && Array.isArray(e.v) && e.v.length) ops.push(["DEL", e.k], ["SADD", e.k, ...e.v.map(String)]);
+      else if (e.t === "hash" && e.v && typeof e.v === "object") {
+        const flat = Object.entries(e.v).flat().map(String);
+        if (flat.length) ops.push(["DEL", e.k], ["HSET", e.k, ...flat]);
+      }
+    }
+    for (let i = 0; i < ops.length; i += 300) await pipe(ops.slice(i, i + 300));
+    return { ok: true, written: b.data.length };
+  },
+
   // ── Normas de cancelación (solo el dueño) ───────────────────────────────
   "GET staff/rules": async ({ req }) => {
     await needStaff(req);
-    return { ...NORMS };
+    return { ...NORMS, mail: mailReady(), cron: !ON_VERCEL || !!process.env.CRON_SECRET, lastCron: (await getJSON("cronlast")) || null };
   },
   "POST staff/rules": async ({ req, body }) => {
     const me = await needStaff(req);
@@ -1534,13 +1870,19 @@ const routes = {
       if (!Number.isFinite(n) || n < min || n > max) fail(400, msg);
       return n;
     };
-    const norms = {
-      cancelHours: num(body.cancelHours, 0, 168, "Pon entre 0 y 168 horas."),
-      lateFeePct: num(body.lateFeePct, 0, 100, "El cobro por cancelar tarde va de 0 a 100 %."),
-      noShowFeePct: num(body.noShowFeePct, 0, 100, "El cobro por no venir va de 0 a 100 %."),
-    };
+    // Se guarda solo lo que llega: cada pantalla del panel cambia su parte.
+    const has = (k) => body[k] !== undefined;
+    const norms = { ...((await getJSON("norms")) || {}) };
+    if (has("cancelHours")) norms.cancelHours = num(body.cancelHours, 0, 168, "Pon entre 0 y 168 horas.");
+    if (has("lateFeePct")) norms.lateFeePct = num(body.lateFeePct, 0, 100, "El cobro por cancelar tarde va de 0 a 100 %.");
+    if (has("noShowFeePct")) norms.noShowFeePct = num(body.noShowFeePct, 0, 100, "El cobro por no venir va de 0 a 100 %.");
+    if (has("recurringMax")) norms.recurringMax = num(body.recurringMax, 2, 12, "Las citas seguidas van de 2 a 12.");
+    if (has("lapseDays")) norms.lapseDays = num(body.lapseDays, 14, 365, "Pon entre 14 y 365 días.");
+    for (const k of ["reminders", "recurring", "winbackAuto"]) if (has(k)) norms[k] = body[k] === true;
+    if (has("winbackText")) norms.winbackText = clean(body.winbackText, 600) || NORMS.winbackText;
+    if (has("winbackOffer")) norms.winbackOffer = clean(body.winbackOffer, 200);
     await setJSON("norms", norms);
-    return { ok: true, ...norms };
+    return { ok: true, ...NORMS, ...norms };
   },
 
   // ── Equipo (solo el dueño) ──────────────────────────────────────────────
@@ -1585,7 +1927,8 @@ const routes = {
     if (!Number.isFinite(commission) || commission < 0 || commission > 100) fail(400, "La comisión va de 0 a 100 %.");
     const pin = String(body.pin || "").trim();
     if (pin && !/^\d{4,8}$/.test(pin)) fail(400, "La clave son de 4 a 8 números.");
-    if (!prev && !pin && ON_VERCEL) fail(400, "Ponle una clave para que pueda entrar a su panel.");
+    if (!prev && !pin) fail(400, "Ponle una clave: es la que le darás para que entre a su panel.");
+    if (pin && TEAM.some((x) => x.id !== prev?.id && x.active !== false && pinOk(x, pin))) fail(400, "Esa clave ya la usa otra persona del equipo. Pon otra.");
     const photo = String(body.photo || "");
     if (photo && (!PHOTO.test(photo) || photo.length > 280000)) fail(400, "Esa foto no vale. Prueba con otra.");
     let id = prev?.id;
@@ -1595,6 +1938,8 @@ const routes = {
       for (let i = 2; TEAM.some((p) => p.id === id); i++) id = base + "-" + i;
     }
     const active = prev?.owner ? true : body.active !== false;
+    const wEmail = body.email !== undefined ? normEmail(body.email) : prev?.email || "";
+    if (wEmail && !EMAIL.test(wEmail)) fail(400, "Revisa el correo.");
     const item = {
       ...(prev || {}),
       id,
@@ -1604,6 +1949,7 @@ const routes = {
       services,
       commission,
       active,
+      email: wEmail,
       ...(photo ? { image: `/api/team/${id}/photo?v=${Date.now()}` } : {}),
       ...(pin ? { pinHash: pinHash(id, pin) } : {}),
     };
@@ -1708,8 +2054,9 @@ async function unlinkPay(x) {
   const { pay, ...rest } = b;
   await setJSON("bk:" + b.id, rest);
 }
-// Quién puede tocar un cobro: el dueño, el barbero del cobro o quien lo apuntó.
-const canTouchPay = (me, x) => me.owner || x.provider.id === me.id || x.by === me.id;
+// Quién puede tocar un cobro: el dueño, el barbero del cobro, quien lo apuntó
+// o la caja (solo los de hoy, para corregir un error al momento).
+const canTouchPay = (me, x) => me.owner || x.provider.id === me.id || x.by === me.id || (me.caja && x.date === T.nowLocal().date);
 
 // Para el panel: cuántas veces ha faltado cada cliente y si tiene tarjeta guardada.
 async function strikesAndCards(emails) {
@@ -1814,6 +2161,7 @@ export default async function handler(req, res) {
     if (out?.raw !== undefined) {
       res.setHeader("Content-Type", out.type);
       res.setHeader("Cache-Control", out.cache || "no-store");
+      if (out.filename) res.setHeader("Content-Disposition", `attachment; filename="${out.filename}"`);
       return res.end(out.raw);
     }
     res.end(JSON.stringify(out ?? {}));

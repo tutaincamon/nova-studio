@@ -146,3 +146,40 @@ export const hgetall = (arr) => {
   return o;
 };
 export const usingMemory = () => !creds();
+
+// ── Copias de seguridad ─────────────────────────────────────────────────────
+// Lista las claves de esta app (sin el prefijo) que encajan con `match`
+// (solo admite «*» al final o «*» suelto).
+export async function scanKeys(match = "*") {
+  const full = PREFIX + match;
+  if (!creds()) {
+    const base = full.endsWith("*") ? full.slice(0, -1) : null;
+    return [...mem.keys()].filter((k) => alive(k) && (base !== null ? k.startsWith(base) : k === full)).map((k) => k.slice(PREFIX.length));
+  }
+  const out = [];
+  let cursor = "0";
+  do {
+    const j = await rest("", ["SCAN", cursor, "MATCH", full, "COUNT", 1000]);
+    if (j.error) throw Error(j.error);
+    cursor = String(j.result[0]);
+    out.push(...j.result[1].map((k) => k.slice(PREFIX.length)));
+  } while (cursor !== "0");
+  return [...new Set(out)];
+}
+// Lee claves de cualquier tipo: [{ k, t: "string" | "set" | "hash", v }].
+export async function dumpKeys(keys) {
+  const out = [];
+  for (let i = 0; i < keys.length; i += 200) {
+    const part = keys.slice(i, i + 200);
+    let types;
+    if (!creds()) types = part.map((k) => { const e = alive(PREFIX + k); return !e ? "none" : e.v instanceof Set ? "set" : e.v instanceof Map ? "hash" : "string"; });
+    else types = (await rest("/pipeline", part.map((k) => ["TYPE", PREFIX + k]))).map((x) => x.result);
+    const reads = part.map((k, j) => (types[j] === "set" ? ["SMEMBERS", k] : types[j] === "hash" ? ["HGETALL", k] : ["GET", k]));
+    const vals = await pipe(reads);
+    part.forEach((k, j) => {
+      if (types[j] === "none" || vals[j] == null) return;
+      out.push({ k, t: types[j] === "set" ? "set" : types[j] === "hash" ? "hash" : "string", v: types[j] === "hash" ? hgetall(vals[j]) : vals[j] });
+    });
+  }
+  return out;
+}

@@ -18,7 +18,7 @@ function shell(title, body) {
 </div></body></html>`;
 }
 
-export async function send(to, subject, title, bodyHtml, replyTo) {
+export async function send(to, subject, title, bodyHtml, replyTo, attachments) {
   if (!mailReady()) return false;
   try {
     const r = await fetch("https://api.resend.com/emails", {
@@ -30,6 +30,7 @@ export async function send(to, subject, title, bodyHtml, replyTo) {
         subject,
         html: shell(title, bodyHtml),
         ...(replyTo ? { reply_to: replyTo } : {}),
+        ...(attachments?.length ? { attachments } : {}),
       }),
     });
     if (!r.ok) console.error("Resend", r.status, await r.text());

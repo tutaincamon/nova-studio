@@ -58,6 +58,7 @@ const ICONS = {
   shirt: '<path d="M8 3 3 6l2 5 3-1v11h8V10l3 1 2-5-5-3c-.5 1.5-2 2.5-4 2.5S8.5 4.5 8 3z"/>',
   share: '<circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="m8.2 10.8 7.6-4.5M8.2 13.2l7.6 4.5"/>',
   bag: '<path d="M5 8h14l-1 13H6z"/><path d="M9 10V7a3 3 0 0 1 6 0v3"/>',
+  till: '<rect x="3" y="11" width="18" height="9" rx="1"/><path d="M6 11V5h8v6"/><path d="M9 8h2"/><path d="M7 15h2M11 15h2M15 15h2"/>',
   hanger: '<path d="M12 7.5a2 2 0 1 1 2-2c0 1.2-2 1.5-2 3.2L3.5 15a1.6 1.6 0 0 0 1 2.9h15a1.6 1.6 0 0 0 1-2.9z"/>',
   lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
   copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
@@ -99,6 +100,7 @@ document.body.insertAdjacentHTML(
 );
 
 // ── Estado ─────────────────────────────────────────────────────────────────
+let staffHint = null; // la cuenta es de alguien del equipo que aún no ha puesto su clave
 let catalog = null,
   user = null,
   staff = false,
@@ -160,6 +162,7 @@ async function refreshMe() {
     const r = await api("me");
     user = r.user;
     staff = r.staff;
+    staffHint = r.staffHint || null;
     mailOn = r.mail;
     loginCode = r.loginCode;
   } catch {}
@@ -240,7 +243,7 @@ function nav() {
     item("bookings", "Mis citas", svg(ICONS.cal)) +
     item("rewards", "Puntos y premios", svg(ICONS.gift)) +
     item("profile", "Perfil", me) +
-    (staff ? item("equipo", "Agenda", svg(ICONS.agenda)) : "");
+    (staff || staffHint ? item("equipo", staff ? "Agenda" : "Tu panel", svg(ICONS.agenda)) : "");
 }
 function markNav(page) {
   const sect =
@@ -575,10 +578,15 @@ const LEGAL = {
 const pages = {
   async home() {
     const parts = [];
+    let habit = null;
     if (user) {
       try {
         const r = await api("bookings");
         if (r.upcoming[0]) parts.push(nextApptCard(r.upcoming[0]));
+        else if (r.habit && r.habit.visits >= 2 && provById(r.habit.provider) && svcById(r.habit.service)) {
+          habit = r.habit;
+          parts.push(`<div id="habit-card"></div>`);
+        }
       } catch {}
     }
     show(
@@ -592,6 +600,7 @@ const pages = {
     );
     initMap();
     initProducts();
+    if (habit) initHabit(habit);
     initHero();
     $$(".mate").forEach((a) =>
       a.addEventListener("click", (e) => {
@@ -732,6 +741,11 @@ const pages = {
           }
           ${cardOn() ? guaranteeBox(s) : ""}
           <button class="btn wide book-btn" type="submit">${cardOn() && !user?.card ? "Añadir tarjeta y reservar" : quick ? "Confirmar reserva" : cardOn() ? "Reservar" : "Reservar y pagar en el local"}</button>
+          ${
+            catalog.rules.recurring
+              ? `<div class="repeat-box"><label for="f-every" style="margin-top:0">Repetir esta cita</label><div class="form-actions" style="margin-top:0"><select id="f-every" name="every"><option value="">No, solo esta</option><option value="1">Cada semana</option><option value="2">Cada 2 semanas</option><option value="3">Cada 3 semanas</option><option value="4">Cada 4 semanas</option></select><select name="times" aria-label="Cuántas veces">${Array.from({ length: catalog.rules.recurringMax - 1 }, (_, i) => i + 2).map((n) => `<option value="${n}" ${n === Math.min(4, catalog.rules.recurringMax) ? "selected" : ""}>${n} citas</option>`).join("")}</select></div><small>Mismo día de la semana, misma hora y mismo barbero. Si algún día ya está ocupado, te lo decimos.</small></div>`
+              : ""
+          }
           <p class="terms-note">Al reservar aceptas las <a href="#condiciones" target="_blank">condiciones</a> y la <a href="#privacidad" target="_blank">privacidad</a>. Puedes cambiarla desde la app hasta ${catalog.rules.cancelHours} h antes.${
             cardOn() ? ` <b>Si no vienes o cancelas con menos de ${catalog.rules.cancelHours} h, autorizas a ${esc(catalog.business.name)} a cobrar hasta ${euro(Math.max(feePct(s, "noShow"), feePct(s, "late")))} en tu tarjeta.</b>` : ""
           }</p>
@@ -794,7 +808,8 @@ const pages = {
         const card = await addCard({ ...data, ref: refOk || "" });
         if (!card) return toast("Sin tarjeta en garantía no podemos guardar la cita.");
       }
-      const book = () => api("book", { ...data, ref: refOk || "", service: draft.service, provider: draft.provider, date: draft.date, start: draft.start, terms: true });
+      const repeat = d.every ? { every: Number(d.every), times: Number(d.times) } : null;
+      const book = () => api("book", { ...data, ref: refOk || "", service: draft.service, provider: draft.provider, date: draft.date, start: draft.start, terms: true, repeat });
       let r;
       try {
         r = await book();
@@ -804,7 +819,7 @@ const pages = {
         r = await book();
       }
       availCache.clear();
-      lastBooked = { id: r.id, existing: r.existing, service: s, provider: p, date: draft.date, start: draft.start };
+      lastBooked = { id: r.id, existing: r.existing, service: s, provider: p, date: draft.date, start: draft.start, series: r.series };
       draft = {};
       saveDraft();
       if (r.session) {
@@ -836,6 +851,11 @@ const pages = {
           <div class="tix-cut" aria-hidden="true"></div>
           <div class="tix-foot"><span>Ref. <b>${esc(b.id)}</b></span><span class="tix-pts">+${pts} ${pts === 1 ? "punto" : "puntos"} Club NOVA</span></div>
         </div>` +
+        (b.series
+          ? `<div class="card series-note"><strong>${b.series.made} citas, cada ${b.series.every === 1 ? "semana" : b.series.every + " semanas"}</strong><span>${b.series.dates.map((x) => esc(shortDay(x))).join(" · ")}</span>${
+              b.series.skipped.length ? `<span class="warn-line">No había hueco a las ${esc(b.start)} el ${b.series.skipped.map((x) => esc(shortDay(x))).join(", ")}: elige otra hora para ese día.</span>` : ""
+            }</div>`
+          : "") +
         `<a class="btn wide secondary" href="${gcalLink({ ...b, end: addMin(b.start, b.service.duration) })}" target="_blank" rel="noopener">${svg(ICONS.cal)} Añadir a mi calendario</a>` +
         (b.existing
           ? `<p class="warning">Ya tenías cuenta con este correo. Entra con tu correo para ver y cambiar todas tus citas.</p><a class="btn wide" href="#login">Entrar a mis citas</a>`
@@ -912,13 +932,14 @@ const pages = {
           r.late && r.lateFee
             ? `<p class="warning">Cancelas con menos de ${catalog.rules.cancelHours} h. Según las condiciones se te pueden cobrar <b>${euro(r.lateFee)}</b>. Lo decide tu barbero: si tienes un motivo justificado, escríbenos por WhatsApp.</p>`
             : ""
-        }<div class="form-actions"><button type="button" class="btn secondary" id="no">No</button><button type="button" class="btn danger" id="yes">Sí, cancelar</button></div>`,
+        }${b.series ? `<label class="check"><input type="checkbox" id="all-series"><span>Cancelar también las siguientes citas de esta serie</span></label>` : ""}<div class="form-actions"><button type="button" class="btn secondary" id="no">No</button><button type="button" class="btn danger" id="yes">Sí, cancelar</button></div>`,
       );
       sh.el.querySelector("#no").onclick = sh.close;
       sh.el.querySelector("#yes").onclick = async (e) => {
         e.currentTarget.disabled = true;
+        const allSeries = !!sh.el.querySelector("#all-series")?.checked;
         try {
-          const x = await api(`bookings/${b.id}/cancel`, {});
+          const x = await api(`bookings/${b.id}/cancel`, { series: allSeries });
           availCache.clear();
           sh.close();
           toast(x.late ? "Cita cancelada. Tu barbero revisará si se cobra." : "Cita cancelada.");
@@ -1140,7 +1161,8 @@ const pages = {
   async equipo(args = []) {
     if (!staff) return staffLogin();
     try {
-      await ({ cobrar: staffCobros, caja: staffCaja, faltas: staffFaltas, formacion: staffTraining, productos: staffProducts, ajustes: staffTeam, web: staffWeb }[args[0]] || staffAgenda)();
+      if (staff.caja) return await staffCobros();
+      await ({ cobrar: staffCobros, caja: staffCaja, faltas: staffFaltas, formacion: staffTraining, productos: staffProducts, ajustes: staffTeam, web: staffWeb, clientes: staffClients }[args[0]] || staffAgenda)();
     } catch (e) {
       if (e.status !== 401) throw e;
       staff = null;
@@ -1177,12 +1199,18 @@ async function calendar({ backTo, backLabel }) {
     afternoon = times.filter((t) => t >= "14:00"),
     pill = (t) => `<button type="button" class="time-pill" data-time="${t}">${t}</button>`,
     monthName = cap(new Date(cy, cm - 1, 1).toLocaleDateString("es-ES", { month: "long" })) + " " + cy;
+  // Punto de disponibilidad: verde = mucha, naranja = media, rojo = pocas.
+  // Se compara con el día más libre del mes (un día sin reservas).
+  const fullDay = Math.max(1, ...Object.values(avail).map((a) => a.length)),
+    level = (n) => (n <= 2 || n / fullDay <= 0.25 ? ["low", ", quedan pocas horas"] : n / fullDay <= 0.6 ? ["mid", ", disponibilidad media"] : ["", ""]);
   let cells = "";
   for (let i = 0; i < lead; i++) cells += `<span class="cal-cell blank" aria-hidden="true"></span>`;
   for (let d = 1; d <= total; d++) {
     const iso = `${calMonth}-${pad(d)}`,
-      open = (avail[iso] || []).length > 0;
-    cells += `<button type="button" class="cal-cell${open ? " open" : ""}${iso === selectedDate ? " selected" : ""}${iso === todayIso ? " today" : ""}" data-day="${iso}" ${open ? "" : "disabled"} aria-pressed="${iso === selectedDate}" aria-label="${esc(longDay(iso))}${open ? "" : ", sin horas"}">${d}</button>`;
+      n = (avail[iso] || []).length,
+      open = n > 0,
+      [lv, lvLabel] = open ? level(n) : ["", ""];
+    cells += `<button type="button" class="cal-cell${open ? " open" : ""}${lv ? " lvl-" + lv : ""}${iso === selectedDate ? " selected" : ""}${iso === todayIso ? " today" : ""}" data-day="${iso}" ${open ? "" : "disabled"} aria-pressed="${iso === selectedDate}" aria-label="${esc(longDay(iso))}${open ? lvLabel : ", sin horas"}">${d}</button>`;
   }
   const maxMonth = shiftMonth(thisMonth, Math.ceil(catalog.rules.daysAhead / 30));
   show(
@@ -1547,22 +1575,23 @@ const monthLabel = (key) => cap(dayDate(key + "-01").toLocaleDateString("es-ES",
 const shortDate = (iso) => fmtDay(iso, { day: "numeric", month: "short" });
 
 function staffLogin() {
-  let last = "";
+  let last = staffHint?.id || "";
   try {
-    last = localStorage.getItem("nova_staff_who") || "";
+    last = staffHint?.id || localStorage.getItem("nova_staff_who") || "";
   } catch {}
   show(
     back("home", "Inicio") +
-      heading("Acceso equipo", "Elige quién eres y pon tu clave.") +
+      heading("Acceso equipo", staffHint ? `Hola, ${esc(first(staffHint.name))}. Pon tu clave una vez: este móvil se queda con la sesión iniciada.` : "Elige quién eres y pon tu clave. Solo hace falta la primera vez en cada móvil.") +
       `<form id="staff"><div class="who" role="radiogroup" aria-label="Quién eres">${catalog.providers
         .map(
           (p) =>
             `<label class="who-item"><input type="radio" name="provider" value="${esc(p.id)}" ${p.id === last ? "checked" : ""}>${face(p, "who-face")}<span>${esc(first(p.name))}</span></label>`,
         )
-        .join("")}</div>
-      <label for="s-pin">Tu clave</label><input id="s-pin" name="pin" type="password" inputmode="numeric" required autocomplete="current-password">
+        .join("")}<label class="who-item who-caja"><input type="radio" name="provider" value="caja" ${last === "caja" ? "checked" : ""}><span class="who-face" aria-hidden="true">${svg(ICONS.till)}</span><span><strong>Caja</strong><small>La tablet del mostrador: solo para cobrar. Entra con la clave de cualquiera del equipo.</small></span></label></div>
+      <label for="s-pin" id="s-pin-l">${last === "caja" ? "Clave de cualquiera del equipo" : "Tu clave"}</label><input id="s-pin" name="pin" type="password" inputmode="numeric" required autocomplete="current-password">
       <button class="btn wide" style="margin-top:16px" type="submit">Entrar</button></form>`,
   );
+  $$("#staff [name=provider]").forEach((i) => (i.onchange = () => ($("#s-pin-l").textContent = i.value === "caja" ? "Clave de cualquiera del equipo" : "Tu clave")));
   onForm("staff", async (d) => {
     if (!d.provider) throw Error("Elige quién eres.");
     await api("staff/login", { provider: d.provider, pin: d.pin });
@@ -1576,11 +1605,13 @@ function staffLogin() {
 }
 
 function staffTop(tab) {
+  if (staff.caja)
+    return `<div class="staff-top"><span class="who-face" aria-hidden="true">${svg(ICONS.till)}</span><div><p class="eyebrow">NOVA Studio</p><h1>Caja</h1></div></div>`;
   return (
     `<div class="staff-top">${face(provById(staff.id), "who-face")}<div><p class="eyebrow">${staff.owner ? "Propietario" : "Panel de barbero"}</p><h1>Hola, ${esc(first(staff.name))}</h1></div></div>` +
     `<div class="tabs" role="navigation" aria-label="Panel"><a href="#equipo" class="${tab === "agenda" ? "active" : ""}" ${tab === "agenda" ? 'aria-current="page"' : ""}>Agenda</a><a href="#equipo/cobrar" class="${tab === "cobrar" ? "active" : ""}" ${tab === "cobrar" ? 'aria-current="page"' : ""}>Cobrar</a><a href="#equipo/caja" class="${tab === "caja" ? "active" : ""}" ${tab === "caja" ? 'aria-current="page"' : ""}>${staff.owner ? "Caja y comisiones" : "Mi caja"}</a><a href="#equipo/faltas" class="${tab === "faltas" ? "active" : ""}" ${tab === "faltas" ? 'aria-current="page"' : ""}>Faltas</a>${
       staff.owner
-        ? `<a href="#equipo/formacion" class="${tab === "formacion" ? "active" : ""}" ${tab === "formacion" ? 'aria-current="page"' : ""}>Formación</a><a href="#equipo/productos" class="${tab === "productos" ? "active" : ""}" ${tab === "productos" ? 'aria-current="page"' : ""}>Productos</a><a href="#equipo/ajustes" class="${tab === "ajustes" ? "active" : ""}" ${tab === "ajustes" ? 'aria-current="page"' : ""}>Equipo y normas</a><a href="#equipo/web" class="${tab === "web" ? "active" : ""}" ${tab === "web" ? 'aria-current="page"' : ""}>Web</a>`
+        ? `<a href="#equipo/formacion" class="${tab === "formacion" ? "active" : ""}" ${tab === "formacion" ? 'aria-current="page"' : ""}>Formación</a><a href="#equipo/productos" class="${tab === "productos" ? "active" : ""}" ${tab === "productos" ? 'aria-current="page"' : ""}>Productos</a><a href="#equipo/ajustes" class="${tab === "ajustes" ? "active" : ""}" ${tab === "ajustes" ? 'aria-current="page"' : ""}>Equipo y normas</a><a href="#equipo/web" class="${tab === "web" ? "active" : ""}" ${tab === "web" ? 'aria-current="page"' : ""}>Web</a><a href="#equipo/clientes" class="${tab === "clientes" ? "active" : ""}" ${tab === "clientes" ? 'aria-current="page"' : ""}>Clientes</a>`
         : ""
     }</div>`
   );
@@ -1780,6 +1811,7 @@ function pctSheet(p, label) {
 // se rellena solo con su cliente de ahora (a las 11 se cobra al de las 10:30),
 // con su servicio y su precio. Todo se puede cambiar: un extra, otro importe…
 const methodName = (id) => (catalog.payMethods || []).find((m) => m.id === id)?.name || id || "";
+const byLabel = (by) => (by === "caja" ? "desde la caja" : `por ${esc(first(provById(by)?.name || by))}`);
 const cobroSvcs = () => catalog.services.filter((s) => !s.consult);
 const minOf = (hhmm) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
 const money = (n) => `${(Math.round(Number(n) * 100) / 100).toFixed(2).replace(".", ",")} €`;
@@ -1797,7 +1829,8 @@ function guessBooking(list, nowStamp) {
 
 function cobroForm(r, x) {
   const team = r.team.length ? r.team : catalog.providers;
-  const prov = x?.provider.id || (team.some((p) => p.id === staff.id) ? staff.id : team[0]?.id);
+  const guess = r.date === r.today ? guessBooking(r.pending, r.now) : null;
+  const prov = x?.provider.id || (team.some((p) => p.id === staff.id) ? staff.id : guess?.provider || team[0]?.id);
   return `<form id="cobro" class="cobro" autocomplete="off">
     <p class="cb-label">Quién ha hecho el servicio</p>
     <div class="who cb-who" role="radiogroup" aria-label="Barbero">${team
@@ -1961,17 +1994,19 @@ async function staffCobros() {
   const r = await api("staff/cobros?date=" + cobroDay);
   const isToday = r.date === r.today;
   const t = r.totals;
-  const dayNav = `<div class="month-nav"><button type="button" class="cal-nav" data-d="-1" aria-label="Día anterior">‹</button><strong>${esc(isToday ? "Hoy · " + longDay(r.date) : longDay(r.date))}</strong><button type="button" class="cal-nav" data-d="1" aria-label="Día siguiente" ${isToday ? "disabled" : ""}>›</button></div>`;
+  const dayNav = staff.caja
+    ? ""
+    : `<div class="month-nav"><button type="button" class="cal-nav" data-d="-1" aria-label="Día anterior">‹</button><strong>${esc(isToday ? "Hoy · " + longDay(r.date) : longDay(r.date))}</strong><button type="button" class="cal-nav" data-d="1" aria-label="Día siguiente" ${isToday ? "disabled" : ""}>›</button></div>`;
   const row = (x) => {
     const other = x.provider.id !== staff.id;
     return `<button type="button" class="ag-item cb-row" data-pay="${esc(x.id)}">
       <time>${esc(x.time)}</time>
-      <div><strong>${esc(x.name)}</strong><span>${esc(x.items.map((i) => i.name).join(" + "))}${staff.owner || other ? " · " + esc(first(x.provider.name)) : ""}${x.by !== x.provider.id ? ` · apuntó ${esc(first(provById(x.by)?.name || x.by))}` : ""}</span></div>
+      <div><strong>${esc(x.name)}</strong><span>${esc(x.items.map((i) => i.name).join(" + "))}${staff.owner || other ? " · " + esc(first(x.provider.name)) : ""}${x.by !== x.provider.id && !staff.caja ? ` · ${byLabel(x.by)}` : ""}</span></div>
       <span class="cb-amt"><b>${money(x.amount)}</b><small>${esc(methodName(x.method))}</small></span>
     </button>`;
   };
   const summary =
-    `<div class="stat3 money"><div><strong>${euro(t.total)}</strong><span>${staff.owner ? "Todo el salón" : "Tus cobros"}</span></div>${t.methods
+    `<div class="stat3 money"><div><strong>${euro(t.total)}</strong><span>${staff.caja ? "En caja hoy" : staff.owner ? "Todo el salón" : "Tus cobros"}</span></div>${t.methods
       .slice(0, 2)
       .map((m) => `<div><strong>${euro(m.total)}</strong><span>${esc(m.name)}</span></div>`)
       .join("")}</div>` +
@@ -1990,8 +2025,17 @@ async function staffCobros() {
       (isToday ? `<div class="card cb-card">${cobroForm(r)}</div>` : "") +
       `<p class="section-label">${isToday ? "Cobros de hoy" : "Cobros del día"}</p>` +
       summary +
-      (r.cobros.length ? r.cobros.map(row).join("") : `<p class="ag-free">Aún no hay cobros este día.</p>`),
+      (r.cobros.length ? r.cobros.map(row).join("") : `<p class="ag-free">Aún no hay cobros este día.</p>`) +
+      (staff.caja ? `<button type="button" class="btn wide secondary" style="margin-top:28px" id="staff-out">Cerrar la caja</button>` : ""),
   );
+  const out = $("#staff-out");
+  if (out)
+    out.onclick = async () => {
+      await api("staff/logout", {});
+      staff = null;
+      nav();
+      go("equipo");
+    };
   $$(".month-nav [data-d]").forEach(
     (b) =>
       (b.onclick = () => {
@@ -2011,10 +2055,10 @@ async function staffCobros() {
 
 function cobroSheet(r, x) {
   if (!x) return;
-  const mayEdit = staff.owner || x.provider.id === staff.id || x.by === staff.id;
+  const mayEdit = staff.owner || x.provider.id === staff.id || x.by === staff.id || (staff.caja && x.date === r.today);
   const sh = sheet(
     `<p class="eyebrow">Cobro · ${esc(longDay(x.date))} · ${esc(x.time)}</p><h2>${esc(x.name)} · ${money(x.amount)}</h2>` +
-      `<p class="muted">Apuntado por ${esc(first(provById(x.by)?.name || x.by))}${x.edited ? ` · cambiado a las ${esc(x.edited.slice(11, 16))}` : ""}.</p>` +
+      `<p class="muted">Apuntado ${byLabel(x.by)}${x.edited ? ` · cambiado a las ${esc(x.edited.slice(11, 16))}` : ""}.</p>` +
       (mayEdit
         ? cobroForm(r, x) + `<button type="button" class="btn wide danger" style="margin-top:12px" id="cb-del">Quitar este cobro</button>`
         : `<div class="card"><dl class="detail-list"><div><dt>Servicio</dt><dd>${esc(x.items.map((i) => i.name).join(" + "))}</dd></div><div><dt>Pago</dt><dd>${esc(methodName(x.method))}</dd></div></dl></div>`),
@@ -2337,7 +2381,8 @@ function staffNew(block) {
       ${
         block
           ? `<label>Motivo (opcional)</label><input name="note" maxlength="60" placeholder="Comida, médico…">`
-          : `<label>Nombre del cliente</label><input name="name" required maxlength="120"><label>Teléfono</label><input name="phone" type="tel" maxlength="30"><label>Correo (opcional)</label><input name="email" type="email">`
+          : `<label>Nombre del cliente</label><input name="name" required maxlength="120"><label>Teléfono</label><input name="phone" type="tel" maxlength="30"><label>Correo (opcional)</label><input name="email" type="email">
+             <label>Repetir</label><div class="form-actions" style="margin-top:0"><select name="every"><option value="">No</option><option value="1">Cada semana</option><option value="2">Cada 2 semanas</option><option value="3">Cada 3 semanas</option><option value="4">Cada 4 semanas</option></select><select name="times">${[2, 3, 4, 5, 6, 8, 10, 12].map((n) => `<option value="${n}" ${n === 4 ? "selected" : ""}>${n} citas</option>`).join("")}</select></div>`
       }
       <button class="btn wide" style="margin-top:18px" type="submit">${block ? "Bloquear" : "Apuntar cita"}</button>
     </form>`,
@@ -2348,10 +2393,10 @@ function staffNew(block) {
     const btn = e.target.querySelector("[type=submit]");
     btn.disabled = true;
     try {
-      await api("staff/book", { ...d, date: staffDay, block });
+      const r = await api("staff/book", { ...d, date: staffDay, block, repeat: d.every ? { every: Number(d.every), times: Number(d.times) } : null });
       availCache.clear();
       sh.close();
-      toast(block ? "Hora bloqueada." : "Cita apuntada.");
+      toast(block ? "Hora bloqueada." : r.series ? `${r.series.made} citas apuntadas${r.series.skipped.length ? ` (ocupado el ${r.series.skipped.map(shortDate).join(", ")})` : ""}.` : "Cita apuntada.");
       render();
     } catch (err) {
       btn.disabled = false;
@@ -2373,6 +2418,7 @@ function loginScreen(reason, next) {
       (loginCode && !mailOn ? `<p class="warning">Ahora mismo el acceso por correo no está activo. Si necesitas cambiar una cita, escríbenos por WhatsApp.</p>` : "") +
       `<form id="login"><label for="l-email">Correo electrónico</label><input id="l-email" name="email" type="email" required autocomplete="email"><button class="btn wide" style="margin-top:16px" type="submit">${loginCode ? "Recibir código" : "Entrar"}</button></form>` +
       `<p class="muted" style="margin-top:22px">¿Aún no tienes cuenta? Se crea sola con tu primera reserva.</p><a class="btn wide secondary" href="#home">Reservar cita</a>` +
+      `<p class="muted" style="margin-top:22px;text-align:center">¿Trabajas en el estudio? <a href="#equipo">Entra en tu panel</a></p>` +
       legalLinks(),
   );
   onForm("login", async (d) => {
@@ -2546,6 +2592,186 @@ function productSheet(p) {
 // Airam pone aquí cuántas horas antes se puede cancelar gratis, cuánto se
 // cobra si alguien cancela tarde o no viene, y lleva el equipo: altas,
 // cambios, horario, servicios, comisión, clave y bajas.
+// ── Tu cita de siempre ─────────────────────────────────────────────────────
+// Con lo que suele pedir el cliente (día, hora, barbero, servicio y cada
+// cuánto viene) se le propone la próxima cita y se reserva en un toque.
+const DAY_LONG = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+const everyText = (d) => (!d ? "" : d === 1 ? "cada día" : d % 7 === 0 ? (d === 7 ? "cada semana" : `cada ${d / 7} semanas`) : `cada ${d} días`);
+async function initHabit(h) {
+  const box = $("#habit-card");
+  if (!box) return;
+  const s = svcById(h.service),
+    p = provById(h.provider);
+  // Primera fecha posible: cuando «le toca» (o mañana) y en su día de la semana.
+  let from = new Date();
+  from.setDate(from.getDate() + 1);
+  if (h.every) {
+    const due = dayDate(h.last);
+    due.setDate(due.getDate() + h.every);
+    if (due > from) from = due;
+  }
+  while (from.getDay() !== h.weekday) from.setDate(from.getDate() + 1);
+  let pick = null;
+  for (let w = 0; w < 6 && !pick; w++) {
+    const iso = isoDay(from);
+    try {
+      const days = await getAvail(s.id, p.id, iso.slice(0, 7));
+      const times = days[iso] || [];
+      if (times.length) {
+        const near = times.includes(h.start) ? h.start : times.slice().sort((a, b) => Math.abs(hm(a) - hm(h.start)) - Math.abs(hm(b) - hm(h.start)))[0];
+        if (Math.abs(hm(near) - hm(h.start)) <= 120) pick = { date: iso, start: near };
+      }
+    } catch {}
+    from.setDate(from.getDate() + 7);
+  }
+  if (!document.body.contains(box)) return;
+  const when = pick ? `${cap(DAY_LONG[dayDate(pick.date).getDay()])} ${dayDate(pick.date).getDate()} ${fmtDay(pick.date, { month: "short" })} · ${pick.start}` : "";
+  box.outerHTML = `<section class="habit${h.due ? " due" : ""}">
+    <p class="eyebrow">${h.due ? "Te toca" : "Tu cita de siempre"}</p>
+    <div class="habit-main">${face(p, "habit-face")}<div><strong>${esc(cap(DAY_LONG[h.weekday]))}s${h.start ? " · " + esc(h.start) : ""}</strong><span>${esc(s.name)} con ${esc(first(p.name))}${h.every ? " · " + esc(everyText(h.every)) : ""}</span></div></div>
+    ${
+      pick
+        ? `<button type="button" class="btn wide" id="habit-go">Reservar ${esc(when)}</button>`
+        : `<a class="btn wide secondary" href="#time/${esc(p.id)}" id="habit-cal">Ver huecos con ${esc(first(p.name))}</a>`
+    }
+    <small>${h.due ? `Hace ${h.since} días de tu último corte.` : "Lo calculamos con tus últimas citas."}</small>
+  </section>`;
+  const go2 = $("#habit-go");
+  if (go2)
+    go2.onclick = () => {
+      tap();
+      draft = { service: s.id, provider: p.id, date: pick.date, start: pick.start };
+      calMonth = pick.date.slice(0, 7);
+      selectedDate = pick.date;
+      dayPicked = true;
+      saveDraft();
+      go("details");
+    };
+  const cal = $("#habit-cal");
+  if (cal)
+    cal.onclick = () => {
+      draft = { service: s.id };
+      saveDraft();
+    };
+}
+
+// ── Clientes (solo el dueño): quién viene, a quién le toca y quién se ha perdido ──
+let clientFilter = "perdido";
+const STATUS_CL = { perdido: ["Se ha perdido", "st-cancel"], "le-toca": ["Le toca", "st-wait"], "con-cita": ["Tiene cita", "st-ok"], "al-dia": ["Al día", "st-done"], nuevo: ["Nuevo", ""] };
+async function staffClients() {
+  if (!staff.owner) return show(staffTop("clientes") + `<p class="ag-free">Esto lo lleva el dueño.</p>`);
+  const [r, n] = await Promise.all([api("staff/clients"), api("staff/rules")]);
+  const list = r.list.filter((c) => clientFilter === "todos" || c.status === clientFilter);
+  const habitTxt = (c) =>
+    c.habit ? `${cap(DAY_LONG[c.habit.weekday]).slice(0, 3)} ${c.habit.start || ""}${provById(c.habit.provider) ? " · " + first(provById(c.habit.provider).name) : ""}${c.every ? " · " + everyText(c.every) : ""}` : "";
+  const msg = (c) => `Hola ${first(c.name) || ""}, soy ${first(staff.name)} de NOVA Studio. ${n.winbackText}${n.winbackOffer ? " " + n.winbackOffer : ""}`;
+  show(
+    staffTop("clientes") +
+      `<div class="stat3 money"><div><strong>${r.stats.lost}</strong><span>Se han perdido</span></div><div><strong>${r.stats.due}</strong><span>Les toca</span></div><div><strong>${r.stats.booked}</strong><span>Con cita</span></div></div>
+      <div class="tr-filter">${[["perdido", "Se han perdido", r.stats.lost], ["le-toca", "Les toca", r.stats.due], ["con-cita", "Con cita", r.stats.booked], ["todos", "Todos", r.stats.total]]
+        .map(([k, l, c]) => `<button type="button" class="${clientFilter === k ? "on" : ""}" data-cf="${k}">${l} <small>${c}</small></button>`)
+        .join("")}</div>
+      ${
+        list.length
+          ? list
+              .map((c) => {
+                const [st, cls] = STATUS_CL[c.status] || STATUS_CL.nuevo;
+                return `<article class="card cl-item">
+                  <div class="tr-item-top"><div><strong>${esc(c.name || c.email)}</strong><span>${c.visits} ${c.visits === 1 ? "visita" : "visitas"}${c.last ? ` · última hace ${c.since} días` : ""}${c.next ? ` · cita el ${esc(shortDate(c.next.date))} ${esc(c.next.start)}` : ""}</span></div><span class="appt-state ${cls}">${st}</span></div>
+                  ${habitTxt(c) ? `<p class="tr-line">🗓 Suele venir: ${esc(habitTxt(c))}</p>` : ""}
+                  ${c.contacted ? `<p class="tr-line muted">Contactado el ${esc(shortDate(c.contacted.at.slice(0, 10)))} por ${c.contacted.channel === "email" ? "correo" : "WhatsApp"}${c.contacted.by === "auto" ? " (automático)" : ""}</p>` : ""}
+                  ${c.status !== "con-cita" ? `<div class="form-actions" style="margin-top:10px">${
+                    c.phone ? `<a class="btn small wa-btn" target="_blank" rel="noopener" data-wa="${esc(c.email)}" href="https://wa.me/${esc(c.phone.replace(/\D/g, ""))}?text=${encodeURIComponent(msg(c))}">WhatsApp</a>` : ""
+                  }${c.email && !c.optout ? `<button type="button" class="btn small secondary" data-mail="${esc(c.email)}" ${r.mail ? "" : "disabled title='El envío de correos aún no está activado'"}>Enviar correo</button>` : c.optout ? `<span class="muted" style="font-size:12px">No quiere correos</span>` : ""}</div>` : ""}
+                </article>`;
+              })
+              .join("")
+          : `<p class="ag-free">Nadie en esta lista. 🙌</p>`
+      }
+      <p class="section-label">Recuperar clientes</p>
+      <form id="wb" class="card norms">
+        <label for="wb-days" style="margin-top:0">Alguien «se ha perdido» si lleva sin venir más de</label>
+        <div class="pct-field"><input id="wb-days" name="lapseDays" inputmode="numeric" value="${n.lapseDays}"><span>días</span></div>
+        <p class="muted" style="font-size:12px;margin:6px 0 0">O el doble de lo que suele tardar en volver, si es más.</p>
+        <label for="wb-text">Mensaje</label><textarea id="wb-text" name="winbackText" rows="3" maxlength="600">${esc(n.winbackText)}</textarea>
+        <label for="wb-offer">Oferta <small>(opcional)</small></label><input id="wb-offer" name="winbackOffer" maxlength="200" value="${esc(n.winbackOffer)}" placeholder="Ej.: 10 % en tu próximo corte esta semana">
+        <label class="check"><input type="checkbox" name="winbackAuto" ${n.winbackAuto ? "checked" : ""}><span>Mandárselo por correo automáticamente (como mucho una vez cada 60 días, y con enlace para darse de baja)</span></label>
+        ${n.mail ? "" : `<p class="warning">El envío de correos aún no está activado: por ahora usa el botón de WhatsApp.</p>`}
+        <button class="btn wide" style="margin-top:14px" type="submit">Guardar</button>
+      </form>`,
+  );
+  $$("[data-cf]").forEach((b) => (b.onclick = () => ((clientFilter = b.dataset.cf), render())));
+  $$("[data-wa]").forEach((a) => a.addEventListener("click", () => api("staff/clients/contact", { email: a.dataset.wa, channel: "whatsapp" }).catch(() => {})));
+  $$("[data-mail]").forEach(
+    (b) =>
+      (b.onclick = async () => {
+        b.disabled = true;
+        try {
+          await api("staff/clients/contact", { email: b.dataset.mail, channel: "email" });
+          toast("Correo enviado.");
+          render();
+        } catch (e) {
+          b.disabled = false;
+          toast(e.message);
+        }
+      }),
+  );
+  onForm("wb", async (d) => {
+    await api("staff/rules", { lapseDays: d.lapseDays, winbackText: d.winbackText, winbackOffer: d.winbackOffer, winbackAuto: d.winbackAuto === "on" });
+    toast("Guardado.");
+    render();
+  });
+}
+
+// Estado de las tareas automáticas (recordatorios y correos).
+function autoStatus(n) {
+  if (!n.mail) return `<p class="warning" style="margin-top:12px">Los correos aún no se envían: falta activar el servicio de correo. Las opciones quedan guardadas y empezarán a funcionar en cuanto se active.</p>`;
+  if (!n.cron) return `<p class="warning" style="margin-top:12px">Falta activar la tarea diaria en Vercel (variable CRON_SECRET) para que salgan los recordatorios.</p>`;
+  return n.lastCron ? `<p class="muted" style="font-size:12px;margin-top:10px">Última vez: ${esc(n.lastCron.at)} · ${n.lastCron.reminders} recordatorios${n.lastCron.winback ? ` · ${n.lastCron.winback} correos a clientes perdidos` : ""}</p>` : "";
+}
+
+// ── Copia de seguridad (solo el dueño) ─────────────────────────────────────
+const backupBlock = () => `<p class="section-label">Copia de seguridad</p>
+  <div class="card">
+    <p class="muted" style="margin-top:0">Descarga todos los datos (clientes, citas, cobros, Club, ajustes) en un archivo y guárdalo en tu ordenador o en Drive. Los lunes también te llega una copia por correo, cuando el correo esté activado.</p>
+    <div class="stack"><a class="btn wide" href="/api/staff/backup?part=data" download>Descargar datos</a><a class="btn wide secondary" href="/api/staff/backup?part=photos" download>Descargar fotos</a>
+    <label class="btn wide secondary" style="margin:0">Recuperar desde una copia<input type="file" accept="application/json,.json" class="sr-only" id="bk-file"></label></div>
+  </div>`;
+function bindBackup() {
+  const f = $("#bk-file");
+  if (!f) return;
+  f.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    let backup;
+    try {
+      backup = JSON.parse(await file.text());
+    } catch {
+      return toast("Ese archivo no se puede leer.");
+    }
+    if (backup?.app !== "nova-reservas") return toast("Ese archivo no es una copia de esta app.");
+    const sh = sheet(
+      `<p class="eyebrow">Copia del ${esc(String(backup.created || "").slice(0, 16))}</p><h2>¿Recuperar esta copia?</h2>
+      <p class="muted">Trae ${backup.count} registros (${backup.part === "photos" ? "fotos" : "datos"}). Se escriben encima de lo que haya con el mismo nombre; lo que no venga en la copia se queda como está.</p>
+      <form id="rs"><label for="rs-c">Escribe RESTAURAR para confirmar</label><input id="rs-c" name="confirm" autocomplete="off" required>
+      <button class="btn wide danger" style="margin-top:14px" type="submit">Recuperar</button></form>`,
+    );
+    sh.el.querySelector("#rs").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      try {
+        const r = await api("staff/restore", { confirm: new FormData(ev.target).get("confirm"), backup });
+        sh.close();
+        toast(`Copia recuperada: ${r.written} registros.`);
+        catalog = null;
+        await loadCatalog();
+        render();
+      } catch (err) {
+        toast(err.message);
+      }
+    });
+  };
+}
+
 // ── Fotos de la web y reseñas (solo el dueño) ──────────────────────────────
 // Cada foto de la web tiene un hueco. Si Airam sube otra desde su panel
 // (pestaña «Web»), sale la suya; si no, la original.
@@ -2698,6 +2924,12 @@ async function staffTeam() {
         <label for="n-abs">Si no viene, se le puede cobrar</label>
         <div class="pct-field"><input id="n-abs" name="noShowFeePct" inputmode="numeric" required value="${n.noShowFeePct}"><span>% del servicio</span></div>
         <p class="muted" style="font-size:13px;margin:12px 0 0">Nunca se cobra solo: cada barbero decide en su pestaña «Faltas» si cobra o no, por si hay un motivo justificado. Con 0 % no se cobra nunca.</p>
+        <p class="section-label" style="margin-top:22px">Recordatorios y citas que se repiten</p>
+        <label class="check" style="margin-top:0"><input type="checkbox" name="reminders" ${n.reminders ? "checked" : ""}><span>Mandar un correo de recordatorio el día antes de cada cita</span></label>
+        <label class="check"><input type="checkbox" name="recurring" ${n.recurring ? "checked" : ""}><span>Los clientes pueden reservar citas que se repiten (cada 1, 2, 3 o 4 semanas)</span></label>
+        <label for="n-rmax">Como mucho, cuántas citas de una vez</label>
+        <div class="pct-field"><input id="n-rmax" name="recurringMax" inputmode="numeric" value="${n.recurringMax}"><span>citas</span></div>
+        ${autoStatus(n)}
         <button class="btn wide" style="margin-top:14px" type="submit">Guardar normas</button>
       </form>
       <p class="section-label">Equipo</p>
@@ -2708,10 +2940,12 @@ async function staffTeam() {
           }</span></button>`,
         )
         .join("")}</div>
-      <button type="button" class="btn wide" style="margin-top:12px" id="w-new">+ Añadir trabajador</button>`,
+      <button type="button" class="btn wide" style="margin-top:12px" id="w-new">+ Añadir trabajador</button>` +
+      backupBlock(),
   );
+  bindBackup();
   onForm("norms", async (d) => {
-    await api("staff/rules", d);
+    await api("staff/rules", { ...d, reminders: d.reminders === "on", recurring: d.recurring === "on" });
     catalog = null;
     await loadCatalog();
     toast("Normas guardadas.");
@@ -2740,6 +2974,7 @@ function workerSheet(p, services) {
       <label class="pr-photo w-photo" id="w-photo">${p?.image ? `<img src="${esc(p.image)}" alt="">` : `<span>${svg(ICONS.camera)}Foto</span>`}<input type="file" accept="image/*" class="sr-only" id="w-file"></label>
       <label for="w-name">Nombre</label><input id="w-name" name="name" required maxlength="60" value="${esc(p?.name || "")}">
       <label for="w-role">Puesto <small>(se ve en su tarjeta)</small></label><input id="w-role" name="role" maxlength="40" value="${esc(p?.role || "Barbero")}">
+      <label for="w-email">Su correo <small>(al entrar con él en la app le sale su panel)</small></label><input id="w-email" name="email" type="email" maxlength="120" value="${esc(p?.email || "")}">
       <fieldset class="tr-field"><legend>Horario</legend><div class="w-hours">${WEEK_ORDER.map((d) => {
         const r = hours[d]?.[0];
         return `<div class="w-day"><label class="check"><input type="checkbox" name="on${d}" ${r ? "checked" : ""}><span>${DAYS_ES[d]}</span></label>${timeSel("a" + d, r?.[0] || "10:00")}${timeSel("b" + d, r?.[1] || "20:00")}</div>`;
@@ -2782,6 +3017,7 @@ function workerSheet(p, services) {
         id: p?.id,
         name: d.get("name"),
         role: d.get("role"),
+        email: d.get("email"),
         hours: hrs,
         services: d.getAll("svc"),
         commission: d.get("commission") ?? undefined,
@@ -2793,12 +3029,23 @@ function workerSheet(p, services) {
       catalog = null;
       await loadCatalog();
       toast(r.pending ? `Guardado. Ojo: le quedan ${r.pending} citas pendientes; muévelas o cancélalas desde la Agenda.` : p ? "Guardado." : `${first(r.worker.name)} ya está en el equipo.`);
-      render();
+      await render();
+      // La clave se la da el dueño: se le enseña una vez para que se la pase.
+      const pin = String(d.get("pin") || "").trim();
+      if (pin) pinHandOver(r.worker, pin, !p);
     } catch (err) {
       btn.disabled = false;
       toast(err.message);
     }
   });
+}
+function pinHandOver(w, pin, isNew) {
+  sheet(
+    `<p class="eyebrow">${isNew ? "Nuevo en el equipo" : "Clave cambiada"}</p><h2>Dale su clave a ${esc(first(w.name))}</h2>
+    <p class="cb-pin">${esc(pin)}</p>
+    <p class="muted">Con ella entra a su panel en <b>Equipo</b>, eligiendo su nombre. También le sirve para abrir la <b>Caja</b> de la tablet.</p>
+    <p class="muted">No se vuelve a enseñar: apúntala o pásasela ahora. Si se le olvida, pon una nueva desde aquí.</p>`,
+  );
 }
 // Foto de trabajador en vertical (3:4), como las tarjetas de «Elige a tu barbero».
 async function shrinkPortrait(file) {
@@ -3336,7 +3583,7 @@ function confetti() {
   c.height = H * dpr;
   x.scale(dpr, dpr);
   document.body.append(c);
-  const colors = ["#f6a9d0", "#fbd3e7", "#ffffff", "#0a090c", "#f6a9d0", "#ffffff"];
+  const colors = ["#c8cacd", "#dedfe1", "#ffffff", "#0a090c", "#c8cacd", "#ffffff"];
   const bits = Array.from({ length: 120 }, (_, i) => ({
     x: W / 2 + (Math.random() - 0.5) * 60,
     y: H * 0.28,

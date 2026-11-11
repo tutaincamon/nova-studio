@@ -3,25 +3,56 @@
   "framework": null,
   "buildCommand": null,
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/handler?route=:path*" },
-    { "source": "/(acceder|mis-citas|perfil|equipo|reservar|formacion|productos)", "destination": "/index.html" }
+    {
+      "source": "/api/:path*",
+      "destination": "/api/handler?route=:path*"
+    },
+    {
+      "source": "/(acceder|mis-citas|perfil|equipo|reservar|formacion|productos)",
+      "destination": "/index.html"
+    }
   ],
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
-        { "key": "X-Frame-Options", "value": "DENY" }
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        }
       ]
     },
     {
       "source": "/sw.js",
-      "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        }
+      ]
     },
     {
       "source": "/assets/(.*)",
-      "headers": [{ "key": "Cache-Control", "value": "public, max-age=604800" }]
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=604800"
+        }
+      ]
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/daily",
+      "schedule": "0 8 * * *"
     }
   ]
 }
