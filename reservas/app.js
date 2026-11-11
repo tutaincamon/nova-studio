@@ -2775,7 +2775,7 @@ function bindBackup() {
 // ── Fotos de la web y reseñas (solo el dueño) ──────────────────────────────
 // Cada foto de la web tiene un hueco. Si Airam sube otra desde su panel
 // (pestaña «Web»), sale la suya; si no, la original.
-const PIC_DEFAULT = { hero: "/assets/hero-nova.jpg", "hero-wide": "/assets/hero-nova-wide.jpg", cabina: "/assets/cabina.jpg", acabado: "/assets/acabado.jpg", oficio: "/assets/oficio.jpg", casa: "/assets/casa.jpg", supply: "/assets/supply.jpg", "supply-rosa": "/assets/supply-rosa.jpg", formacion: "/assets/oficio.jpg" };
+const PIC_DEFAULT = { hero: "/assets/hero-plata.jpg", "hero-wide": "/assets/hero-plata-wide.jpg", cabina: "/assets/cabina.jpg", acabado: "/assets/acabado.jpg", oficio: "/assets/oficio.jpg", casa: "/assets/casa.jpg", supply: "/assets/supply.jpg", "supply-rosa": "/assets/supply-rosa.jpg", formacion: "/assets/oficio.jpg" };
 const pic = (slot) => {
   const v = catalog?.site?.photos?.[slot];
   return v ? `/api/site/${slot}/photo?v=${encodeURIComponent(v)}` : PIC_DEFAULT[slot];

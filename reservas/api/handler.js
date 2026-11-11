@@ -281,8 +281,8 @@ async function bookingsByIds2(prefix, ids) {
 // Cada hueco de foto tiene una por defecto (en /assets). Si el dueño sube otra,
 // se guarda en `siteimg:<hueco>` y la web la pide a /api/site/<hueco>/photo.
 const SITE_SLOTS = [
-  { id: "hero", label: "Portada (móvil, en vertical)", where: "Lo primero que se ve en el móvil", def: "/assets/hero-nova.jpg", max: 1400 },
-  { id: "hero-wide", label: "Portada (ordenador, en horizontal)", where: "Lo primero que se ve en el ordenador", def: "/assets/hero-nova-wide.jpg", max: 1800 },
+  { id: "hero", label: "Portada (móvil, en vertical)", where: "Lo primero que se ve en el móvil", def: "/assets/hero-plata.jpg", max: 1400 },
+  { id: "hero-wide", label: "Portada (ordenador, en horizontal)", where: "Lo primero que se ve en el ordenador", def: "/assets/hero-plata-wide.jpg", max: 1800 },
   { id: "cabina", label: "En cabina", where: "Galería «Imagen y estilo»", def: "/assets/cabina.jpg", max: 1000 },
   { id: "acabado", label: "El acabado", where: "Galería «Imagen y estilo»", def: "/assets/acabado.jpg", max: 1000 },
   { id: "oficio", label: "El oficio", where: "Galería «Imagen y estilo»", def: "/assets/oficio.jpg", max: 1000 },

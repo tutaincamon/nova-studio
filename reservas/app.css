@@ -638,7 +638,7 @@ img.face, img.na-face { object-position: 50% 18%; }
   min-height: max(620px, calc(100svh - 74px - env(safe-area-inset-bottom)));
 }
 .hero-media { position: absolute; inset: 0 0 -12%; z-index: -2; will-change: transform; }
-/* Portada: foto vertical con el logo plateado (assets/hero-nova.jpg, de nueva_foto.jpeg).
+/* Portada: foto vertical con el logo plateado (assets/hero-plata.jpg, de nueva_foto.jpeg).
    Llena la pantalla en vertical; en horizontal se cambia por la apaisada (ver abajo). */
 .hero-media img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: 50% 40%; }
 .hero-photo { animation: kenburns 18s cubic-bezier(.2, .6, .3, 1) both; }
@@ -652,7 +652,7 @@ img.face, img.na-face { object-position: 50% 18%; }
   .hero .hs-txt small { letter-spacing: 1.2px; }
 }
 .hero-media::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, #0a090c80 0%, #0a090c00 16%, #0a090c00 56%, #0a090cb8 70%, #0a090c 86%); }
-/* Pantallas horizontales (ordenador, tablet tumbada): foto apaisada (hero-nova-wide.jpg, de foto_nova1.jpeg) */
+/* Pantallas horizontales (ordenador, tablet tumbada): foto apaisada (hero-plata-wide.jpg, recorte de nueva_foto.jpeg) */
 @media (orientation: landscape) {
   .hero-media img { object-position: 50% 50%; }
   .hero-photo { animation-name: kenburns-soft; }
