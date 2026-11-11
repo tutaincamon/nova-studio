@@ -73,9 +73,9 @@ const SVC_ICONS = {
     '<g class="si-b"><path d="M19.6 21.2 10.4 4.2c-.6-1.1-2-.6-1.6.6l4.9 12.4 3.3 2.6"/><ellipse cx="22" cy="24.6" rx="3.9" ry="3.5" transform="rotate(20 22 24.6)"/></g>' +
     '<circle class="si-f" cx="16" cy="14.5" r="1.1"/>',
   beard:
-    '<path d="M6.5 5.5v7c0 8.2 4.6 14.5 9.5 14.5s9.5-6.3 9.5-14.5v-7"/>' +
-    '<path class="si-f si-stache" d="M16 15.3c-1.4-1.5-3.6-1.8-5.4-.7-1.2.8-2.4.7-3-.2.4 2.4 3 3.2 5.2 2.4 1.4-.5 2.4-.9 3.2-1.5.8.6 1.8 1 3.2 1.5 2.2.8 4.8 0 5.2-2.4-.6.9-1.8 1-3 .2-1.8-1.1-4-.8-5.4.7z"/>' +
-    '<path d="M13.8 20.4c1.4.8 3 .8 4.4 0"/><path class="si-thin" d="M12.5 24.2v1.1M16 25v1.2M19.5 24.2v1.1"/>',
+    '<path class="si-thin" d="M8.4 8.6C8.4 4.6 11.6 2.6 16 2.6s7.6 2 7.6 6"/>' +
+    '<path class="si-f" fill-rule="evenodd" d="M5.6 7.6h2.8c0 5.4 1.4 9.4 4 11.2 1.6-.5 5.6-.5 7.2 0 2.6-1.8 4-5.8 4-11.2h2.8c0 12-4.6 21.6-10.4 21.6S5.6 19.6 5.6 7.6zM13 21.2c1.8 1.5 4.2 1.5 6 0-1.6 2.6-4.4 2.6-6 0z"/>' +
+    '<path class="si-f si-stache" d="M16 15.4c-1.8-1.7-4.6-1.8-6.4-.2-.6.5-1.4.5-1.9 0 .3 2.2 2.6 2.9 4.3 2.5 1.5-.3 2.9-.8 4-1.3 1.1.5 2.5 1 4 1.3 1.7.4 4-.3 4.3-2.5-.5.5-1.3.5-1.9 0-1.8-1.6-4.6-1.5-6.4.2z"/>',
   star:
     '<path d="M9.5 6h13l5 7L16 27 4.5 13z"/><path class="si-thin" d="M4.5 13h23M12.6 6 10.4 13 16 27l5.6-14-2.2-7M10.4 13 16 6l5.6 7"/>' +
     '<path class="si-f si-spark" d="M26 1.8c.25 1.7.7 2.15 2.4 2.4-1.7.25-2.15.7-2.4 2.4-.25-1.7-.7-2.15-2.4-2.4 1.7-.25 2.15-.7 2.4-2.4z"/>',
@@ -154,8 +154,21 @@ async function api(path, body) {
   return j;
 }
 async function loadCatalog() {
-  if (!catalog) catalog = await api("catalog");
+  if (!catalog) {
+    catalog = await api("catalog");
+    applyTheme(catalog.site?.theme);
+  }
   return catalog;
+}
+// Tema de la web (lo elige el dueño en «Web»): plata por defecto o rosa.
+// Se recuerda en el móvil para pintarlo bien desde el primer instante.
+function applyTheme(t) {
+  const rosa = t === "rosa";
+  if (rosa) document.documentElement.dataset.theme = "rosa";
+  else delete document.documentElement.dataset.theme;
+  try {
+    localStorage.setItem("nova_theme", rosa ? "rosa" : "plata");
+  } catch {}
 }
 async function refreshMe() {
   try {
@@ -2776,9 +2789,11 @@ function bindBackup() {
 // Cada foto de la web tiene un hueco. Si Airam sube otra desde su panel
 // (pestaña «Web»), sale la suya; si no, la original.
 const PIC_DEFAULT = { hero: "/assets/hero-plata.jpg", "hero-wide": "/assets/hero-plata-wide.jpg", cabina: "/assets/cabina.jpg", acabado: "/assets/acabado.jpg", oficio: "/assets/oficio.jpg", casa: "/assets/casa.jpg", supply: "/assets/supply.jpg", "supply-rosa": "/assets/supply-rosa.jpg", formacion: "/assets/oficio.jpg" };
+const PIC_ROSA = { hero: "/assets/hero-rosa.jpg", "hero-wide": "/assets/hero-rosa-wide.jpg" };
 const pic = (slot) => {
   const v = catalog?.site?.photos?.[slot];
-  return v ? `/api/site/${slot}/photo?v=${encodeURIComponent(v)}` : PIC_DEFAULT[slot];
+  if (v) return `/api/site/${slot}/photo?v=${encodeURIComponent(v)}`;
+  return (catalog?.site?.theme === "rosa" && PIC_ROSA[slot]) || PIC_DEFAULT[slot];
 };
 // Reduce la foto en el móvil antes de subirla, sin recortarla, hasta que pese poco.
 async function shrinkFit(file, max) {
@@ -2811,7 +2826,17 @@ async function staffWeb() {
     when = R.at ? new Date(R.at).toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
   show(
     staffTop("web") +
-      `<p class="section-label">Reseñas de ${esc(catalog.business.rating.source)}</p>
+      `<p class="section-label">Tema de la web</p>
+      <div class="theme-pick">${[
+        ["plata", "Plata", "Gris y negro, con el logo plateado en la portada."],
+        ["rosa", "Rosa", "El rosa del logo, con la portada rosa de antes."],
+      ]
+        .map(
+          ([id, name, txt]) =>
+            `<button type="button" class="tp tp-${id}${(r.theme || "plata") === id ? " on" : ""}" data-theme-set="${id}" aria-pressed="${(r.theme || "plata") === id}"><span class="tp-sw" aria-hidden="true"><i></i><i></i><i></i></span><strong>${name}</strong><small>${txt}</small></button>`,
+        )
+        .join("")}</div>
+      <p class="section-label">Reseñas de ${esc(catalog.business.rating.source)}</p>
       <div class="card web-rating">
         <div class="wr-now"><strong>★ ${esc(R.shown.score)}</strong><span>${R.shown.count} reseñas<small>${
           R.mode === "manual" ? "Puestas a mano" : R.ok === false ? `No se pudo leer Booksy (${esc(when)}). Se ven las últimas buenas.` : `Se leen solas de Booksy · última vez ${esc(when)}`
@@ -2832,6 +2857,22 @@ async function staffWeb() {
     await loadCatalog();
     render();
   };
+  $$("[data-theme-set]").forEach(
+    (el) =>
+      (el.onclick = async () => {
+        if (el.classList.contains("on")) return;
+        $$("[data-theme-set]").forEach((b) => (b.disabled = true));
+        try {
+          const x = await api("staff/site", { theme: el.dataset.themeSet });
+          applyTheme(x.theme);
+          toast(x.theme === "rosa" ? "Web en rosa. Ya la ven así los clientes." : "Web en plata. Ya la ven así los clientes.");
+          reload();
+        } catch (err) {
+          toast(err.message);
+          $$("[data-theme-set]").forEach((b) => (b.disabled = false));
+        }
+      }),
+  );
   $("#wr-auto").onclick = async (e) => {
     e.currentTarget.disabled = true;
     try {
@@ -3583,7 +3624,10 @@ function confetti() {
   c.height = H * dpr;
   x.scale(dpr, dpr);
   document.body.append(c);
-  const colors = ["#c8cacd", "#dedfe1", "#ffffff", "#0a090c", "#c8cacd", "#ffffff"];
+  const cs = getComputedStyle(document.documentElement),
+    a1 = cs.getPropertyValue("--accent").trim() || "#c8cacd",
+    a2 = cs.getPropertyValue("--accent-2").trim() || "#dedfe1";
+  const colors = [a1, a2, "#ffffff", "#0a090c", a1, "#ffffff"];
   const bits = Array.from({ length: 120 }, (_, i) => ({
     x: W / 2 + (Math.random() - 0.5) * 60,
     y: H * 0.28,

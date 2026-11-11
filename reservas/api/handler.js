@@ -281,8 +281,8 @@ async function bookingsByIds2(prefix, ids) {
 // Cada hueco de foto tiene una por defecto (en /assets). Si el dueño sube otra,
 // se guarda en `siteimg:<hueco>` y la web la pide a /api/site/<hueco>/photo.
 const SITE_SLOTS = [
-  { id: "hero", label: "Portada (móvil, en vertical)", where: "Lo primero que se ve en el móvil", def: "/assets/hero-plata.jpg", max: 1400 },
-  { id: "hero-wide", label: "Portada (ordenador, en horizontal)", where: "Lo primero que se ve en el ordenador", def: "/assets/hero-plata-wide.jpg", max: 1800 },
+  { id: "hero", label: "Portada (móvil, en vertical)", where: "Lo primero que se ve en el móvil", def: "/assets/hero-plata.jpg", defRosa: "/assets/hero-rosa.jpg", max: 1400 },
+  { id: "hero-wide", label: "Portada (ordenador, en horizontal)", where: "Lo primero que se ve en el ordenador", def: "/assets/hero-plata-wide.jpg", defRosa: "/assets/hero-rosa-wide.jpg", max: 1800 },
   { id: "cabina", label: "En cabina", where: "Galería «Imagen y estilo»", def: "/assets/cabina.jpg", max: 1000 },
   { id: "acabado", label: "El acabado", where: "Galería «Imagen y estilo»", def: "/assets/acabado.jpg", max: 1000 },
   { id: "oficio", label: "El oficio", where: "Galería «Imagen y estilo»", def: "/assets/oficio.jpg", max: 1000 },
@@ -291,6 +291,10 @@ const SITE_SLOTS = [
   { id: "supply-rosa", label: "Ropa: prenda", where: "Bloque de NOVA Supply", def: "/assets/supply-rosa.jpg", max: 1200 },
   { id: "formacion", label: "Formación", where: "Tarjeta «¿Quieres aprender a cortar?»", def: "/assets/oficio.jpg", max: 1000 },
 ];
+// Tema de la web que elige el dueño: «plata» (gris, logo plateado) o «rosa».
+const THEMES = ["plata", "rosa"];
+const themeOf = (site) => (THEMES.includes(site?.theme) ? site.theme : "plata");
+const slotsFor = (theme) => SITE_SLOTS.map(({ defRosa, ...x }) => ({ ...x, def: theme === "rosa" && defRosa ? defRosa : x.def }));
 const SITE_PHOTO = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
 // Nota y número de reseñas: se leen de la página de Booksy como mucho cada
 // 12 h (Booksy los publica en un bloque de datos estándar). Si algún día falla,
@@ -304,7 +308,7 @@ async function siteInfo() {
     r = got ? { ...r, ...got, at: Date.now(), ok: true } : { ...r, at: Date.now(), ok: false };
     await setJSON("site", { ...site, rating: r });
   }
-  return { photos: site.photos || {}, rating: r };
+  return { photos: site.photos || {}, rating: r, theme: themeOf(site) };
 }
 async function readBooksy() {
   try {
@@ -662,7 +666,7 @@ const routes = {
     return {
       ...c,
       business: { ...c.business, rating: ratingOut(site.rating) },
-      site: { photos: site.photos },
+      site: { photos: site.photos, theme: site.theme },
       providers: activeTeam().map(publicProvider),
       rules: { ...c.rules, cancelHours: NORMS.cancelHours, lateFeePct: NORMS.lateFeePct, noShowFeePct: NORMS.noShowFeePct, recurring: NORMS.recurring, recurringMax: NORMS.recurringMax },
       card: Card.cardPublic(),
@@ -1701,12 +1705,18 @@ const routes = {
     const me = await needStaff(req);
     if (!me.owner) fail(403, "La web la lleva el dueño.");
     const site = await siteInfo();
-    return { slots: SITE_SLOTS, photos: site.photos, rating: { ...site.rating, shown: ratingOut(site.rating), url: BUSINESS.rating.url } };
+    return { slots: slotsFor(site.theme), theme: site.theme, photos: site.photos, rating: { ...site.rating, shown: ratingOut(site.rating), url: BUSINESS.rating.url } };
   },
   "POST staff/site": async ({ req, body }) => {
     const me = await needStaff(req);
     if (!me.owner) fail(403, "La web la lleva el dueño.");
     const site = (await getJSON("site")) || {};
+    // Tema (plata o rosa): se guarda junto al resto de ajustes de la web.
+    if (body.theme !== undefined) {
+      if (!THEMES.includes(body.theme)) fail(400, "Ese tema no existe.");
+      await setJSON("site", { ...site, theme: body.theme });
+      return { ok: true, theme: body.theme, slots: slotsFor(body.theme) };
+    }
     // Reseñas: automáticas desde Booksy o fijadas a mano.
     if (body.rating) {
       let r = site.rating || {};
