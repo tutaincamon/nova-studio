@@ -7,7 +7,14 @@ const $$ = (s) => [...document.querySelectorAll(s)];
 const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const cap = (s) => String(s).charAt(0).toUpperCase() + String(s).slice(1);
-const euro = (n) => (n == null ? "Consultar" : Number.isInteger(Number(n)) ? `${Number(n)} €` : `${Number(n).toFixed(2).replace(".", ",")} €`);
+const euro = (n) =>
+  n == null
+    ? L("Consultar", "Ask us")
+    : LANG === "en"
+      ? `€${Number.isInteger(Number(n)) ? Number(n) : Number(n).toFixed(2)}`
+      : Number.isInteger(Number(n))
+        ? `${Number(n)} €`
+        : `${Number(n).toFixed(2).replace(".", ",")} €`;
 const pad = (n) => String(n).padStart(2, "0");
 const isoDay = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const monthKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
@@ -23,7 +30,7 @@ const salonDate = () => {
   const p = Object.fromEntries(salonFmt.formatToParts(new Date()).map((x) => [x.type, x.value]));
   return new Date(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute);
 };
-const fmtDay = (iso, opts) => dayDate(iso).toLocaleDateString("es-ES", opts).replace(".", "");
+const fmtDay = (iso, opts) => dayDate(iso).toLocaleDateString(LOC(), opts).replace(".", "");
 const longDay = (iso) => cap(fmtDay(iso, { weekday: "long", day: "numeric", month: "long" }));
 const shortDay = (iso) => cap(fmtDay(iso, { weekday: "short", day: "numeric", month: "short" }));
 const first = (name) => String(name || "").split(" ")[0];
@@ -248,7 +255,15 @@ document.addEventListener("visibilitychange", () => {
 });
 const svcById = (id) => catalog?.services.find((s) => s.id === id);
 // «Sin preferencia»: la primera hora libre de cualquiera del equipo.
-const ANY = { id: "any", name: "Sin preferencia", role: "El primero que esté libre" };
+const ANY = {
+  id: "any",
+  get name() {
+    return L("Sin preferencia", "No preference");
+  },
+  get role() {
+    return L("El primero que esté libre", "Whoever is free first");
+  },
+};
 const provById = (id) => (id === "any" ? ANY : catalog?.providers.find((p) => p.id === id));
 const wa = (text) => `https://wa.me/${catalog.business.whatsapp}?text=${encodeURIComponent(text)}`;
 
@@ -261,7 +276,7 @@ function toast(text) {
   toast.t = setTimeout(() => n.classList.remove("visible"), 4200);
 }
 const heading = (title, sub = "") => `<div class="heading"><h1>${title}</h1>${sub ? `<p class="sub">${sub}</p>` : ""}</div>`;
-const back = (to, label) => `<a class="back-link" href="#${to}">← ${label}</a>`;
+const back = (to, label) => `<a class="back-link" href="#${to}">← ${tx(label)}</a>`;
 const face = (p, cls = "face") =>
   p?.id === "any"
     ? `<span class="${cls} face-any" aria-hidden="true">${svg(ICONS.users)}</span>`
@@ -287,7 +302,14 @@ function untilLabel(iso) {
   const today = salonDate();
   today.setHours(12, 0, 0, 0);
   const days = Math.round((dayDate(iso) - today) / 86400000);
-  return days <= 0 ? "Hoy" : days === 1 ? "Mañana" : days < 7 ? `En ${days} días` : `En ${Math.round(days / 7)} ${Math.round(days / 7) === 1 ? "semana" : "semanas"}`;
+  const w = Math.round(days / 7);
+  return days <= 0
+    ? L("Hoy", "Today")
+    : days === 1
+      ? L("Mañana", "Tomorrow")
+      : days < 7
+        ? L(`En ${days} días`, `In ${days} days`)
+        : L(`En ${w} ${w === 1 ? "semana" : "semanas"}`, `In ${w} ${w === 1 ? "week" : "weeks"}`);
 }
 function sheet(html) {
   const back = document.createElement("div");
@@ -312,6 +334,7 @@ function nav() {
   acc.innerHTML = user
     ? `${user.photo ? `<img class="hdr-av" src="${esc(user.photo)}" alt="">` : `<span class="hdr-av">${initial(user.name)}</span>`}<span>Mi cuenta</span>`
     : `${svg(ICONS.user)}<span>Entrar</span>`;
+  $("#book-link").textContent = L("Reservar", "Book");
   $("#nav").innerHTML =
     item("home", "Inicio", svg(ICONS.home)) +
     item("bookings", "Mis citas", svg(ICONS.cal)) +
@@ -344,7 +367,7 @@ function serviceList() {
         s.consult
           ? `<span class="svc-dur">${svg(ICONS.chat)}Por WhatsApp</span>`
           : `<span class="svc-dur">${svg(ICONS.clock)}${s.duration} min</span>`
-      }${only ? `<span class="only-tag">Solo con ${esc(first(only.name))}</span>` : ""}</span>
+      }${only ? `<span class="only-tag">${L("Solo con", "Only with")} ${esc(first(only.name))}</span>` : ""}</span>
       <b class="svc-price">${s.consult && s.price ? "<small>desde</small>" : ""}${euro(s.price)}</b>
       <span class="svc-go" aria-hidden="true">›</span>
     </a>`;
@@ -363,10 +386,10 @@ function nextApptCard(b) {
     <div class="na-top"><span class="na-live"><i></i>Reserva activa</span><span class="na-when">${esc(untilLabel(b.date))}</span></div>
     <div class="na-main">
       <div class="na-date"><small>${esc(fmtDay(b.date, { weekday: "short" }))}</small><strong>${dayDate(b.date).getDate()}</strong><small>${esc(fmtDay(b.date, { month: "short" }))}</small></div>
-      <div class="na-info"><strong class="na-time">${esc(b.start)}</strong><span>${esc(b.service.name)}</span><span>con ${esc(first(b.provider.name))}</span></div>
+      <div class="na-info"><strong class="na-time">${esc(b.start)}</strong><span>${esc(b.service.name)}</span><span>${L("con", "with")} ${esc(first(b.provider.name))}</span></div>
       ${face(p, "na-face")}
     </div>
-    <div class="na-foot"><span>Pago en el local${b.service.price ? ` · ${euro(b.service.price)}` : ""}</span><b>Ver mi cita ›</b></div>
+    <div class="na-foot"><span>${L("Pago en el local", "Pay at the shop")}${b.service.price ? ` · ${euro(b.service.price)}` : ""}</span><b>Ver mi cita ›</b></div>
   </a>`;
 }
 
@@ -389,11 +412,18 @@ function openState() {
   const W = catalog.business.week;
   if (!W) return null;
   const { wd, min } = salonNow();
-  for (const [a, b] of W[wd] || []) if (min >= hm(a) && min < hm(b)) return { open: true, text: `Abierto · hasta las ${b}` };
+  for (const [a, b] of W[wd] || []) if (min >= hm(a) && min < hm(b)) return { open: true, text: L(`Abierto · hasta las ${b}`, `Open · until ${b}`) };
   for (let i = 0; i < 8; i++) {
     const d = (wd + i) % 7,
       slot = (W[d] || []).find(([a]) => i > 0 || hm(a) > min);
-    if (slot) return { open: false, text: `Cerrado · abre ${i === 0 ? "hoy" : i === 1 ? "mañana" : "el " + DAY_NAMES[d]} a las ${slot[0]}` };
+    if (slot)
+      return {
+        open: false,
+        text: L(
+          `Cerrado · abre ${i === 0 ? "hoy" : i === 1 ? "mañana" : "el " + DAY_NAMES[d]} a las ${slot[0]}`,
+          `Closed · opens ${i === 0 ? "today" : i === 1 ? "tomorrow" : "on " + DAY_EN[d]} at ${slot[0]}`,
+        ),
+      };
   }
   return null;
 }
@@ -431,11 +461,11 @@ function homeHero() {
         <h1 id="hero-title" class="sr-only">NOVA Studio · Barbería en Vecindario</h1>
         <div class="hero-meta">
           ${st ? `<span class="hero-chip${st.open ? " is-open" : ""}"><i></i>${esc(st.text)}</span>` : ""}
-          <a class="hero-chip hero-rate" href="${esc(B.rating.url)}" target="_blank" rel="noopener noreferrer"><b>★ ${esc(B.rating.score)}</b>${B.rating.count} reseñas</a>
+          <a class="hero-chip hero-rate" href="${esc(B.rating.url)}" target="_blank" rel="noopener noreferrer"><b>★ ${esc(B.rating.score)}</b>${B.rating.count} ${L("reseñas", "reviews")}</a>
         </div>
         <div class="hero-team">
           <span class="hero-faces">${team.map((p) => face(p, "hf")).join("")}</span>
-          <span>${esc(team.map((p) => first(p.name)).join(", ").replace(/, ([^,]*)$/, " y $1"))}<small>te esperan</small></span>
+          <span>${esc(team.map((p) => first(p.name)).join(", ").replace(/, ([^,]*)$/, L(" y $1", " and $1")))}<small>te esperan</small></span>
         </div>
       </div>
       <a class="hero-slot is-loading" id="hero-slot" href="#servicios">
@@ -469,8 +499,8 @@ function initHero() {
         return;
       }
       const when = untilLabel(b.date);
-      $("#hs-when").textContent = `${when === "Hoy" || when === "Mañana" ? when : shortDay(b.date)} · ${b.start}`;
-      $("#hs-who").textContent = `${b.s.name} con ${first(b.p.name)}`;
+      $("#hs-when").textContent = `${[L("Hoy", "Today"), L("Mañana", "Tomorrow")].includes(when) ? when : shortDay(b.date)} · ${b.start}`;
+      $("#hs-who").textContent = L(`${b.s.name} con ${first(b.p.name)}`, `${tx(b.s.name)} with ${first(b.p.name)}`);
       slot.insertAdjacentHTML("afterbegin", face(b.p, "hs-face"));
       slot.dataset.ready = JSON.stringify({ s: b.s.id, p: b.p.id, date: b.date, start: b.start });
     },
@@ -506,11 +536,11 @@ function homeExtras() {
 <section class="home-block" aria-labelledby="reviews-title">
   <p class="eyebrow">Lo que dicen de nosotros</p>
   <h2 id="reviews-title">El corte se nota.<br><em class="serif">La experiencia, también.</em></h2>
-  <a class="rating-card" href="${esc(B.rating.url)}" ${ext} aria-label="NOVA Studio en ${esc(B.rating.source)}: ${esc(B.rating.score)} sobre 5, ${B.rating.count} reseñas">
+  <a class="rating-card" href="${esc(B.rating.url)}" ${ext} aria-label="${L(`NOVA Studio en ${esc(B.rating.source)}: ${esc(B.rating.score)} sobre 5, ${B.rating.count} reseñas`, `NOVA Studio on ${esc(B.rating.source)}: ${esc(B.rating.score)} out of 5, ${B.rating.count} reviews`)}">
     <span class="rating-src">${esc(B.rating.source)}</span>
     <span class="rating-number">${esc(B.rating.score)}<small>/ 5</small></span>
     <span class="stars" aria-hidden="true">★★★★★</span>
-    <span class="rating-count"><b data-count="${B.rating.count}">${B.rating.count}</b> reseñas verificadas · ${esc(B.drink)}</span>
+    <span class="rating-count"><b data-count="${B.rating.count}">${B.rating.count}</b> ${L("reseñas verificadas", "verified reviews")} · ${esc(tx(B.drink))}</span>
   </a>
   <div class="home-actions">
     <a class="btn secondary" href="${esc(B.rating.url)}" ${ext}>Leer reseñas ↗</a>
@@ -536,7 +566,10 @@ function homeExtras() {
     <figure><img src="${pic("oficio")}" alt="Herramientas de barbería" loading="lazy"><figcaption>El oficio</figcaption></figure>
     <figure><img src="${pic("casa")}" alt="Espejo dorado del estudio" loading="lazy"><figcaption>La casa</figcaption></figure>
   </div>
-  <p>Un espacio donde la barbería se encuentra con la creatividad, la moda y la cultura urbana. Hacemos <strong>corte de pelo</strong>, degradados, <strong>corte y barba</strong> y <strong>corte privado</strong> en ${esc(B.street)}, Vecindario. Reserva en segundos, sin llamar y sin descargar nada.</p>
+  <p>${L(
+    `Un espacio donde la barbería se encuentra con la creatividad, la moda y la cultura urbana. Hacemos <strong>corte de pelo</strong>, degradados, <strong>corte y barba</strong> y <strong>corte privado</strong> en ${esc(B.street)}, Vecindario. Reserva en segundos, sin llamar y sin descargar nada.`,
+    `A space where barbering meets creativity, fashion and street culture. We do <strong>haircuts</strong>, fades, <strong>haircut &amp; beard</strong> and <strong>private haircuts</strong> at ${esc(B.street)}, Vecindario. Book in seconds, no phone call and nothing to download.`,
+  )}</p>
   <ul class="about-tags" aria-label="Servicios"><li>Corte de pelo</li><li>Degradado</li><li>Corte y barba</li><li>Corte privado</li><li>Fuera de horario</li><li>VIP a domicilio</li></ul>
 </section>
 <div id="home-products"></div>
@@ -544,12 +577,15 @@ function homeExtras() {
   <p class="eyebrow">${esc(catalog.shop.name)} · Clothing</p>
   <h2 id="shop-title">La ropa <em class="serif">de la casa.</em></h2>
   <div class="shop-pics">
-    <figure class="shop-main"><img src="${pic("supply")}" alt="Camisetas de ${esc(catalog.shop.name)} rosas y grises" loading="lazy" width="760" height="1350"></figure>
-    <figure class="shop-item"><img src="${pic("supply-rosa")}" alt="Camiseta rosa de ${esc(catalog.shop.name)} con el emblema en el pecho" loading="lazy" width="920" height="781"><figcaption>Camiseta · Rosa</figcaption></figure>
+    <figure class="shop-main"><img src="${pic("supply")}" alt="${L(`Camisetas de ${esc(catalog.shop.name)} rosas y grises`, `Pink and grey ${esc(catalog.shop.name)} T-shirts`)}" loading="lazy" width="760" height="1350"></figure>
+    <figure class="shop-item"><img src="${pic("supply-rosa")}" alt="${L(`Camiseta rosa de ${esc(catalog.shop.name)} con el emblema en el pecho`, `Pink ${esc(catalog.shop.name)} T-shirt with the emblem on the chest`)}" loading="lazy" width="920" height="781"><figcaption>Camiseta · Rosa</figcaption></figure>
   </div>
-  <p>Algodón pesado, corte boxy y el emblema de la estrella. Diseñada en el estudio. <strong>Cada euro en ropa te suma ${catalog.points.perEuro} puntos</strong> en el Club, y desde ${esc(catalog.leagues.find((lg) => lg.perks.some((p) => /%.*Supply/.test(p)))?.name || "")} tienes descuento en cada prenda.</p>
+  <p>${L(
+    `Algodón pesado, corte boxy y el emblema de la estrella. Diseñada en el estudio. <strong>Cada euro en ropa te suma ${catalog.points.perEuro} puntos</strong> en el Club, y desde ${esc(catalog.leagues.find((lg) => lg.perks.some((p) => /%.*Supply/.test(p)))?.name || "")} tienes descuento en cada prenda.`,
+    `Heavyweight cotton, boxy fit and the star emblem. Designed in the studio. <strong>Every euro spent on clothing earns you ${catalog.points.perEuro} points</strong> in the Club, and from ${esc(catalog.leagues.find((lg) => lg.perks.some((p) => /%.*Supply/.test(p)))?.name || "")} league you get a discount on every garment.`,
+  )}</p>
   <div class="home-actions">
-    <a class="btn" href="${esc(catalog.shop.url)}" target="_blank" rel="noopener">Ver la tienda · ${esc(catalog.shop.label)} ↗</a>
+    <a class="btn" href="${esc(catalog.shop.url)}" target="_blank" rel="noopener">${L("Ver la tienda", "Visit the shop")} · ${esc(catalog.shop.label)} ↗</a>
     <a class="btn secondary" href="#rewards">Cómo suma en el Club</a>
   </div>
 </section>
@@ -560,7 +596,7 @@ ${trainingCard()}
   <span class="hf-rule" aria-hidden="true"></span>
   <div class="hf-cols">
     <div><small>Dirección</small><a href="${esc(B.maps)}" ${ext}>${esc(B.street)}<br>${esc(B.city)}</a></div>
-    <div><small>Horario</small>${B.hoursText.map(([d, h]) => `<span>${esc(d)} · ${esc(h)}</span>`).join("")}<span class="hf-muted">${esc(B.closedText)}</span></div>
+    <div><small>Horario</small>${B.hoursText.map(([d, h]) => `<span>${esc(tx(d))} · ${esc(h)}</span>`).join("")}<span class="hf-muted">${esc(B.closedText)}</span></div>
     <div><small>Contacto</small><a href="${wa("Hola NOVA Studio 👋")}" ${ext}>WhatsApp</a><a href="${esc(B.instagram)}" ${ext}>Instagram</a><a href="${esc(catalog.shop.url)}" ${ext}>${esc(catalog.shop.name)}</a><a href="#productos">Productos</a><a href="#formacion">Formación</a></div>
   </div>
   <p class="hf-copy">© ${new Date().getFullYear()} NOVA Studio · <em class="serif">Good people, better days.</em></p>
@@ -571,7 +607,7 @@ function initMap() {
   if (!frame) return;
   const start = () => {
     const f = document.createElement("iframe");
-    f.title = "Mapa de NOVA Studio";
+    f.title = L("Mapa de NOVA Studio", "NOVA Studio map");
     f.src = catalog.business.mapEmbed;
     f.loading = "lazy";
     f.referrerPolicy = "no-referrer-when-downgrade";
@@ -592,7 +628,7 @@ function bookingCard(b, now) {
   const past = b.date + " " + b.start < now,
     canceled = b.status === "canceled",
     absent = b.attendance === "absent",
-    state = canceled ? ["Cancelada", "st-cancel"] : absent ? ["No vino", "st-cancel"] : past ? ["✓ Realizada", "st-done"] : [`<i class="live-dot"></i>Activa · ${untilLabel(b.date)}`, "st-ok"],
+    state = canceled ? ["Cancelada", "st-cancel"] : absent ? ["No vino", "st-cancel"] : past ? ["✓ Realizada", "st-done"] : [`<i class="live-dot"></i>${L("Activa", "Upcoming")} · ${untilLabel(b.date)}`, "st-ok"],
     kind = canceled || past ? "is-past" : "is-active";
   return `<a class="appt ${kind}" href="#booking/${esc(b.id)}">
     <span class="appt-date"><small>${esc(fmtDay(b.date, { month: "short" }))}</small><strong>${dayDate(b.date).getDate()}</strong><small>${esc(fmtDay(b.date, { weekday: "short" }))}</small></span>
@@ -619,7 +655,7 @@ function gcalLink(b) {
     `&text=${encodeURIComponent(`${b.service.name} · ${B.name}`)}` +
     `&dates=${d}T${t(b.start)}/${d}T${t(b.end)}&ctz=${encodeURIComponent(B.tz)}` +
     `&location=${encodeURIComponent(B.street + ", " + B.city)}` +
-    `&details=${encodeURIComponent(`Con ${b.provider.name}. Referencia ${b.id}.`)}`
+    `&details=${encodeURIComponent(L(`Con ${b.provider.name}. Referencia ${b.id}.`, `With ${b.provider.name}. Reference ${b.id}.`))}`
   );
 }
 
@@ -657,6 +693,45 @@ const LEGAL = {
     "Aviso legal",
     () => `<p><b>Titular:</b> ${esc(catalog.business.name)}. <b>Domicilio:</b> ${esc(catalog.business.street)}, ${esc(catalog.business.city)}. <b>Email:</b> ${esc(catalog.business.email)}.</p>
     <p>Esta app sirve para reservar servicios de barbería en ${esc(catalog.business.name)}, gestionar tus citas y participar en el Club NOVA. Los contenidos, el logotipo y las fotos son de su titular.</p>`,
+  ],
+};
+
+// Las mismas páginas legales, en inglés (la versión que vale es la española).
+const LEGAL_EN = {
+  privacidad: [
+    "Privacy policy",
+    () => `<p><i>English translation for convenience. The Spanish version is the legally binding one.</i></p>
+    <p><b>Controller.</b> ${esc(catalog.business.name)}, ${esc(catalog.business.street)}, ${esc(catalog.business.city)}. Contact: <a href="mailto:${esc(catalog.business.email)}">${esc(catalog.business.email)}</a>.</p>
+    <p><b>What data we process.</b> What you give us when booking: name, email and phone; your booking history (service, barber, date and whether you came); and your NOVA Club data: points, league, medals, redeemed rewards, the NOVA Supply clothing purchases the team adds to your account to award points (date, amount and number of items), your friend code, who invited you and, if you upload it, your profile photo. ${
+      catalog.card?.enabled
+        ? "If you leave a guarantee card, its details are stored by Stripe Payments Europe; we only see the brand, the last 4 digits and the expiry date, and whether any no-show fee has been charged."
+        : "We don't store card details: you pay at the shop."
+    }</p>
+    <p><b>Why.</b> To manage your bookings (create, change and cancel them, and remind you), to give you access to your account with a code by email, and to run your NOVA Club membership. We won't send you advertising without your permission.</p>
+    <p><b>Training.</b> If you join the training list, we keep what you enter in the form (name, phone, email and Instagram if given, your level and your preferences) only to contact you about the courses. Only the studio owner sees it, and you can ask us to delete it at any time.</p>
+    <p><b>Who we share it with.</b> Only the providers needed for the app to work: hosting and the database, and the email delivery service${catalog.card?.enabled ? ", plus Stripe, which stores your card and processes no-show charges" : ""}. We don't sell your data.</p>
+    <p><b>How long.</b> While you have an account or keep visiting us, and afterwards for as long as the law requires.</p>
+    <p><b>Your rights.</b> You can ask to see, correct or delete your data by writing to <a href="mailto:${esc(catalog.business.email)}">${esc(catalog.business.email)}</a>. If you're not satisfied with our reply, you can complain to the Spanish Data Protection Agency (AEPD).</p>
+    <p><b>Cookies.</b> Only one technical cookie to keep you logged in. No analytics or advertising. The Google map may set its own cookies when you view it.</p>`,
+  ],
+  condiciones: [
+    "Booking terms",
+    () => `<p><i>English translation for convenience. The Spanish version is the legally binding one.</i></p>
+    <p><b>1. Bookings.</b> You choose a service, barber, day and time from the free slots. The booking is confirmed when you finish, and you can see it in "My bookings".</p>
+    <p><b>2. Price and payment.</b> Prices include taxes. You pay at the shop, in cash or by card.</p>
+    <p><b>3. Changes and cancellations.</b> You can change your booking in the app up to ${catalog.rules.cancelHours} hours before, and cancel it up to the time of the appointment. With less than ${catalog.rules.cancelHours} hours to go, message us on WhatsApp to change it.</p>
+    <p><b>4. Punctuality.</b> If you arrive late, the service may have to be shortened so the next client isn't delayed. If you miss several appointments without notice, we may limit your online bookings.</p>
+    ${
+      catalog.card?.enabled
+        ? `<p><b>4a. Guarantee card and no-shows.</b> To book online you leave a guarantee card. Nothing is charged when you save it. It stays on your profile (held by Stripe, our payment provider) for your next bookings, and you can change or remove it from your profile at any time, unless you have upcoming bookings guaranteed with it. <b>If you don't come to your appointment, or cancel it less than ${catalog.rules.cancelHours} hours in advance, you authorise ${esc(catalog.business.name)} to charge that card ${pctText(catalog.rules.noShowFeePct)} of the service if you don't show up and ${pctText(catalog.rules.lateFeePct)} if you cancel late</b>, without you needing to be present. It isn't automatic: your barber reviews each case and, if there's a good reason, nothing is charged. If your bank asks for confirmation or declines the charge, we'll let you know and you can pay it from "My bookings". If you think a charge is a mistake, write to us and we'll review it; where appropriate, we'll refund you.</p>`
+        : ""
+    }
+    <p><b>5. NOVA Club.</b> It's free. Points, leagues, rewards and NOVA Supply discounts have no cash value, can't be transferred to another person and may change. Points for clothing are added by the team when you pay at the studio.</p>`,
+  ],
+  "aviso-legal": [
+    "Legal notice",
+    () => `<p><b>Owner:</b> ${esc(catalog.business.name)}. <b>Address:</b> ${esc(catalog.business.street)}, ${esc(catalog.business.city)}. <b>Email:</b> ${esc(catalog.business.email)}.</p>
+    <p>This app is for booking barber services at ${esc(catalog.business.name)}, managing your bookings and taking part in the NOVA Club. The content, logo and photos belong to their owner.</p>`,
   ],
 };
 
@@ -718,7 +793,7 @@ const pages = {
     const team = teamFor(s);
     show(
       back("home", "Cambiar servicio") +
-        heading("Elige a tu barbero", `${esc(s.name)} · ${s.duration} min · ${euro(s.price)}`) +
+        heading("Elige a tu barbero", `${esc(tx(s.name))} · ${s.duration} min · ${euro(s.price)}`) +
         (team.length > 1
           ? `<a class="any-pick" href="#time/any"><span class="any-ic" aria-hidden="true">${svg(ICONS.users)}</span><span><strong>Sin preferencia</strong><small>La primera hora libre de cualquiera del equipo</small></span><span class="any-go" aria-hidden="true">→</span></a>`
           : "") +
@@ -751,10 +826,10 @@ const pages = {
   async consulta([sid]) {
     const s = svcById(sid);
     if (!s) return go("home");
-    const msg = `Hola NOVA Studio, me interesa el servicio «${s.name}». ¿Qué hueco tenéis?`;
+    const msg = L(`Hola NOVA Studio, me interesa el servicio «${s.name}». ¿Qué hueco tenéis?`, `Hi NOVA Studio, I'm interested in the "${tx(s.name)}" service (${s.name}). When do you have a slot?`);
     show(
       back("home", "Volver") +
-        `<section class="con-hero"><span class="face svc-ic">${svcIcon(s.icon)}</span><div><small>Fuera de carta</small><h1>${esc(s.name)}</h1><span>${s.price ? "Desde " + euro(s.price) : "Precio a consultar"}</span></div></section>` +
+        `<section class="con-hero"><span class="face svc-ic">${svcIcon(s.icon)}</span><div><small>Fuera de carta</small><h1>${esc(s.name)}</h1><span>${s.price ? L("Desde ", "From ") + euro(s.price) : "Precio a consultar"}</span></div></section>` +
         `<p>${esc(s.desc || "")}</p>` +
         `<ol class="cs-steps">
           <li><b>1</b><div><strong>Escríbenos por WhatsApp</strong><span>Cuéntanos qué necesitas y qué día te vendría bien.</span></div></li>
@@ -823,7 +898,7 @@ const pages = {
     show(
       back(`time/${draft.provider}`, "Cambiar hora") +
         (quick ? heading("Confirma tu cita", "Un toque y listo.") : heading("Tus datos", "Solo lo necesario para guardar tu cita.")) +
-        `<div class="pick-summary">${face(p)}<div><strong>${esc(s.name)} · ${euro(s.price)}</strong><span>${esc(p.name)} · ${esc(longDay(draft.date))} · ${esc(draft.start)}</span></div></div>` +
+        `<div class="pick-summary">${face(p)}<div><strong>${esc(tx(s.name))} · ${euro(s.price)}</strong><span>${esc(p.name)} · ${esc(longDay(draft.date))} · ${esc(draft.start)}</span></div></div>` +
         `<form id="details" novalidate>
           ${
             quick
@@ -835,8 +910,8 @@ const pages = {
           }
           ${
             user
-              ? `<div class="club-joined"><span class="club-check">✓</span><div><strong>Eres del Club NOVA</strong><span>Esta cita te suma ${svcPoints(s)} puntos.</span></div></div>`
-              : `<div class="club-card"><span class="club-tag">CLUB</span><h2>Entras en el Club al reservar</h2><p>Con estos mismos datos. Sin contraseñas.</p><ul class="club-perks"><li>${catalog.points.welcome} puntos de regalo al entrar</li><li>${catalog.points.perEuro} puntos por cada euro, en la silla y en ${esc(catalog.shop.name)}</li><li>De ${esc(catalog.leagues[0].name)} a ${esc(topLeague().name)}: ligas con premios y descuentos</li></ul>
+              ? `<div class="club-joined"><span class="club-check">✓</span><div><strong>Eres del Club NOVA</strong><span>${L(`Esta cita te suma ${svcPoints(s)} puntos.`, `This booking earns you ${svcPoints(s)} points.`)}</span></div></div>`
+              : `<div class="club-card"><span class="club-tag">CLUB</span><h2>Entras en el Club al reservar</h2><p>Con estos mismos datos. Sin contraseñas.</p><ul class="club-perks"><li>${L(`${catalog.points.welcome} puntos de regalo al entrar`, `${catalog.points.welcome} welcome points when you join`)}</li><li>${L(`${catalog.points.perEuro} puntos por cada euro, en la silla y en ${esc(catalog.shop.name)}`, `${catalog.points.perEuro} points per euro, in the chair and at ${esc(catalog.shop.name)}`)}</li><li>${L(`De ${esc(catalog.leagues[0].name)} a ${esc(topLeague().name)}: ligas con premios y descuentos`, `From ${esc(catalog.leagues[0].name)} to ${esc(topLeague().name)}: leagues with rewards and discounts`)}</li></ul>
                   <div class="ref-box${refCode() ? " open" : ""}" id="ref-box"><button type="button" class="ref-toggle" id="ref-toggle"><span aria-hidden="true">🎁</span>¿Te ha invitado un amigo?<b>Pon su código</b></button>
                   <div class="ref-field"><label class="sr-only" for="ref-input">Código de amigo</label><input id="ref-input" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="16" placeholder="Ej.: CARLOS482" value="${esc(refCode())}"><p class="ref-state" id="ref-state" aria-live="polite"></p></div></div></div>`
           }
@@ -844,11 +919,19 @@ const pages = {
           <button class="btn wide book-btn" type="submit">${cardOn() && !user?.card ? "Añadir tarjeta y reservar" : quick ? "Confirmar reserva" : cardOn() ? "Reservar" : "Reservar y pagar en el local"}</button>
           ${
             catalog.rules.recurring
-              ? `<div class="repeat-box"><label for="f-every" style="margin-top:0">Repetir esta cita</label><div class="form-actions" style="margin-top:0"><select id="f-every" name="every"><option value="">No, solo esta</option><option value="1">Cada semana</option><option value="2">Cada 2 semanas</option><option value="3">Cada 3 semanas</option><option value="4">Cada 4 semanas</option></select><select name="times" aria-label="Cuántas veces">${Array.from({ length: catalog.rules.recurringMax - 1 }, (_, i) => i + 2).map((n) => `<option value="${n}" ${n === Math.min(4, catalog.rules.recurringMax) ? "selected" : ""}>${n} citas</option>`).join("")}</select></div><small>Mismo día de la semana, misma hora y mismo barbero. Si algún día ya está ocupado, te lo decimos.</small></div>`
+              ? `<div class="repeat-box"><label for="f-every" style="margin-top:0">Repetir esta cita</label><div class="form-actions" style="margin-top:0"><select id="f-every" name="every"><option value="">No, solo esta</option><option value="1">Cada semana</option><option value="2">Cada 2 semanas</option><option value="3">Cada 3 semanas</option><option value="4">Cada 4 semanas</option></select><select name="times" aria-label="Cuántas veces">${Array.from({ length: catalog.rules.recurringMax - 1 }, (_, i) => i + 2).map((n) => `<option value="${n}" ${n === Math.min(4, catalog.rules.recurringMax) ? "selected" : ""}>${n} ${L("citas", "bookings")}</option>`).join("")}</select></div><small>Mismo día de la semana, misma hora y mismo barbero. Si algún día ya está ocupado, te lo decimos.</small></div>`
               : ""
           }
-          <p class="terms-note">Al reservar aceptas las <a href="#condiciones" target="_blank">condiciones</a> y la <a href="#privacidad" target="_blank">privacidad</a>. Puedes cambiarla desde la app hasta ${catalog.rules.cancelHours} h antes.${
-            cardOn() ? ` <b>Si no vienes o cancelas con menos de ${catalog.rules.cancelHours} h, autorizas a ${esc(catalog.business.name)} a cobrar hasta ${euro(Math.max(feePct(s, "noShow"), feePct(s, "late")))} en tu tarjeta.</b>` : ""
+          <p class="terms-note">${L(
+            `Al reservar aceptas las <a href="#condiciones" target="_blank">condiciones</a> y la <a href="#privacidad" target="_blank">privacidad</a>. Puedes cambiarla desde la app hasta ${catalog.rules.cancelHours} h antes.`,
+            `By booking you accept the <a href="#condiciones" target="_blank">terms</a> and the <a href="#privacidad" target="_blank">privacy policy</a>. You can change it in the app up to ${catalog.rules.cancelHours} h before.`,
+          )}${
+            cardOn()
+              ? ` <b>${L(
+                  `Si no vienes o cancelas con menos de ${catalog.rules.cancelHours} h, autorizas a ${esc(catalog.business.name)} a cobrar hasta ${euro(Math.max(feePct(s, "noShow"), feePct(s, "late")))} en tu tarjeta.`,
+                  `If you don't show up or cancel less than ${catalog.rules.cancelHours} h before, you authorise ${esc(catalog.business.name)} to charge up to ${euro(Math.max(feePct(s, "noShow"), feePct(s, "late")))} to your card.`,
+                )}</b>`
+              : ""
           }</p>
           <p class="pay-note">${svg(ICONS.card)} ${cardOn() ? "Ahora no se cobra nada. El servicio se paga en el local, en efectivo o con tarjeta." : "En el local puedes pagar en efectivo o con tarjeta."}</p>
         </form>`,
@@ -871,7 +954,10 @@ const pages = {
         if (refIn.value !== code) return;
         refOk = code;
         refState.className = "ref-state ok";
-        refState.innerHTML = `✓ Te invita <b>${esc(r.name)}</b>. ${esc(r.name)} sumará ${r.points} puntos cuando vengas a tu primera cita.`;
+        refState.innerHTML = L(
+          `✓ Te invita <b>${esc(r.name)}</b>. ${esc(r.name)} sumará ${r.points} puntos cuando vengas a tu primera cita.`,
+          `✓ Invited by <b>${esc(r.name)}</b>. ${esc(r.name)} will earn ${r.points} points when you come to your first appointment.`,
+        );
       } catch (err) {
         if (refIn.value !== code) return;
         refOk = false;
@@ -959,7 +1045,7 @@ const pages = {
     show(
       `<div class="booked-hero">
         <svg class="booked-check" viewBox="0 0 52 52" aria-hidden="true"><circle cx="26" cy="26" r="24"/><path d="m15 27 7 7 15-16"/></svg>
-        <h1>${user?.name ? `¡Hecho, ${esc(first(user.name))}!` : "¡Cita reservada!"}</h1><p class="sub">Te esperamos en <em class="serif">el estudio.</em></p>
+        <h1>${user?.name ? L(`¡Hecho, ${esc(first(user.name))}!`, `All set, ${esc(first(user.name))}!`) : "¡Cita reservada!"}</h1><p class="sub">Te esperamos en <em class="serif">el estudio.</em></p>
       </div>` +
         `<div class="ticket">
           <div class="tix-top"><img src="/assets/logo.png" alt="NOVA Studio"><span class="tix-ok">✓ Confirmada</span></div>
@@ -971,11 +1057,19 @@ const pages = {
             <div><small>Precio</small><strong>${euro(b.service.price)}</strong></div>
           </div>
           <div class="tix-cut" aria-hidden="true"></div>
-          <div class="tix-foot"><span>Ref. <b>${esc(b.id)}</b></span><span class="tix-pts">+${pts} ${pts === 1 ? "punto" : "puntos"} Club NOVA</span></div>
+          <div class="tix-foot"><span>Ref. <b>${esc(b.id)}</b></span><span class="tix-pts">+${pts} ${pts === 1 ? L("punto", "point") : L("puntos", "points")} Club NOVA</span></div>
         </div>` +
         (b.series
-          ? `<div class="card series-note"><strong>${b.series.made} citas, cada ${b.series.every === 1 ? "semana" : b.series.every + " semanas"}</strong><span>${b.series.dates.map((x) => esc(shortDay(x))).join(" · ")}</span>${
-              b.series.skipped.length ? `<span class="warn-line">No había hueco a las ${esc(b.start)} el ${b.series.skipped.map((x) => esc(shortDay(x))).join(", ")}: elige otra hora para ese día.</span>` : ""
+          ? `<div class="card series-note"><strong>${L(
+              `${b.series.made} citas, cada ${b.series.every === 1 ? "semana" : b.series.every + " semanas"}`,
+              `${b.series.made} bookings, every ${b.series.every === 1 ? "week" : b.series.every + " weeks"}`,
+            )}</strong><span>${b.series.dates.map((x) => esc(shortDay(x))).join(" · ")}</span>${
+              b.series.skipped.length
+                ? `<span class="warn-line">${L(
+                    `No había hueco a las ${esc(b.start)} el ${b.series.skipped.map((x) => esc(shortDay(x))).join(", ")}: elige otra hora para ese día.`,
+                    `There was no slot at ${esc(b.start)} on ${b.series.skipped.map((x) => esc(shortDay(x))).join(", ")}: pick another time for that day.`,
+                  )}</span>`
+                : ""
             }</div>`
           : "") +
         calButtons({ ...b, end: addMin(b.start, b.service.duration) }) +
@@ -1005,7 +1099,10 @@ const pages = {
         owe
           .map(
             (b) =>
-              `<a class="owe" href="#booking/${esc(b.id)}"><strong>Tienes un pago pendiente de ${euro(b.charge.amount)}</strong><span>No viniste a la cita del ${esc(shortDay(b.date))} · ${esc(b.service.name)}. Toca para pagarlo.</span></a>`,
+              `<a class="owe" href="#booking/${esc(b.id)}"><strong>${L(`Tienes un pago pendiente de ${euro(b.charge.amount)}`, `You have a pending payment of ${euro(b.charge.amount)}`)}</strong><span>${L(
+                `No viniste a la cita del ${esc(shortDay(b.date))} · ${esc(b.service.name)}. Toca para pagarlo.`,
+                `You missed your booking on ${esc(shortDay(b.date))} · ${esc(tx(b.service.name))}. Tap to pay it.`,
+              )}</span></a>`,
           )
           .join("") +
         (r.upcoming[0] ? nextApptCard(r.upcoming[0]) : "") +
@@ -1022,8 +1119,8 @@ const pages = {
       active = b.status === "confirmed" && !r.past;
     show(
       back("bookings", "Mis citas") +
-        heading(esc(b.service.name), `${esc(longDay(b.date))} · ${esc(b.start)}`) +
-        `<div class="pick-summary">${face(p)}<div><strong>Con ${esc(b.provider.name)}</strong><span>${b.service.duration} min · ${euro(b.service.price)} · pago en el local</span></div></div>` +
+        heading(esc(tx(b.service.name)), `${esc(longDay(b.date))} · ${esc(b.start)}`) +
+        `<div class="pick-summary">${face(p)}<div><strong>${L("Con", "With")} ${esc(b.provider.name)}</strong><span>${b.service.duration} min · ${euro(b.service.price)} · ${L("pago en el local", "pay at the shop")}</span></div></div>` +
         `<div class="card"><dl class="detail-list">
           <div><dt>Estado</dt><dd>${b.status === "canceled" ? (b.late ? "Cancelada tarde" : "Cancelada") : b.attendance === "absent" ? "No vino" : r.past ? "Realizada" : "Confirmada"}</dd></div>
           <div><dt>Referencia</dt><dd>${esc(b.id)}</dd></div>
@@ -1038,9 +1135,16 @@ const pages = {
               ${
                 r.canChange
                   ? `<a class="btn wide" href="#move/${esc(b.id)}">Cambiar día u hora</a><button class="btn wide danger" type="button" id="cancel">Cancelar cita</button>`
-                  : `<p class="warning">Quedan menos de ${catalog.rules.cancelHours} horas. Para cambiarla de hora, escríbenos. Si la cancelas ahora${
-                      r.lateFee ? `, según las condiciones se te pueden cobrar ${euro(r.lateFee)}: tu barbero lo revisará y, si hay un motivo justificado, no se cobra` : ", avísanos"
-                    }.</p><a class="btn wide wa-btn" href="${wa(`Hola, tengo cita el ${longDay(b.date)} a las ${b.start} (ref. ${b.id}) y necesito cambiarla.`)}" target="_blank" rel="noopener">${svg(ICONS.chat)} Escribir por WhatsApp</a>${
+                  : `<p class="warning">${L(
+                      `Quedan menos de ${catalog.rules.cancelHours} horas. Para cambiarla de hora, escríbenos. Si la cancelas ahora${
+                        r.lateFee ? `, según las condiciones se te pueden cobrar ${euro(r.lateFee)}: tu barbero lo revisará y, si hay un motivo justificado, no se cobra` : ", avísanos"
+                      }.`,
+                      `Less than ${catalog.rules.cancelHours} hours to go. To change the time, message us. If you cancel now${
+                        r.lateFee ? `, under the terms you may be charged ${euro(r.lateFee)}: your barber will review it and, if there's a good reason, nothing is charged` : ", please let us know"
+                      }.`,
+                    )}</p><a class="btn wide wa-btn" href="${wa(
+                      L(`Hola, tengo cita el ${longDay(b.date)} a las ${b.start} (ref. ${b.id}) y necesito cambiarla.`, `Hi, I have a booking on ${longDay(b.date)} at ${b.start} (ref. ${b.id}) and I need to change it.`),
+                    )}" target="_blank" rel="noopener">${svg(ICONS.chat)} Escribir por WhatsApp</a>${
                       r.canCancel ? `<button class="btn wide danger" type="button" id="cancel">Cancelar cita</button>` : ""
                     }`
               }
@@ -1050,9 +1154,15 @@ const pages = {
     $("#pay-now")?.addEventListener("click", () => payPending(b).catch((e) => toast(e.message)));
     $("#cancel")?.addEventListener("click", () => {
       const sh = sheet(
-        `<h2>¿Cancelar la cita?</h2><p>${esc(b.service.name)} con ${esc(first(b.provider.name))}, ${esc(longDay(b.date))} a las ${esc(b.start)}. La hora quedará libre para otra persona.</p>${
+        `<h2>¿Cancelar la cita?</h2><p>${L(
+          `${esc(b.service.name)} con ${esc(first(b.provider.name))}, ${esc(longDay(b.date))} a las ${esc(b.start)}. La hora quedará libre para otra persona.`,
+          `${esc(tx(b.service.name))} with ${esc(first(b.provider.name))}, ${esc(longDay(b.date))} at ${esc(b.start)}. The time will be freed up for someone else.`,
+        )}</p>${
           r.late && r.lateFee
-            ? `<p class="warning">Cancelas con menos de ${catalog.rules.cancelHours} h. Según las condiciones se te pueden cobrar <b>${euro(r.lateFee)}</b>. Lo decide tu barbero: si tienes un motivo justificado, escríbenos por WhatsApp.</p>`
+            ? `<p class="warning">${L(
+                `Cancelas con menos de ${catalog.rules.cancelHours} h. Según las condiciones se te pueden cobrar <b>${euro(r.lateFee)}</b>. Lo decide tu barbero: si tienes un motivo justificado, escríbenos por WhatsApp.`,
+                `You're cancelling less than ${catalog.rules.cancelHours} h before. Under the terms you may be charged <b>${euro(r.lateFee)}</b>. Your barber decides: if you have a good reason, message us on WhatsApp.`,
+              )}</p>`
             : ""
         }${b.series ? `<label class="check"><input type="checkbox" id="all-series"><span>Cancelar también las siguientes citas de esta serie</span></label>` : ""}<div class="form-actions"><button type="button" class="btn secondary" id="no">No</button><button type="button" class="btn danger" id="yes">Sí, cancelar</button></div>`,
       );
@@ -1091,7 +1201,7 @@ const pages = {
       challenge = null;
       await refreshMe();
       nav();
-      toast(`¡Hola${user?.name ? ", " + first(user.name) : ""}!`);
+      toast(L("¡Hola", "Hi") + (user?.name ? ", " + first(user.name) : "") + "!");
       go(sessionStorage.getItem("nova_next") || "bookings");
     });
   },
@@ -1105,14 +1215,18 @@ const pages = {
       got = m.medals.filter((x) => x.got).length;
     show(
       `<section class="ph" style="${leagueVars(L.league)}">
-        <div class="ph-top"><span class="ph-brand">SOCIO DEL <b>CLUB</b></span><span class="ph-league">${leagueArt(L.league)}${esc(L.label.toUpperCase())}</span></div>
+        <div class="ph-top"><span class="ph-brand">${tl("SOCIO DEL <b>CLUB</b>", "CLUB <b>MEMBER</b>")}</span><span class="ph-league">${leagueArt(L.league)}${esc(L.label.toUpperCase())}</span></div>
         <div class="ph-id">
           <label class="ph-avatar" title="Cambiar foto">${user.photo ? `<img src="${esc(user.photo)}" alt="Tu foto">` : `<b>${initial(user.name || user.email)}</b>`}<span class="ph-cam">${svg(ICONS.camera)}</span><input type="file" accept="image/*" id="photo-in" class="sr-only"></label>
-          <div class="ph-name"><h1>${esc(user.name || "Tu perfil")}</h1><span>Socio Nº ${String(user.no || 0).padStart(4, "0")} · desde ${esc(monthYear(user.since))}</span></div>
+          <div class="ph-name"><h1>${esc(user.name || "Tu perfil")}</h1><span>${tl("Socio Nº", "Member No.")} ${String(user.no || 0).padStart(4, "0")} · ${tl("desde", "since")} ${esc(monthYear(user.since))}</span></div>
         </div>
         <div class="ph-count"><strong>${nf(m.earned)}</strong><span>${m.earned === 1 ? "punto" : "puntos"}<br>ganados</span></div>
         <div class="ph-bar"><i style="width:${L.pct}%"></i></div>
-        <div class="ph-next">${L.toNext ? `${nf(L.toNext)} ${L.toNext === 1 ? "punto" : "puntos"} para <b>✦ ${esc(L.nextLabel)}</b>` : `Has llegado a lo más alto: <b>${esc(topLeague().name)}</b>`}</div>
+        <div class="ph-next">${
+          L.toNext
+            ? tl(`${nf(L.toNext)} ${L.toNext === 1 ? "punto" : "puntos"} para <b>✦ ${esc(L.nextLabel)}</b>`, `${nf(L.toNext)} ${L.toNext === 1 ? "point" : "points"} to <b>✦ ${esc(L.nextLabel)}</b>`)
+            : tl(`Has llegado a lo más alto: <b>${esc(topLeague().name)}</b>`, `You've reached the very top: <b>${esc(topLeague().name)}</b>`)
+        }</div>
       </section>
       <div class="stat3">
         <a href="#bookings"><strong>${m.metrics.cuts}</strong><span>${m.metrics.cuts === 1 ? "Corte" : "Cortes"}</span></a>
@@ -1135,8 +1249,11 @@ const pages = {
           ? `<p class="section-label">Tu tarjeta</p>
         <div class="card my-card">${
           user.card
-            ? `<div class="mc-row"><span class="mc-chip">${esc((BRANDS[user.card.brand] || "Tarjeta").toUpperCase())}</span><div><strong>···· ${esc(user.card.last4)}</strong><span>Caduca ${esc(user.card.exp || "")}</span></div></div>
-               <p class="muted">Garantiza tus citas. Solo se usa si no vienes o cancelas con menos de ${catalog.rules.cancelHours} h, y lo revisa tu barbero antes de cobrar.</p>
+            ? `<div class="mc-row"><span class="mc-chip">${esc((BRANDS[user.card.brand] || "Tarjeta").toUpperCase())}</span><div><strong>···· ${esc(user.card.last4)}</strong><span>${tl("Caduca", "Expires")} ${esc(user.card.exp || "")}</span></div></div>
+               <p class="muted">${tl(
+                 `Garantiza tus citas. Solo se usa si no vienes o cancelas con menos de ${catalog.rules.cancelHours} h, y lo revisa tu barbero antes de cobrar.`,
+                 `It guarantees your bookings. It's only used if you don't show up or cancel less than ${catalog.rules.cancelHours} h before, and your barber reviews it before charging.`,
+               )}</p>
                <div class="form-actions" style="margin-top:6px"><button type="button" class="btn secondary" id="card-change">Cambiar</button><button type="button" class="btn danger" id="card-remove">Quitar</button></div>`
             : `<p class="muted" style="margin-top:0">Aún no tienes tarjeta guardada. Te la pediremos al reservar, para garantizar la cita. No se cobra nada salvo que faltes sin avisar.</p><button type="button" class="btn wide secondary" id="card-change">Añadir tarjeta</button>`
         }</div>`
@@ -1211,7 +1328,13 @@ const pages = {
     const P = catalog.points;
     if (!user) {
       show(
-        `<section class="pts"><span class="pts-tag">EL CLUB</span><strong class="pts-num">${P.welcome}</strong><p>puntos de regalo al entrar · ${P.perEuro} por cada euro, en la silla y en ${esc(catalog.shop.name)} · +${P.perFriend} por cada amigo</p><div class="pts-league">${leagueArt(catalog.leagues[0])}<span>Empiezas en <b>${esc(catalog.leagues[0].name)} III</b> y subes hasta <b>${esc(topLeague().name)}</b></span></div></section>` +
+        `<section class="pts"><span class="pts-tag">EL CLUB</span><strong class="pts-num">${P.welcome}</strong><p>${tl(
+          `puntos de regalo al entrar · ${P.perEuro} por cada euro, en la silla y en ${esc(catalog.shop.name)} · +${P.perFriend} por cada amigo`,
+          `welcome points when you join · ${P.perEuro} per euro, in the chair and at ${esc(catalog.shop.name)} · +${P.perFriend} per friend`,
+        )}</p><div class="pts-league">${leagueArt(catalog.leagues[0])}<span>${tl(
+          `Empiezas en <b>${esc(catalog.leagues[0].name)} III</b> y subes hasta <b>${esc(topLeague().name)}</b>`,
+          `You start in <b>${esc(catalog.leagues[0].name)} III</b> and climb up to <b>${esc(topLeague().name)}</b>`,
+        )}</span></div></section>` +
           `<a class="btn wide" href="#home">Reservar mi primer corte</a><a class="btn wide secondary" style="margin-top:10px" href="#login">Ya soy del Club · Entrar</a>` +
           `<p class="section-label">Las ligas</p>${leagueList(-1)}` +
           `<p class="section-label">Premios del Club</p><div class="rw-list">${catalog.rewards.map((r) => rewardRow(r, 0)).join("")}</div>` +
@@ -1226,8 +1349,11 @@ const pages = {
       `<section class="pts" style="${leagueVars(L.league)}">
         <span class="pts-tag">TUS PUNTOS</span>
         <strong class="pts-num">${nf(m.balance)}</strong>
-        <p>${P.perEuro} puntos por cada euro, en la silla y en ${esc(catalog.shop.name)} · +${P.perFriend} por cada amigo</p>
-        <div class="pts-league">${leagueArt(L.league)}<span>Liga <b>${esc(L.label)}</b> · ${nf(m.earned)} puntos ganados</span></div>
+        <p>${tl(
+          `${P.perEuro} puntos por cada euro, en la silla y en ${esc(catalog.shop.name)} · +${P.perFriend} por cada amigo`,
+          `${P.perEuro} points per euro, in the chair and at ${esc(catalog.shop.name)} · +${P.perFriend} per friend`,
+        )}</p>
+        <div class="pts-league">${leagueArt(L.league)}<span>${tl(`Liga <b>${esc(L.label)}</b> · ${nf(m.earned)} puntos ganados`, `<b>${esc(L.label)}</b> league · ${nf(m.earned)} points earned`)}</span></div>
       </section>` +
         nextBlock(m, L) +
         (open.length
@@ -1241,7 +1367,7 @@ const pages = {
         (m.moves.length
           ? `<p class="section-label">Movimientos</p><div class="card mv-list">${m.moves
               .slice(0, 12)
-              .map((x) => `<div class="mv"><span>${esc(x.text)}${x.when ? `<small>${esc(shortDay(x.when.slice(0, 10)))}</small>` : ""}</span><b class="${x.pts > 0 ? "plus" : "minus"}">${x.pts > 0 ? "+" : ""}${nf(x.pts)}</b></div>`)
+              .map((x) => `<div class="mv"><span>${esc(tx(x.text))}${x.when ? `<small>${esc(shortDay(x.when.slice(0, 10)))}</small>` : ""}</span><b class="${x.pts > 0 ? "plus" : "minus"}">${x.pts > 0 ? "+" : ""}${nf(x.pts)}</b></div>`)
               .join("")}</div>`
           : "") +
         `<a class="btn wide secondary" style="margin-top:18px" href="#profile">Ver mi perfil y medallas</a>`,
@@ -1252,7 +1378,10 @@ const pages = {
         (b.onclick = () => {
           const r = catalog.rewards.find((x) => x.id === b.dataset.redeem);
           const sh = sheet(
-            `<p class="eyebrow">Canjear premio</p><h2>${esc(r.name)}</h2><p>${esc(r.desc)}. Se descuentan <b>${nf(r.cost)} puntos</b> de tu saldo (te quedarán ${nf(m.balance - r.cost)}). Tu liga no baja.</p><div class="form-actions"><button type="button" class="btn secondary" id="no">Ahora no</button><button type="button" class="btn" id="yes">Canjear</button></div>`,
+            `<p class="eyebrow">Canjear premio</p><h2>${esc(r.name)}</h2><p>${tl(
+              `${esc(r.desc)}. Se descuentan <b>${nf(r.cost)} puntos</b> de tu saldo (te quedarán ${nf(m.balance - r.cost)}). Tu liga no baja.`,
+              `${esc(tx(r.desc))}. <b>${nf(r.cost)} points</b> come off your balance (you'll have ${nf(m.balance - r.cost)} left). Your league doesn't drop.`,
+            )}</p><div class="form-actions"><button type="button" class="btn secondary" id="no">Ahora no</button><button type="button" class="btn" id="yes">Canjear</button></div>`,
           );
           sh.el.querySelector("#no").onclick = sh.close;
           sh.el.querySelector("#yes").onclick = async (e) => {
@@ -1284,7 +1413,7 @@ const pages = {
     if (!staff) return staffLogin();
     try {
       if (staff.caja) return await staffCobros();
-      await ({ cobrar: staffCobros, caja: staffCaja, faltas: staffFaltas, formacion: staffTraining, productos: staffProducts, ajustes: staffTeam, web: staffWeb, clientes: staffClients }[args[0]] || staffAgenda)();
+      await ({ cobrar: staffCobros, caja: staffCaja, progreso: staffProgress, faltas: staffFaltas, formacion: staffTraining, productos: staffProducts, ajustes: staffTeam, web: staffWeb, clientes: staffClients }[args[0]] || staffAgenda)();
     } catch (e) {
       if (e.status !== 401) throw e;
       staff = null;
@@ -1292,8 +1421,11 @@ const pages = {
     }
   },
 };
-for (const [k, [title, body]] of Object.entries(LEGAL))
-  pages[k] = async () => show(back("home", "Volver") + heading(title, catalog.business.name) + `<article class="legal-page">${body()}</article>` + legalLinks());
+for (const k of Object.keys(LEGAL))
+  pages[k] = async () => {
+    const [title, body] = (LANG === "en" ? LEGAL_EN : LEGAL)[k];
+    show(back("home", "Volver") + heading(title, catalog.business.name) + `<article class="legal-page">${body()}</article>` + legalLinks());
+  };
 
 // La hora elegida se la acaba de llevar otro: se ofrecen las más cercanas y
 // con un toque se reserva la que elija (mismos datos, sin volver a escribir nada).
@@ -1303,7 +1435,7 @@ function pickAlternative(list) {
      <div class="alt-list">${list
        .map(
          (a, i) =>
-           `<button type="button" class="alt-item" data-i="${i}"><span><strong>${esc(a.start)}</strong><small>${esc(shortDay(a.date))}</small></span><span>${a.provider ? "con " + esc(first(a.provider.name)) : "con quien esté libre"}</span><b aria-hidden="true">→</b></button>`,
+           `<button type="button" class="alt-item" data-i="${i}"><span><strong>${esc(a.start)}</strong><small>${esc(shortDay(a.date))}</small></span><span>${a.provider ? L("con ", "with ") + esc(first(a.provider.name)) : "con quien esté libre"}</span><b aria-hidden="true">→</b></button>`,
        )
        .join("")}</div>
      <button type="button" class="btn wide secondary" style="margin-top:14px" id="alt-cal">Ver el calendario</button>`,
@@ -1352,13 +1484,18 @@ async function calendar({ backTo, backLabel }) {
     morning = times.filter((t) => t < "14:00"),
     afternoon = times.filter((t) => t >= "14:00"),
     pill = (t) => `<button type="button" class="time-pill" data-time="${t}">${t}</button>`,
-    monthName = cap(new Date(cy, cm - 1, 1).toLocaleDateString("es-ES", { month: "long" })) + " " + cy;
+    monthName = cap(new Date(cy, cm - 1, 1).toLocaleDateString(LOC(), { month: "long" })) + " " + cy;
   // Punto de disponibilidad: verde = mucha, naranja = media, rojo = pocas.
   // Se compara con el día más libre del mes (un día sin reservas).
   // Días completos (solo al reservar, no al cambiar de hora): se pueden tocar para pedir aviso.
   const full = !draft.moving && avail.full ? avail.full : new Set();
   const fullDay = Math.max(1, ...Object.values(avail).map((a) => a.length)),
-    level = (n) => (n <= 2 || n / fullDay <= 0.25 ? ["low", ", quedan pocas horas"] : n / fullDay <= 0.6 ? ["mid", ", disponibilidad media"] : ["", ""]);
+    level = (n) =>
+      n <= 2 || n / fullDay <= 0.25
+        ? ["low", L(", quedan pocas horas", ", only a few times left")]
+        : n / fullDay <= 0.6
+          ? ["mid", L(", disponibilidad media", ", some availability")]
+          : ["", ""];
   let cells = "";
   for (let i = 0; i < lead; i++) cells += `<span class="cal-cell blank" aria-hidden="true"></span>`;
   for (let d = 1; d <= total; d++) {
@@ -1367,21 +1504,24 @@ async function calendar({ backTo, backLabel }) {
       open = n > 0,
       isFull = !open && full.has(iso),
       [lv, lvLabel] = open ? level(n) : ["", ""];
-    cells += `<button type="button" class="cal-cell${open ? " open" : ""}${isFull ? " full" : ""}${lv ? " lvl-" + lv : ""}${iso === selectedDate ? " selected" : ""}${iso === todayIso ? " today" : ""}" data-day="${iso}" ${open || isFull ? "" : "disabled"} aria-pressed="${iso === selectedDate}" aria-label="${esc(longDay(iso))}${open ? lvLabel : isFull ? ", completo: puedes pedir aviso" : ", sin horas"}">${d}</button>`;
+    cells += `<button type="button" class="cal-cell${open ? " open" : ""}${isFull ? " full" : ""}${lv ? " lvl-" + lv : ""}${iso === selectedDate ? " selected" : ""}${iso === todayIso ? " today" : ""}" data-day="${iso}" ${open || isFull ? "" : "disabled"} aria-pressed="${iso === selectedDate}" aria-label="${esc(longDay(iso))}${open ? lvLabel : isFull ? L(", completo: puedes pedir aviso", ", fully booked: you can ask to be notified") : L(", sin horas", ", no times")}">${d}</button>`;
   }
   const maxMonth = shiftMonth(thisMonth, Math.ceil(catalog.rules.daysAhead / 30));
   show(
     back(backTo, backLabel) +
       heading(draft.moving ? "Elige la nueva hora" : "Día y hora") +
       `<div class="pick-summary">${face(p)}<div><strong>${esc(s.name)}</strong><span>${esc(p.name)} · ${s.duration} min · ${euro(s.price)}</span></div></div>` +
-      `<div class="cal-card"><div class="cal-head"><button type="button" class="cal-nav" id="prev-month" aria-label="Mes anterior" ${calMonth <= thisMonth ? "disabled" : ""}>‹</button><strong>${monthName}</strong><button type="button" class="cal-nav" id="next-month" aria-label="Mes siguiente" ${calMonth >= maxMonth ? "disabled" : ""}>›</button></div><div class="cal-week"><span>L</span><span>M</span><span>X</span><span>J</span><span>V</span><span>S</span><span>D</span></div><div class="cal-grid">${cells}</div></div>` +
+      `<div class="cal-card"><div class="cal-head"><button type="button" class="cal-nav" id="prev-month" aria-label="Mes anterior" ${calMonth <= thisMonth ? "disabled" : ""}>‹</button><strong>${monthName}</strong><button type="button" class="cal-nav" id="next-month" aria-label="Mes siguiente" ${calMonth >= maxMonth ? "disabled" : ""}>›</button></div><div class="cal-week">${L("LMXJVSD", "MTWTFSS")
+        .split("")
+        .map((c) => `<span>${c}</span>`)
+        .join("")}</div><div class="cal-grid">${cells}</div></div>` +
       (selectedDate && full.has(selectedDate) && !times.length
         ? `<div class="times"><h2 class="times-title">${esc(longDay(selectedDate))}</h2>
             <div class="wl-box" id="wl-box"><strong>Este día está completo</strong><span>Si alguien cancela, te escribimos al momento para que elijas hora antes que nadie.</span>
             ${user ? "" : `<label for="wl-email">Tu correo</label><input id="wl-email" type="email" autocomplete="email" value="${esc(draft.email || "")}">`}
             <button type="button" class="btn wide" id="wl-btn">Avísame si se libera</button></div></div>`
         : selectedDate
-        ? `<div class="times"><h2 class="times-title">${esc(longDay(selectedDate))}</h2>${morning.length ? `<p class="times-label">Mañana</p><div class="time-grid">${morning.map(pill).join("")}</div>` : ""}${afternoon.length ? `<p class="times-label">Tarde</p><div class="time-grid">${afternoon.map(pill).join("")}</div>` : ""}</div>`
+        ? `<div class="times"><h2 class="times-title">${esc(longDay(selectedDate))}</h2>${morning.length ? `<p class="times-label">${L("Mañana", "Morning")}</p><div class="time-grid">${morning.map(pill).join("")}</div>` : ""}${afternoon.length ? `<p class="times-label">${L("Tarde", "Afternoon")}</p><div class="time-grid">${afternoon.map(pill).join("")}</div>` : ""}</div>`
         : '<p class="empty">No quedan horas libres este mes. Prueba el mes siguiente.</p>') +
       `<div style="height:90px"></div>`,
   );
@@ -1395,7 +1535,10 @@ async function calendar({ backTo, backLabel }) {
     try {
       await api("waitlist", { service: s.id, provider: draft.provider, date: selectedDate, email });
       if (!user) Object.assign(draft, { email }), saveDraft();
-      $("#wl-box").innerHTML = `<strong>Listo, te avisamos</strong><span>Si se libera una hora el ${esc(shortDay(selectedDate))}, te llega un correo a ${esc(email)}. Se la lleva quien reserve primero.</span>`;
+      $("#wl-box").innerHTML = L(
+        `<strong>Listo, te avisamos</strong><span>Si se libera una hora el ${esc(shortDay(selectedDate))}, te llega un correo a ${esc(email)}. Se la lleva quien reserve primero.</span>`,
+        `<strong>Done, we'll let you know</strong><span>If a time opens up on ${esc(shortDay(selectedDate))}, you'll get an email at ${esc(email)}. First to book gets it.</span>`,
+      );
     } catch (err) {
       e.currentTarget.disabled = false;
       toast(err.message);
@@ -1446,7 +1589,7 @@ async function calendar({ backTo, backLabel }) {
 
 // ── Club ───────────────────────────────────────────────────────────────────
 const DIV = ["III", "II", "I"];
-const nf = (n) => Number(n || 0).toLocaleString("es-ES");
+const nf = (n) => Number(n || 0).toLocaleString(LOC());
 const topLeague = () => catalog.leagues[catalog.leagues.length - 1];
 // Puntos que da un servicio: su precio × puntos por euro.
 const svcPoints = (s) => Math.round((s?.price ?? 15) * catalog.points.perEuro);
@@ -1466,7 +1609,7 @@ function leagueOf(pts) {
   return { league: lg, index: i, label: `${lg.name} ${DIV[k]}`, pct: pts > from ? Math.max(4, Math.round(((pts - from) / (to - from)) * 100)) : 0, toNext: to - pts, nextLabel };
 }
 const leagueVars = (lg) => `--c1:${lg.c1};--c2:${lg.c2}`;
-const monthYear = (stamp) => (stamp ? new Date(String(stamp).slice(0, 10) + "T12:00:00").toLocaleDateString("es-ES", { month: "long", year: "numeric" }) : "hoy");
+const monthYear = (stamp) => (stamp ? new Date(String(stamp).slice(0, 10) + "T12:00:00").toLocaleDateString(LOC(), { month: "long", year: "numeric" }) : L("hoy", "today"));
 // El mejor descuento en la tienda que da tu liga (o null).
 function shopDiscount(index) {
   let best = null;
@@ -1508,7 +1651,7 @@ function leagueList(index, earned = 0) {
       const state = i === index ? "Tu liga" : i < index ? "✓ Superada" : `${nf(lg.min)} pts`,
         left = i > index ? lg.min - earned : 0;
       return `<div class="lg-row${i === index ? " on" : ""}${i > index ? " locked" : ""}${i === catalog.leagues.length - 1 ? " top" : ""}" style="${leagueVars(lg)}">${leagueArt(lg, i > index)}<div><strong>${esc(lg.name)}<small>${esc(lg.motto)}</small></strong><ul class="lg-perks">${lg.perks.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>${
-        user && i === index + 1 ? `<span class="lg-left">Te faltan ${nf(left)} puntos · ${cutsFor(left) === 1 ? "con un corte" : `unos ${cutsFor(left)} cortes`}</span>` : ""
+        user && i === index + 1 ? `<span class="lg-left">${toGo(left)}</span>` : ""
       }</div><em>${state}</em></div>`;
     })
     .join("")}</div>`;
@@ -1565,12 +1708,20 @@ function medalArt(md, got) {
     <text x="32" y="44" text-anchor="middle" font-family="Arial" font-size="4.4" font-weight="700" letter-spacing=".5" fill="${got ? cm : ink}">${esc(md.code)}</text></svg>`;
 }
 const MEDAL_UNIT = { cuts: ["corte", "cortes"], friends: ["amigo", "amigos"], items: ["prenda", "prendas"], fresh: ["vuelta", "vueltas"], streak: ["mes", "meses"] };
+const MEDAL_UNIT_EN = { cuts: ["haircut", "haircuts"], friends: ["friend", "friends"], items: ["garment", "garments"], fresh: ["return", "returns"], streak: ["month", "months"] };
 // «Falta 1 corte», «Faltan 2 meses»… o la descripción si no se cuenta en unidades.
 function medalLeft(md, st) {
   const left = md.goal - st.progress,
-    unit = MEDAL_UNIT[md.metric];
+    unit = (LANG === "en" ? MEDAL_UNIT_EN : MEDAL_UNIT)[md.metric];
+  if (LANG === "en") return unit && md.goal > 1 ? `${left} more ${left === 1 ? unit[0] : unit[1]} to go` : tx(md.desc) || `${left} more to go`;
   return unit && md.goal > 1 ? `Falta${left === 1 ? "" : "n"} ${left} ${left === 1 ? unit[0] : unit[1]}` : md.desc || `Falta${left === 1 ? "" : "n"} ${left}`;
 }
+// «Te faltan 300 puntos · unos 2 cortes»
+const toGo = (pts) =>
+  L(
+    `Te faltan ${nf(pts)} puntos · ${cutsFor(pts) === 1 ? "con un corte" : `unos ${cutsFor(pts)} cortes`}`,
+    `${nf(pts)} points to go · ${cutsFor(pts) === 1 ? "one haircut" : `about ${cutsFor(pts)} haircuts`}`,
+  );
 function medalCard(md, st) {
   const sub = st.got ? "✓ Conseguida" : medalLeft(md, st),
     bar = !st.got && md.goal > 1 ? `<div class="md-bar" title="${st.progress}/${md.goal}"><i style="width:${Math.max(4, Math.round((st.progress / md.goal) * 100))}%"></i></div>` : "";
@@ -1580,7 +1731,7 @@ function medalsBlock(m) {
   const all = catalog.medals.map((md, i) => [md, m.medals[i]]),
     got = m.medals.filter((x) => x.got).length;
   return (
-    `<div id="medallas"><p class="section-label">Medallas · ${got}/${all.length}</p>` +
+    `<div id="medallas"><p class="section-label">${L("Medallas", "Medals")} · ${got}/${all.length}</p>` +
     catalog.medalGroups
       .map((g) => {
         const list = all.filter(([md]) => md.group === g.id);
@@ -1607,12 +1758,12 @@ function nextBlock(m, L) {
   return (
     `<p class="section-label">Lo próximo</p><div class="nx-list">` +
     (target
-      ? `<div class="nx nx-league" style="${leagueVars(target)}">${leagueArt(target)}<div><strong>${esc(L.nextLabel)}</strong><span>Te faltan ${nf(L.toNext)} puntos · ${cutsFor(L.toNext) === 1 ? "con un corte" : `unos ${cutsFor(L.toNext)} cortes`}</span><div class="md-bar"><i style="width:${L.pct}%"></i></div></div></div>`
+      ? `<div class="nx nx-league" style="${leagueVars(target)}">${leagueArt(target)}<div><strong>${esc(L.nextLabel)}</strong><span>${toGo(L.toNext)}</span><div class="md-bar"><i style="width:${L.pct}%"></i></div></div></div>`
       : "") +
     near
       .map(
         ([md, s]) =>
-          `<div class="nx"><span class="nx-art">${medalArt(md, false)}</span><div><strong>${esc(md.name)}</strong><span>${esc(medalLeft(md, s))}${md.desc && MEDAL_UNIT[md.metric] && md.goal > 1 ? ` · ${esc(md.desc)}` : ""}</span>${
+          `<div class="nx"><span class="nx-art">${medalArt(md, false)}</span><div><strong>${esc(md.name)}</strong><span>${esc(medalLeft(md, s))}${md.desc && MEDAL_UNIT[md.metric] && md.goal > 1 ? ` · ${esc(tx(md.desc))}` : ""}</span>${
             md.goal > 1 ? `<div class="md-bar"><i style="width:${Math.max(4, Math.round((s.progress / md.goal) * 100))}%"></i></div>` : ""
           }</div><b>+${nf(md.bonus)}</b></div>`,
       )
@@ -1643,10 +1794,10 @@ function celebrate(m, L) {
         }</div>`
       : "") +
       (fresh.length
-        ? `<div class="cel-medals"><p class="eyebrow">${fresh.length === 1 ? "Medalla nueva" : `${fresh.length} medallas nuevas`}</p>${fresh
+        ? `<div class="cel-medals"><p class="eyebrow">${fresh.length === 1 ? "Medalla nueva" : tl(`${fresh.length} medallas nuevas`, `${fresh.length} new medals`)}</p>${fresh
             .slice(0, 4)
             .map((md) => `<div class="nx"><span class="nx-art">${medalArt(md, true)}</span><div><strong>${esc(md.name)}</strong><span>${esc(md.desc || "Conseguida")}</span></div><b>+${nf(md.bonus)}</b></div>`)
-            .join("")}${fresh.length > 4 ? `<p class="muted" style="text-align:center;margin:4px 0 0">y ${fresh.length - 4} más en tu perfil</p>` : ""}</div>`
+            .join("")}${fresh.length > 4 ? `<p class="muted" style="text-align:center;margin:4px 0 0">${tl(`y ${fresh.length - 4} más en tu perfil`, `and ${fresh.length - 4} more on your profile`)}</p>` : ""}</div>`
         : "") +
       `<button type="button" class="btn wide" id="cel-ok">Seguir</button>`,
   );
@@ -1659,26 +1810,36 @@ function supplyBlock(L) {
   const S = catalog.shop,
     disc = L ? shopDiscount(L.index) : null;
   return `<section class="supply">
-    <figure class="sp-photo"><img src="${pic("supply")}" alt="Camisetas de ${esc(S.name)}" loading="lazy" width="760" height="1350"></figure>
+    <figure class="sp-photo"><img src="${pic("supply")}" alt="${tl(`Camisetas de ${esc(S.name)}`, `${esc(S.name)} T-shirts`)}" loading="lazy" width="760" height="1350"></figure>
     <div class="sp-txt">
       <span class="club-tag">${esc(S.name.toUpperCase())}</span>
       <h2>La ropa de <em class="serif">la casa.</em></h2>
-      <p>Cada euro en ropa también suma: <b>${catalog.points.perEuro} puntos por euro</b>. Di tu código del Club al pagar en el estudio.</p>
-      ${disc ? `<p class="sp-disc" style="${leagueVars(L.league)}">${leagueArt(L.league)}<span>Tu liga ${esc(L.league.name)}: <b>${esc(disc)}</b></span></p>` : `<p class="sp-disc sp-soon">Desde ${esc(catalog.leagues.find((lg) => lg.perks.some((p) => /%.*Supply/.test(p)))?.name || "")}, descuento en cada prenda.</p>`}
-      <a class="btn wide club-btn" href="${esc(S.url)}" target="_blank" rel="noopener">Ver la tienda · ${esc(S.label)} ↗</a>
+      <p>${tl(
+        `Cada euro en ropa también suma: <b>${catalog.points.perEuro} puntos por euro</b>. Di tu código del Club al pagar en el estudio.`,
+        `Every euro on clothing counts too: <b>${catalog.points.perEuro} points per euro</b>. Give your Club code when you pay at the studio.`,
+      )}</p>
+      ${
+        disc
+          ? `<p class="sp-disc" style="${leagueVars(L.league)}">${leagueArt(L.league)}<span>${tl(`Tu liga ${esc(L.league.name)}`, `Your ${esc(L.league.name)} league`)}: <b>${esc(tx(disc))}</b></span></p>`
+          : `<p class="sp-disc sp-soon">${tl(
+              `Desde ${esc(catalog.leagues.find((lg) => lg.perks.some((p) => /%.*Supply/.test(p)))?.name || "")}, descuento en cada prenda.`,
+              `From ${esc(catalog.leagues.find((lg) => lg.perks.some((p) => /%.*Supply/.test(p)))?.name || "")} league, a discount on every garment.`,
+            )}</p>`
+      }
+      <a class="btn wide club-btn" href="${esc(S.url)}" target="_blank" rel="noopener">${tl("Ver la tienda", "Visit the shop")} · ${esc(S.label)} ↗</a>
     </div>
   </section>`;
 }
 function inviteBlock(m) {
   return `<section class="invite" id="amigos">
     <span class="club-tag">INVITA Y SUMA</span>
-    <h2>+${catalog.points.perFriend} puntos por cada amigo</h2>
+    <h2>${L(`+${catalog.points.perFriend} puntos por cada amigo`, `+${catalog.points.perFriend} points for every friend`)}</h2>
     <p>Pásale tu código para que lo ponga al reservar. Los puntos son tuyos en cuanto venga a su primera cita.</p>
     <div class="inv-code"><strong id="my-code">${esc(user.ref || "—")}</strong><button type="button" id="copy-code" aria-label="Copiar código">${svg(ICONS.copy)}</button></div>
     <button type="button" class="btn wide club-btn" id="share-code">${svg(ICONS.share)} Compartir mi código</button>
     ${
       m.friends.length
-        ? `<div class="inv-friends">${m.friends.map((f) => `<span class="${f.counted ? "ok" : ""}">${esc(f.name)}${f.counted ? " ✓" : " · aún no ha venido"}</span>`).join("")}</div>`
+        ? `<div class="inv-friends">${m.friends.map((f) => `<span class="${f.counted ? "ok" : ""}">${esc(f.name)}${f.counted ? " ✓" : L(" · aún no ha venido", " · hasn't come yet")}</span>`).join("")}</div>`
         : ""
     }
   </section>`;
@@ -1687,7 +1848,7 @@ function bindInvite() {
   const code = user?.ref;
   if (!code) return;
   const url = `${location.origin}/?ref=${encodeURIComponent(code)}`,
-    text = `Reserva en NOVA Studio con mi código ${code} 💈`;
+    text = L(`Reserva en NOVA Studio con mi código ${code} 💈`, `Book at NOVA Studio with my code ${code} 💈`);
   $("#copy-code").onclick = async () => {
     try {
       await navigator.clipboard.writeText(code);
@@ -1784,7 +1945,7 @@ function staffTop(tab) {
     return `<div class="staff-top"><span class="who-face" aria-hidden="true">${svg(ICONS.till)}</span><div><p class="eyebrow">NOVA Studio</p><h1>Caja</h1></div></div>`;
   return (
     `<div class="staff-top">${face(provById(staff.id), "who-face")}<div><p class="eyebrow">${staff.owner ? "Propietario" : "Panel de barbero"}</p><h1>Hola, ${esc(first(staff.name))}</h1></div></div>` +
-    `<div class="tabs" role="navigation" aria-label="Panel"><a href="#equipo" class="${tab === "agenda" ? "active" : ""}" ${tab === "agenda" ? 'aria-current="page"' : ""}>Agenda</a><a href="#equipo/cobrar" class="${tab === "cobrar" ? "active" : ""}" ${tab === "cobrar" ? 'aria-current="page"' : ""}>Cobrar</a><a href="#equipo/caja" class="${tab === "caja" ? "active" : ""}" ${tab === "caja" ? 'aria-current="page"' : ""}>${staff.owner ? "Caja y comisiones" : "Mi caja"}</a><a href="#equipo/faltas" class="${tab === "faltas" ? "active" : ""}" ${tab === "faltas" ? 'aria-current="page"' : ""}>Faltas</a>${
+    `<div class="tabs" role="navigation" aria-label="Panel"><a href="#equipo" class="${tab === "agenda" ? "active" : ""}" ${tab === "agenda" ? 'aria-current="page"' : ""}>Agenda</a><a href="#equipo/cobrar" class="${tab === "cobrar" ? "active" : ""}" ${tab === "cobrar" ? 'aria-current="page"' : ""}>Cobrar</a><a href="#equipo/caja" class="${tab === "caja" ? "active" : ""}" ${tab === "caja" ? 'aria-current="page"' : ""}>${staff.owner ? "Caja y comisiones" : "Mi caja"}</a><a href="#equipo/progreso" class="${tab === "progreso" ? "active" : ""}" ${tab === "progreso" ? 'aria-current="page"' : ""}>Progreso</a><a href="#equipo/faltas" class="${tab === "faltas" ? "active" : ""}" ${tab === "faltas" ? 'aria-current="page"' : ""}>Faltas</a>${
       staff.owner
         ? `<a href="#equipo/formacion" class="${tab === "formacion" ? "active" : ""}" ${tab === "formacion" ? 'aria-current="page"' : ""}>Formación</a><a href="#equipo/productos" class="${tab === "productos" ? "active" : ""}" ${tab === "productos" ? 'aria-current="page"' : ""}>Productos</a><a href="#equipo/ajustes" class="${tab === "ajustes" ? "active" : ""}" ${tab === "ajustes" ? 'aria-current="page"' : ""}>Equipo y normas</a><a href="#equipo/web" class="${tab === "web" ? "active" : ""}" ${tab === "web" ? 'aria-current="page"' : ""}>Web</a><a href="#equipo/clientes" class="${tab === "clientes" ? "active" : ""}" ${tab === "clientes" ? 'aria-current="page"' : ""}>Clientes</a>`
         : ""
@@ -1840,7 +2001,7 @@ async function staffAgenda() {
       (r.alerts || []).map((a) => `<p class="warning">${esc(a)}</p>`).join("") +
       `<p class="ag-day">${esc(longDay(staffDay))}</p>` +
       `<div class="day-strip" id="strip">${strip}</div>` +
-      `<div class="staff-bar"><button type="button" class="btn" id="new-bk">+ Cita</button><button type="button" class="btn secondary" id="new-block">Bloquear hora</button><button type="button" class="btn secondary" id="new-shop">${svg(ICONS.bag)} Venta de ropa</button></div>` +
+      `<div class="staff-bar"><button type="button" class="btn" id="new-bk">+ Cita</button><button type="button" class="btn secondary" id="new-block">Bloquear hora</button></div>` +
       canjes +
       cols +
       (staff.owner ? "" : `<button type="button" class="btn wide secondary" style="margin-top:14px" id="see-all">${staffAll ? "Ver solo mi agenda" : "Ver la agenda de todo el salón"}</button>`) +
@@ -1866,7 +2027,6 @@ async function staffAgenda() {
   );
   $("#new-bk").onclick = () => staffNew(false);
   $("#new-block").onclick = () => staffNew(true);
-  $("#new-shop").onclick = () => staffShop("");
   $("#staff-set").onclick = () => staffSettings();
   const all = $("#see-all");
   if (all) all.onclick = () => ((staffAll = !staffAll), render());
@@ -1979,6 +2139,256 @@ function pctSheet(p, label) {
       btn.disabled = false;
       toast(err.message);
     }
+  });
+}
+
+// ── Equipo: progreso (ganancias y ocupación) ──────────────────────────────
+// Para ver si el salón va a más. Cada barbero ve solo lo suyo; el dueño ve el
+// salón entero y puede mirar a cada uno. Ocupación = horas con cita entre las
+// horas de su horario (sin contar las bloqueadas).
+let progPick = "all",
+  progMonths = 12;
+const WD_SHORT = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+const WD_LONG = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+const pctTxt = (n) => `${Math.round(n)} %`;
+const occOf = (x) => (x.cap ? (100 * x.booked) / x.cap : 0);
+const hoursTxt = (min) => {
+  const h = Math.round(min / 30) / 2;
+  return `${String(h).replace(".", ",")} h`;
+};
+
+function progSum(map, ids) {
+  const out = { billed: 0, services: 0, clients: 0, booked: 0, cap: 0 };
+  for (const id of ids) for (const k in out) out[k] += map?.[id]?.[k] || 0;
+  out.billed = Math.round(out.billed * 100) / 100;
+  return out;
+}
+
+// «+12 %» / «−3 puntos» frente a lo de antes, con flecha y texto (nunca solo color).
+function progDelta(now, before, unit = "%") {
+  if (unit === "pp") {
+    const d = Math.round(now - before);
+    if (!before && !now) return "";
+    return `<em class="pg-delta ${d > 0 ? "up" : d < 0 ? "down" : ""}">${d > 0 ? "▲ +" : d < 0 ? "▼ −" : "= "}${Math.abs(d)} ${Math.abs(d) === 1 ? "punto" : "puntos"}</em>`;
+  }
+  if (!before) return now ? `<em class="pg-delta up">nuevo</em>` : "";
+  const d = Math.round((100 * (now - before)) / before);
+  return `<em class="pg-delta ${d > 0 ? "up" : d < 0 ? "down" : ""}">${d > 0 ? "▲ +" : d < 0 ? "▼ −" : "= "}${Math.abs(d)} %</em>`;
+}
+
+// Barras verticales en SVG: una por mes. El mes en curso va con lo hecho en
+// negro y lo ya reservado en rayado encima. Valor en la barra más alta y en la
+// última; el resto, al tocar.
+function progBars(rows, { fmt, max, extra }) {
+  const W = 340,
+    H = 168,
+    top = 22,
+    bottom = 24,
+    left = 2,
+    plotH = H - top - bottom;
+  const n = rows.length;
+  const slot = (W - left) / n;
+  const bw = Math.min(26, slot * 0.62);
+  const peak = max ?? Math.max(1, ...rows.map((r) => r.value + (r.extra || 0)));
+  const y = (v) => top + plotH - (plotH * Math.max(0, v)) / peak;
+  const best = rows.reduce((a, r, i) => (r.value > rows[a].value ? i : a), 0);
+  const bar = (x, y0, y1, cls) => {
+    const h = y1 - y0;
+    if (h <= 0.5) return "";
+    const r = Math.min(4, h, bw / 2);
+    return `<path class="${cls}" d="M${x} ${y1}V${y0 + r}Q${x} ${y0} ${x + r} ${y0}H${x + bw - r}Q${x + bw} ${y0} ${x + bw} ${y0 + r}V${y1}Z"/>`;
+  };
+  const grid = [0.5, 1]
+    .map((f) => `<line class="pg-grid" x1="0" x2="${W}" y1="${y(peak * f)}" y2="${y(peak * f)}"/>${max ? `<text class="pg-axis" x="${W}" y="${y(peak * f) - 4}" text-anchor="end">${fmt(peak * f)}</text>` : ""}`)
+    .join("");
+  const marks = rows
+    .map((r, i) => {
+      const x = left + slot * i + (slot - bw) / 2;
+      const base = top + plotH;
+      const solid = bar(x, y(r.value), base, "pg-bar");
+      const more = r.extra ? bar(x, y(r.value + r.extra), y(r.value), "pg-bar-ahead") : "";
+      const label = i === best || i === n - 1 ? `<text class="pg-val" x="${x + bw / 2}" y="${y(r.value + (r.extra || 0)) - 6}" text-anchor="middle">${fmt(r.value)}</text>` : "";
+      return `<g class="pg-hit" tabindex="0" data-tip="${esc(r.tip)}"><rect x="${left + slot * i}" y="0" width="${slot}" height="${H}" fill="transparent"/>${solid}${more}${label}<text class="pg-axis" x="${x + bw / 2}" y="${H - 6}" text-anchor="middle">${esc(r.label)}</text></g>`;
+    })
+    .join("");
+  return `<div class="pg-chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(extra)}"><defs><pattern id="pg-hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="5" height="5" fill="var(--bg)"/><line x1="0" y1="0" x2="0" y2="5" stroke="var(--ink)" stroke-width="1.6"/></pattern></defs>${grid}<line class="pg-base" x1="0" x2="${W}" y1="${top + plotH}" y2="${top + plotH}"/>${marks}</svg><div class="pg-tip" hidden></div></div>`;
+}
+
+// Mapa de horas: días que abre × horas. Más oscuro = más ocupado.
+function progHeat(heat, ids) {
+  const cells = {};
+  for (const id of ids)
+    for (const [k, [b, c]] of Object.entries(heat?.[id] || {})) {
+      const x = (cells[k] ||= [0, 0]);
+      x[0] += b;
+      x[1] += c;
+    }
+  const keys = Object.keys(cells).filter((k) => cells[k][1] > 0);
+  if (!keys.length) return { html: "", low: [] };
+  const days = [...new Set(keys.map((k) => Number(k.split("-")[0])))].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7));
+  const hours = [...new Set(keys.map((k) => Number(k.split("-")[1])))].sort((a, b) => a - b);
+  const html = `<div class="pg-heat" style="--cols:${hours.length}">
+    <span></span>${hours.map((h) => `<span class="pg-hh">${h}</span>`).join("")}
+    ${days
+      .map(
+        (d) =>
+          `<span class="pg-hd">${WD_SHORT[d]}</span>` +
+          hours
+            .map((h) => {
+              const c = cells[d + "-" + h];
+              if (!c || !c[1]) return `<i class="pg-cell off"></i>`;
+              const o = c[0] / c[1];
+              const lvl = Math.min(5, Math.floor(o * 5 + 0.0001));
+              return `<i class="pg-cell l${lvl}" tabindex="0" data-tip="${esc(`${cap(WD_LONG[d])} de ${h} a ${h + 1} h: ${pctTxt(o * 100)} ocupado`)}"></i>`;
+            })
+            .join(""),
+      )
+      .join("")}</div>
+    <div class="pg-scale" aria-hidden="true"><span>Libre</span>${[0, 1, 2, 3, 4].map((l) => `<i class="pg-cell l${l}"></i>`).join("")}<span>Lleno</span></div>`;
+  // Las franjas más flojas (al menos unas horas de horario en esos meses).
+  const big = Math.max(...keys.map((k) => cells[k][1]));
+  const low = keys
+    .filter((k) => cells[k][1] >= big * 0.5)
+    .map((k) => ({ d: Number(k.split("-")[0]), h: Number(k.split("-")[1]), o: cells[k][0] / cells[k][1] }))
+    .sort((a, b) => a.o - b.o)
+    .slice(0, 3);
+  return { html, low };
+}
+
+async function staffProgress() {
+  const r = await api("staff/progress?months=" + progMonths);
+  const ids0 = r.people.map((p) => p.id);
+  if (!r.owner || (progPick !== "all" && !ids0.includes(progPick))) progPick = r.owner ? "all" : staff.id;
+  const ids = progPick === "all" ? ids0 : [progPick];
+  const who = progPick === "all" ? "el salón" : first(r.people.find((p) => p.id === progPick)?.name);
+  const cur = r.months.at(-1);
+  const prevMonth = r.months.at(-2);
+  const mtd = progSum(cur.people, ids);
+  const before = progSum(r.prevToDate, ids);
+  const rest = progSum(r.restOfMonth, ids);
+  const ahead = progSum(r.ahead, ids);
+  const curLabel = monthLabel(cur.month).split(" ")[0];
+  const prevLabel = monthLabel(prevMonth.month).split(" ")[0].toLowerCase();
+  const avg = (x) => (x.services ? x.billed / x.services : 0);
+  const shortM = (m) => fmtDay(m + "-01", { month: "short" });
+
+  const filters =
+    `<div class="pg-filters">` +
+    (r.owner && r.people.length > 1
+      ? `<div class="pg-chips" role="radiogroup" aria-label="De quién">${[{ id: "all", name: "Salón" }, ...r.people]
+          .map((p) => `<button type="button" role="radio" aria-checked="${progPick === p.id}" class="${progPick === p.id ? "on" : ""}" data-pick="${esc(p.id)}">${esc(first(p.name))}</button>`)
+          .join("")}</div>`
+      : "") +
+    `<div class="pg-chips pg-range" role="radiogroup" aria-label="Meses">${[6, 12]
+      .map((n) => `<button type="button" role="radio" aria-checked="${progMonths === n}" class="${progMonths === n ? "on" : ""}" data-months="${n}">${n} meses</button>`)
+      .join("")}</div></div>`;
+
+  const hero = `<div class="club-card caja-hero pg-hero"><span class="club-tag">${esc(progPick === "all" && r.owner ? "EL SALÓN" : progPick === staff.id ? "TÚ" : first(r.people.find((p) => p.id === progPick)?.name).toUpperCase())} · LO QUE VA DE ${esc(curLabel.toUpperCase())}</span>
+    <p class="caja-big">${euro(mtd.billed)}</p>
+    <p class="pg-vs">${progDelta(mtd.billed, before.billed)} <span>frente a ${euro(before.billed)} a estas alturas de ${esc(prevLabel)}</span></p>
+    ${rest.billed ? `<ul class="caja-split"><li><span>Ya reservado para lo que queda de mes</span><b>${euro(rest.billed)}</b></li><li><span>Si se cumple, el mes cierra en</span><b>${euro(Math.round((mtd.billed + rest.billed) * 100) / 100)}</b></li></ul>` : ""}</div>`;
+
+  const tiles = `<div class="stat3 money pg-tiles">
+    <div><strong>${pctTxt(occOf(mtd))}</strong><span>Ocupación</span>${progDelta(occOf(mtd), occOf(before), "pp")}</div>
+    <div><strong>${mtd.services}</strong><span>Servicios</span>${progDelta(mtd.services, before.services)}</div>
+    <div><strong>${euro(Math.round(avg(mtd) * 100) / 100)}</strong><span>Ticket medio</span>${progDelta(avg(mtd), avg(before))}</div></div>
+    <p class="caja-meta">Comparado con ${esc(prevLabel)} hasta el mismo día y hora, para que sea justo.</p>`;
+
+  // Series mensuales.
+  const series = r.months.map((m) => ({ m, x: progSum(m.people, ids) }));
+  const money = series.map(({ m, x }) => ({
+    label: shortM(m.month),
+    value: x.billed,
+    extra: m.partial ? rest.billed : 0,
+    tip: `${monthLabel(m.month)}: ${euro(x.billed)} · ${x.services} servicios${m.partial ? ` (en curso; ${euro(rest.billed)} más ya reservados)` : ""}`,
+  }));
+  const occ = series.map(({ m, x }) => ({
+    label: shortM(m.month),
+    value: occOf(x),
+    tip: `${monthLabel(m.month)}: ${pctTxt(occOf(x))} ocupado · ${hoursTxt(x.booked)} con cita de ${hoursTxt(x.cap)}${m.partial ? " (en curso)" : ""}`,
+  }));
+  const closed = series.filter(({ m, x }) => !m.partial && (x.billed || x.cap));
+  let trend = "";
+  if (closed.length >= 6) {
+    const [a, b] = [closed.slice(-6, -3), closed.slice(-3)].map((g) => g.reduce((s, { x }) => s + x.billed, 0) / g.length);
+    const [oa, ob] = [closed.slice(-6, -3), closed.slice(-3)].map((g) => occOf(progSum(Object.fromEntries(g.map(({ x }, i) => [i, x])), g.map((_, i) => i))));
+    trend = `<p class="pg-trend">Los últimos 3 meses cerrados, de media, ${b >= a ? "<b>han facturado más</b>" : "<b>han facturado menos</b>"} que los 3 anteriores (${euro(Math.round(b))} frente a ${euro(Math.round(a))} al mes) y la ocupación ${Math.round(ob) === Math.round(oa) ? "se ha quedado igual" : ob > oa ? "<b>ha subido</b>" : "<b>ha bajado</b>"} (${pctTxt(ob)} frente a ${pctTxt(oa)}).</p>`;
+  }
+  const table = `<details class="caja-more"><summary>Ver los números mes a mes</summary><table class="pg-table"><thead><tr><th>Mes</th><th>Ganancias</th><th>Servicios</th><th>Ocupación</th></tr></thead><tbody>${series
+    .slice()
+    .reverse()
+    .map(({ m, x }) => `<tr><td>${esc(monthLabel(m.month))}${m.partial ? " <small>(en curso)</small>" : ""}</td><td>${euro(x.billed)}</td><td>${x.services}</td><td>${pctTxt(occOf(x))}</td></tr>`)
+    .join("")}</tbody></table></details>`;
+
+  const charts =
+    `<p class="section-label">Ganancias por mes</p><div class="card pg-card">${progBars(money, { fmt: (v) => (v >= 1000 ? `${String(Math.round(v / 100) / 10).replace(".", ",")}k` : `${Math.round(v)}`), extra: "Ganancias por mes" })}
+      <p class="pg-legend"><i class="pg-key"></i>Hecho <i class="pg-key ahead"></i>Ya reservado este mes</p></div>` +
+    `<p class="section-label">Ocupación por mes</p><div class="card pg-card">${progBars(occ, { fmt: (v) => `${Math.round(v)}%`, max: 100, extra: "Ocupación por mes" })}</div>` +
+    trend +
+    table;
+
+  const ahead14 = `<p class="section-label">Próximos 14 días</p><div class="card pg-ahead">
+    <div class="pg-meter" role="img" aria-label="${pctTxt(occOf(ahead))} de la agenda reservada"><i style="width:${Math.min(100, occOf(ahead)).toFixed(1)}%"></i></div>
+    <p><b>${pctTxt(occOf(ahead))}</b> de la agenda ya reservada · ${ahead.services} ${ahead.services === 1 ? "cita" : "citas"} (${euro(ahead.billed)}) · quedan <b>${hoursTxt(Math.max(0, ahead.cap - ahead.booked))}</b> libres por llenar.</p></div>`;
+
+  const { html: heatHtml, low } = progHeat(r.heat, ids);
+  const heat = heatHtml
+    ? `<p class="section-label">Cuándo hay más trabajo</p><div class="card pg-card">${heatHtml}<div class="pg-tip" hidden></div>
+      ${low.length ? `<p class="pg-trend">Las horas más flojas de los últimos 3 meses: ${low.map((x) => `<b>${WD_LONG[x.d]} de ${x.h} a ${x.h + 1} h</b> (${pctTxt(x.o * 100)})`).join(", ")}. Buenas para una oferta o para avisar a la lista de espera.</p>` : ""}</div>`
+    : "";
+
+  let team = "";
+  if (r.owner && progPick === "all" && r.people.length > 1) {
+    team =
+      `<p class="section-label">Equipo · ${esc(curLabel.toLowerCase())} hasta hoy</p>` +
+      r.people
+        .map((p) => {
+          const x = progSum(cur.people, [p.id]);
+          const b = progSum(r.prevToDate, [p.id]);
+          return `<button type="button" class="card worker pg-person" data-pick="${esc(p.id)}"><div class="worker-head">${face(provById(p.id), "who-face")}<div><strong>${esc(p.name)}</strong><span>${x.services} ${x.services === 1 ? "servicio" : "servicios"} · ticket medio ${euro(Math.round(avg(x) * 100) / 100)}</span></div></div>
+            <div class="comm-box"><div><span>Ganancias</span><strong>${euro(x.billed)}</strong>${progDelta(x.billed, b.billed)}</div><div><span>Ocupación</span><strong>${pctTxt(occOf(x))}</strong>${progDelta(occOf(x), occOf(b), "pp")}</div><div><span>Clientes</span><strong>${x.clients}</strong>${progDelta(x.clients, b.clients)}</div></div></button>`;
+        })
+        .join("");
+  }
+
+  show(
+    staffTop("progreso") +
+      filters +
+      hero +
+      tiles +
+      charts +
+      ahead14 +
+      heat +
+      team +
+      `<p class="caja-meta pg-note">Ganancias: lo cobrado en caja, o el precio del servicio si no se apuntó el cobro. Ocupación: horas con cita entre las horas de ${r.owner && progPick === "all" ? "cada horario" : "tu horario"}, sin contar las bloqueadas ni las citas «No vino». Usa el horario de ahora para los meses pasados.</p>`,
+  );
+  $$("[data-pick]").forEach((b) => (b.onclick = () => ((progPick = b.dataset.pick), render())));
+  $$("[data-months]").forEach((b) => (b.onclick = () => ((progMonths = Number(b.dataset.months)), render())));
+  // Tooltip: al pasar el ratón o tocar una barra o una casilla.
+  $$(".pg-card").forEach((card) => {
+    const tip = card.querySelector(".pg-tip");
+    const showTip = (el) => {
+      const a = card.getBoundingClientRect(),
+        b = el.getBoundingClientRect();
+      tip.textContent = el.dataset.tip;
+      tip.hidden = false;
+      const x = Math.min(Math.max(b.left + b.width / 2 - a.left, 90), a.width - 90);
+      tip.style.left = x + "px";
+      tip.style.top = Math.max(4, b.top - a.top - 8) + "px";
+      card.querySelectorAll(".is-on").forEach((e) => e.classList.remove("is-on"));
+      el.classList.add("is-on");
+    };
+    const hide = () => {
+      tip.hidden = true;
+      card.querySelectorAll(".is-on").forEach((e) => e.classList.remove("is-on"));
+    };
+    card.querySelectorAll("[data-tip]").forEach((el) => {
+      el.addEventListener("pointerenter", () => showTip(el));
+      el.addEventListener("click", () => showTip(el));
+      el.addEventListener("focus", () => showTip(el));
+      el.addEventListener("blur", hide);
+    });
+    card.addEventListener("pointerleave", hide);
   });
 }
 
@@ -2199,11 +2609,14 @@ async function staffCobros() {
     staffTop("cobrar") +
       dayNav +
       (isToday ? `<div class="card cb-card">${cobroForm(r)}</div>` : "") +
+      (isToday ? `<button type="button" class="btn wide secondary cb-shop" id="new-shop">${svg(ICONS.bag)} Venta de ropa</button>` : "") +
       `<p class="section-label">${isToday ? "Cobros de hoy" : "Cobros del día"}</p>` +
       summary +
       (r.cobros.length ? r.cobros.map(row).join("") : `<p class="ag-free">Aún no hay cobros este día.</p>`) +
       (staff.caja ? `<button type="button" class="btn wide secondary" style="margin-top:28px" id="staff-out">Cerrar la caja</button>` : ""),
   );
+  const shopBtn = $("#new-shop");
+  if (shopBtn) shopBtn.onclick = () => staffShop("");
   const out = $("#staff-out");
   if (out)
     out.onclick = async () => {
@@ -2602,7 +3015,7 @@ function loginScreen(reason, next) {
     if (r.direct) {
       await refreshMe();
       nav();
-      toast(`¡Hola${user?.name ? ", " + first(user.name) : ""}!`);
+      toast(L("¡Hola", "Hi") + (user?.name ? ", " + first(user.name) : "") + "!");
       return go(sessionStorage.getItem("nova_next") || "profile");
     }
     challenge = r.challenge;
@@ -2640,7 +3053,7 @@ function bindProducts(list) {
             <p class="pr-price">${euro(p.price)}${p.soldOut ? ` <span class="appt-state st-cancel">Agotado</span>` : ""}</p>
             ${p.desc ? `<p>${esc(p.desc)}</p>` : ""}
             <p class="muted">Se compra en el estudio. Pídeselo a tu barbero en tu próxima cita.</p>
-            <a class="btn wide wa-btn" target="_blank" rel="noopener" href="${wa(`Hola, me interesa ${p.name}${p.brand ? " de " + p.brand : ""}. ¿Lo tenéis?`)}">${svg(ICONS.chat)} Preguntar por WhatsApp</a></div>`,
+            <a class="btn wide wa-btn" target="_blank" rel="noopener" href="${wa(L(`Hola, me interesa ${p.name}${p.brand ? " de " + p.brand : ""}. ¿Lo tenéis?`, `Hi, I'm interested in ${p.name}${p.brand ? " by " + p.brand : ""}. Do you have it?`))}">${svg(ICONS.chat)} Preguntar por WhatsApp</a></div>`,
         );
       }),
   );
@@ -2660,7 +3073,7 @@ async function initProducts() {
     <p class="eyebrow">En el estudio</p>
     <h2 id="prod-title">Productos <em class="serif">para casa.</em></h2>
     <div class="pr-grid">${list.slice(0, 4).map(prodCard).join("")}</div>
-    ${list.length > 4 ? `<div class="home-actions"><a class="btn secondary" href="#productos">Ver los ${list.length} productos</a></div>` : ""}
+    ${list.length > 4 ? `<div class="home-actions"><a class="btn secondary" href="#productos">${L(`Ver los ${list.length} productos`, `See all ${list.length} products`)}</a></div>` : ""}
   </section>`;
   bindProducts(list);
 }
@@ -2771,8 +3184,26 @@ function productSheet(p) {
 // ── Tu cita de siempre ─────────────────────────────────────────────────────
 // Con lo que suele pedir el cliente (día, hora, barbero, servicio y cada
 // cuánto viene) se le propone la próxima cita y se reserva en un toque.
-const DAY_LONG = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
-const everyText = (d) => (!d ? "" : d === 1 ? "cada día" : d % 7 === 0 ? (d === 7 ? "cada semana" : `cada ${d / 7} semanas`) : `cada ${d} días`);
+const DAY_ES = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+const DAY_LONG = new Proxy([], { get: (_, k) => (LANG === "en" ? DAY_EN : DAY_ES)[k] });
+const everyText = (d) =>
+  !d
+    ? ""
+    : LANG === "en"
+      ? d === 1
+        ? "every day"
+        : d % 7 === 0
+          ? d === 7
+            ? "every week"
+            : `every ${d / 7} weeks`
+          : `every ${d} days`
+      : d === 1
+        ? "cada día"
+        : d % 7 === 0
+          ? d === 7
+            ? "cada semana"
+            : `cada ${d / 7} semanas`
+          : `cada ${d} días`;
 async function initHabit(h) {
   const box = $("#habit-card");
   if (!box) return;
@@ -2804,13 +3235,13 @@ async function initHabit(h) {
   const when = pick ? `${cap(DAY_LONG[dayDate(pick.date).getDay()])} ${dayDate(pick.date).getDate()} ${fmtDay(pick.date, { month: "short" })} · ${pick.start}` : "";
   box.outerHTML = `<section class="habit${h.due ? " due" : ""}">
     <p class="eyebrow">${h.due ? "Te toca" : "Tu cita de siempre"}</p>
-    <div class="habit-main">${face(p, "habit-face")}<div><strong>${esc(cap(DAY_LONG[h.weekday]))}s${h.start ? " · " + esc(h.start) : ""}</strong><span>${esc(s.name)} con ${esc(first(p.name))}${h.every ? " · " + esc(everyText(h.every)) : ""}</span></div></div>
+    <div class="habit-main">${face(p, "habit-face")}<div><strong>${esc(cap(DAY_LONG[h.weekday]))}s${h.start ? " · " + esc(h.start) : ""}</strong><span>${esc(tx(s.name))} ${L("con", "with")} ${esc(first(p.name))}${h.every ? " · " + esc(everyText(h.every)) : ""}</span></div></div>
     ${
       pick
-        ? `<button type="button" class="btn wide" id="habit-go">Reservar ${esc(when)}</button>`
-        : `<a class="btn wide secondary" href="#time/${esc(p.id)}" id="habit-cal">Ver huecos con ${esc(first(p.name))}</a>`
+        ? `<button type="button" class="btn wide" id="habit-go">${L("Reservar", "Book")} ${esc(when)}</button>`
+        : `<a class="btn wide secondary" href="#time/${esc(p.id)}" id="habit-cal">${L(`Ver huecos con ${esc(first(p.name))}`, `See free times with ${esc(first(p.name))}`)}</a>`
     }
-    <small>${h.due ? `Hace ${h.since} días de tu último corte.` : "Lo calculamos con tus últimas citas."}</small>
+    <small>${h.due ? L(`Hace ${h.since} días de tu último corte.`, `It's been ${h.since} days since your last haircut.`) : "Lo calculamos con tus últimas citas."}</small>
   </section>`;
   const go2 = $("#habit-go");
   if (go2)
@@ -3381,9 +3812,12 @@ function trainingCard() {
   return `<section class="home-block" aria-labelledby="train-title">
     <a class="train-card" href="#formacion">
       <span class="tc-photo"><img src="${pic("formacion")}" alt="" loading="lazy"></span>
-      <span class="tc-txt"><small>Formación · ${esc(catalog.training.status)}</small>
+      <span class="tc-txt"><small>${L("Formación", "Training")} · ${esc(tx(catalog.training.status))}</small>
         <strong id="train-title">¿Quieres aprender <em class="serif">a cortar?</em></strong>
-        <span>${esc(first(a?.name || "Airam"))} prepara clases para empezar desde cero o para afinar tu técnica.</span>
+        <span>${L(
+          `${esc(first(a?.name || "Airam"))} prepara clases para empezar desde cero o para afinar tu técnica.`,
+          `${esc(first(a?.name || "Airam"))} is preparing classes to start from scratch or to sharpen your technique.`,
+        )}</span>
         <b>Apúntate a la lista <span aria-hidden="true">→</span></b></span>
     </a>
   </section>`;
@@ -3417,7 +3851,7 @@ function trainForm(T) {
   </form>`;
 }
 const trainDone = (s) =>
-  `<div class="card tr-done"><span class="tr-check" aria-hidden="true">✓</span><h2>Estás en la lista${s.name ? `, <em class="serif">${esc(first(s.name))}.</em>` : "."}</h2>
+  `<div class="card tr-done"><span class="tr-check" aria-hidden="true">✓</span><h2>${L("Estás en la lista", "You're on the list")}${s.name ? `, <em class="serif">${esc(first(s.name))}.</em>` : "."}</h2>
     <p>Te escribiremos por WhatsApp en cuanto haya fechas, antes de anunciarlo a nadie más.</p>
     <button type="button" class="btn secondary wide" id="tr-edit">Cambiar mis respuestas</button></div>`;
 
@@ -3430,9 +3864,9 @@ async function trainingPage() {
       `<section class="tr-hero">
         <span class="tr-photo">${a?.image ? `<img src="${esc(a.image)}" alt="${esc(a.name)}">` : ""}</span>
         <div class="tr-hero-in">
-          <span class="tr-status"><i></i>${esc(T.status)} · lista abierta</span>
+          <span class="tr-status"><i></i>${esc(tx(T.status))} · ${L("lista abierta", "list open")}</span>
           <p class="eyebrow">Formación</p>
-          <h1>Aprende el oficio <em>con ${esc(who)}.</em></h1>
+          <h1>${L("Aprende el oficio", "Learn the craft")} <em>${L("con", "with")} ${esc(who)}.</em></h1>
           <p class="sub">Clases prácticas de barbería en el estudio de Vecindario, para empezar desde cero o para afinar tu técnica.</p>
           <a class="btn" href="#tr-form" id="tr-jump">Quiero apuntarme</a>
         </div>
@@ -3444,11 +3878,14 @@ async function trainingPage() {
       <section class="tr-block"><p class="eyebrow">Cómo funciona</p><h2>Primero, <em>la lista.</em></h2>
         <ol class="tr-steps">
           <li><strong>Te apuntas.</strong> Es gratis y no te compromete a nada.</li>
-          <li><strong>${esc(who)} prepara las fechas</strong> según el nivel y los horarios de quienes se apuntan.</li>
+          <li>${L(
+            `<strong>${esc(who)} prepara las fechas</strong> según el nivel y los horarios de quienes se apuntan.`,
+            `<strong>${esc(who)} sets the dates</strong> based on the level and schedules of those who sign up.`,
+          )}</li>
           <li><strong>Te escribimos los primeros</strong>, antes de anunciarlo, con fechas, plazas y precio.</li>
         </ol></section>
       <section class="tr-block" id="tr-form">${trainSaved() ? trainDone(trainSaved()) : trainForm(T)}</section>
-      <p class="muted tr-wa">¿Dudas? <a href="${wa(`Hola, me interesa la formación de barbería con ${who}.`)}" target="_blank" rel="noopener">Escríbenos por WhatsApp</a>.</p>` +
+      <p class="muted tr-wa">¿Dudas? <a href="${wa(L(`Hola, me interesa la formación de barbería con ${who}.`, `Hi, I'm interested in the barbering training with ${who}.`))}" target="_blank" rel="noopener">Escríbenos por WhatsApp</a>.</p>` +
       legalLinks(),
   );
   $("#tr-jump").onclick = (e) => {
@@ -3600,16 +4037,22 @@ async function staffTraining() {
 // La tarjeta la guarda Stripe; aquí solo se ve la marca y los 4 últimos números.
 const cardOn = () => !!catalog?.card?.enabled;
 const BRANDS = { visa: "Visa", mastercard: "Mastercard", amex: "American Express", discover: "Discover", jcb: "JCB", diners: "Diners", unionpay: "UnionPay" };
-const cardLabel = (c) => (c ? `${BRANDS[c.brand] || "Tarjeta"} ···· ${c.last4}` : "");
+const cardLabel = (c) => (c ? `${BRANDS[c.brand] || L("Tarjeta", "Card")} ···· ${c.last4}` : "");
 const isPending = (c) => c && ["requires_action", "requires_payment_method"].includes(c.status);
 
 const feePct = (s, kind) => Math.round((Number(s.price) || 0) * (kind === "late" ? catalog.rules.lateFeePct : catalog.rules.noShowFeePct)) / 100;
-const pctText = (n) => (Number(n) >= 100 ? "el precio entero" : `el ${n} %`);
+const pctText = (n) => (Number(n) >= 100 ? L("el precio entero", "the full price") : L(`el ${n} %`, `${n} %`));
 function guaranteeBox(s) {
   const fee = euro(Math.max(feePct(s, "noShow"), feePct(s, "late")));
   return user?.card
-    ? `<div class="guarantee has"><span class="g-ic">${svg(ICONS.shieldCheck)}</span><div><strong>Cita garantizada con ${esc(cardLabel(user.card))}</strong><span>No se cobra nada ahora. Solo si no vienes o cancelas con menos de ${catalog.rules.cancelHours} h se te pueden cobrar ${fee}.</span></div><button type="button" class="g-link" id="g-change">Cambiar</button></div>`
-    : `<div class="guarantee"><span class="g-ic">${svg(ICONS.card)}</span><div><strong>Tarjeta en garantía</strong><span>Para reservar dejas una tarjeta. <b>No se cobra nada ahora</b>: solo si no vienes o cancelas con menos de ${catalog.rules.cancelHours} h se te pueden cobrar ${fee}. Se guarda en tu perfil y no la vuelves a poner.</span></div></div>`;
+    ? `<div class="guarantee has"><span class="g-ic">${svg(ICONS.shieldCheck)}</span><div><strong>${L("Cita garantizada con", "Booking guaranteed with")} ${esc(cardLabel(user.card))}</strong><span>${L(
+        `No se cobra nada ahora. Solo si no vienes o cancelas con menos de ${catalog.rules.cancelHours} h se te pueden cobrar ${fee}.`,
+        `Nothing is charged now. Only if you don't show up or cancel less than ${catalog.rules.cancelHours} h before can you be charged ${fee}.`,
+      )}</span></div><button type="button" class="g-link" id="g-change">Cambiar</button></div>`
+    : `<div class="guarantee"><span class="g-ic">${svg(ICONS.card)}</span><div><strong>Tarjeta en garantía</strong><span>${L(
+        `Para reservar dejas una tarjeta. <b>No se cobra nada ahora</b>: solo si no vienes o cancelas con menos de ${catalog.rules.cancelHours} h se te pueden cobrar ${fee}. Se guarda en tu perfil y no la vuelves a poner.`,
+        `To book you leave a card. <b>Nothing is charged now</b>: only if you don't show up or cancel less than ${catalog.rules.cancelHours} h before can you be charged ${fee}. It's saved on your profile so you won't need to enter it again.`,
+      )}</span></div></div>`;
 }
 
 let stripeP = null;
@@ -3618,7 +4061,7 @@ function loadStripe() {
     stripeP = new Promise((ok, ko) => {
       const s = document.createElement("script");
       s.src = "https://js.stripe.com/v3/";
-      s.onload = () => ok(window.Stripe(catalog.card.pk, { locale: "es" }));
+      s.onload = () => ok(window.Stripe(catalog.card.pk, { locale: LANG }));
       s.onerror = () => {
         stripeP = null;
         ko(Error("No se ha podido cargar el pago seguro. Revisa tu conexión."));
@@ -3636,7 +4079,10 @@ const fakeFields = () =>
   `<div class="fake-card"><p class="fake-tag">Modo prueba · no es un cobro real</p>
     <label for="fc-num">Número de tarjeta</label><input id="fc-num" inputmode="numeric" autocomplete="off" value="4242 4242 4242 4242">
     <div class="form-actions" style="margin-top:0"><div><label for="fc-exp">Caducidad</label><input id="fc-exp" value="12 / 30"></div><div><label for="fc-cvc">CVC</label><input id="fc-cvc" inputmode="numeric" value="123"></div></div>
-    <p class="muted fake-help">Acabada en <b>0002</b> la rechaza el banco al cobrar; en <b>3155</b> el banco pide confirmación. Cualquier otra se cobra bien.</p></div>`;
+    <p class="muted fake-help">${L(
+      "Acabada en <b>0002</b> la rechaza el banco al cobrar; en <b>3155</b> el banco pide confirmación. Cualquier otra se cobra bien.",
+      "Ending in <b>0002</b> the bank declines the charge; in <b>3155</b> the bank asks for confirmation. Any other goes through.",
+    )}</p></div>`;
 
 // Hoja con el formulario de Stripe. Resuelve al terminar (true) o al cerrarla (false).
 function paySheet({ eyebrow, title, text, cta, mount, submit }) {
@@ -3684,15 +4130,24 @@ function chargeNote(b) {
   const c = b.charge;
   if (!c) {
     if (b.waived) return `<p class="charge-note ok">Tu barbero ha decidido no cobrarte nada por esta cita.</p>`;
-    if (b.late) return `<p class="charge-note">La cancelaste con menos de ${catalog.rules.cancelHours} h. Tu barbero revisará si se cobra; si tienes un motivo justificado, <a href="${wa(`Hola, cancelé tarde mi cita del ${longDay(b.date)} (ref. ${b.id}) porque…`)}" target="_blank" rel="noopener">cuéntaselo por WhatsApp</a>.</p>`;
+    if (b.late)
+      return `<p class="charge-note">${L(
+        `La cancelaste con menos de ${catalog.rules.cancelHours} h. Tu barbero revisará si se cobra; si tienes un motivo justificado, <a href="${wa(`Hola, cancelé tarde mi cita del ${longDay(b.date)} (ref. ${b.id}) porque…`)}" target="_blank" rel="noopener">cuéntaselo por WhatsApp</a>.`,
+        `You cancelled less than ${catalog.rules.cancelHours} h before. Your barber will review whether there's a charge; if you have a good reason, <a href="${wa(`Hi, I cancelled my booking on ${longDay(b.date)} late (ref. ${b.id}) because…`)}" target="_blank" rel="noopener">tell them on WhatsApp</a>.`,
+      )}</p>`;
     return "";
   }
-  if (c.status === "succeeded") return `<p class="charge-note">Se cobraron ${euro(c.amount)} en tu ${esc(cardLabel(c))} por ${c.kind === "late" ? "cancelar con poca antelación" : "no venir ni cancelar a tiempo"}.</p>`;
-  if (c.status === "refunded") return `<p class="charge-note ok">El cobro de ${euro(c.amount)} por esta cita se te ha devuelto.</p>`;
+  if (c.status === "succeeded")
+    return `<p class="charge-note">${L(
+      `Se cobraron ${euro(c.amount)} en tu ${esc(cardLabel(c))} por ${c.kind === "late" ? "cancelar con poca antelación" : "no venir ni cancelar a tiempo"}.`,
+      `${euro(c.amount)} was charged to your ${esc(cardLabel(c))} for ${c.kind === "late" ? "cancelling at short notice" : "not showing up or cancelling in time"}.`,
+    )}</p>`;
+  if (c.status === "refunded") return `<p class="charge-note ok">${L(`El cobro de ${euro(c.amount)} por esta cita se te ha devuelto.`, `The ${euro(c.amount)} charge for this booking has been refunded.`)}</p>`;
   if (isPending(c))
-    return `<div class="warning"><strong>Pago pendiente: ${euro(c.amount)}</strong><br>${c.kind === "late" ? "La cancelaste con poca antelación" : "No viniste y no la cancelaste a tiempo"}, así que según las condiciones se cobra. ${
-      c.status === "requires_action" ? "Tu banco pide que lo confirmes." : "Tu tarjeta no se pudo cobrar."
-    }</div><button type="button" class="btn wide" id="pay-now">Pagar ${euro(c.amount)}</button>`;
+    return `<div class="warning"><strong>${L("Pago pendiente", "Pending payment")}: ${euro(c.amount)}</strong><br>${L(
+      `${c.kind === "late" ? "La cancelaste con poca antelación" : "No viniste y no la cancelaste a tiempo"}, así que según las condiciones se cobra. ${c.status === "requires_action" ? "Tu banco pide que lo confirmes." : "Tu tarjeta no se pudo cobrar."}`,
+      `${c.kind === "late" ? "You cancelled at short notice" : "You didn't show up or cancel in time"}, so under the terms it's charged. ${c.status === "requires_action" ? "Your bank is asking you to confirm it." : "Your card couldn't be charged."}`,
+    )}</div><button type="button" class="btn wide" id="pay-now">${L("Pagar", "Pay")} ${euro(c.amount)}</button>`;
   return "";
 }
 
@@ -3744,7 +4199,7 @@ async function addCard(who = {}) {
   });
   if (!ok) return null;
   await refreshMe();
-  toast(`Tarjeta guardada: ${cardLabel(user.card)}.`);
+  toast(`${L("Tarjeta guardada", "Card saved")}: ${cardLabel(user.card)}.`);
   return user.card;
 }
 
@@ -3755,9 +4210,9 @@ async function payPending(b) {
   let stripe, elements;
   const ok = await paySheet({
     eyebrow: "Pago pendiente",
-    title: `${euro(b.charge.amount)} · cita del ${esc(shortDay(b.date))}`,
+    title: `${euro(b.charge.amount)} · ${L("cita del", "booking on")} ${esc(shortDay(b.date))}`,
     text: r.status === "requires_action" ? "Tu banco pide que confirmes el pago." : "Tu tarjeta no se pudo cobrar. Prueba otra vez o usa otra tarjeta.",
-    cta: `Pagar ${euro(b.charge.amount)}`,
+    cta: `${L("Pagar", "Pay")} ${euro(b.charge.amount)}`,
     mount: async (el) => {
       if (r.fake) return void (el.innerHTML = `<p class="fake-tag">Modo prueba · no es un cobro real</p>`);
       stripe = await loadStripe();
@@ -4014,6 +4469,11 @@ $("#book-link").addEventListener("click", (e) => {
   if (document.body.dataset.page === "home") return down();
   go("home");
   setTimeout(down, 700);
+});
+// ES / EN: se cambia el idioma y se repinta la pantalla en la que estás.
+$("#lang-btn").addEventListener("click", () => {
+  setLang(LANG === "en" ? "es" : "en");
+  render();
 });
 window.addEventListener("hashchange", render);
 refreshMe().then(render);

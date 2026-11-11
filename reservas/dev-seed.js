@@ -80,6 +80,24 @@ export async function seed() {
       }
     }
   }
+  // Casi un año de historia que va a más, para ver el panel de Progreso con
+  // curva: cada mes un poco más de citas (y la tarde del martes, floja).
+  const slots = ["10:00", "10:30", "11:00", "11:30", "12:00", "12:30", "13:00", "16:00", "16:30", "17:00", "17:30", "18:00", "18:30", "19:00"];
+  for (let d = -330; d < -20; d++) {
+    const date = addDays(today, d);
+    const wd = new Date(date + "T12:00:00Z").getUTCDay();
+    if ([0, 1].includes(wd)) continue;
+    const fill = 0.25 + 0.45 * ((d + 330) / 310);
+    for (const pid of ["airam", "ehedey", "noa"]) {
+      for (let i = 0; i < slots.length; i += 2) {
+        const r = ((d * 31 + i * 17 + pid.length * 7) % 100) / 100;
+        const flojo = wd === 2 && toMin(slots[i]) >= 16 * 60 ? 0.4 : 1;
+        if (Math.abs(r) > fill * flojo * (pid === "airam" ? 0.8 : 1)) continue;
+        const who = clients[k++ % clients.length];
+        await save(booking(`c${k % clients.length}@nova.test`, who, date, slots[i], k % 3 === 0 ? "corte-barba" : "corte", {}, pid));
+      }
+    }
+  }
   // Esos clientes, con tarjeta de prueba: la de c1 la rechaza el banco al cobrar
   // una falta y la de c2 pide confirmación. c5 no dejó tarjeta.
   for (let i = 0; i < clients.length - 1; i++)

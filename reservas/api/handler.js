@@ -1483,7 +1483,7 @@ const routes = {
   // NOVA Supply: el barbero apunta una compra de ropa a la cuenta de un socio
   // (por su correo o su código del Club) y le suma los puntos.
   "GET staff/member": async ({ req, q }) => {
-    await needStaff(req);
+    await needCaja(req); // también la tablet del mostrador, que es donde se vende la ropa
     const u = await findMember(q.get("q"));
     if (!u) fail(404, "No encontramos a ese socio. Prueba con su correo o su código del Club.");
     const c = await clubOf(u);
@@ -1491,7 +1491,7 @@ const routes = {
   },
 
   "POST staff/shop": async ({ req, body }) => {
-    const me = await needStaff(req);
+    const me = await needCaja(req);
     const u = await findMember(body.email);
     if (!u) fail(404, "No encontramos a ese socio.");
     const amount = Math.round(Number(String(body.amount || "").replace(",", ".")) * 100) / 100;
@@ -1982,6 +1982,62 @@ const routes = {
     };
   },
 
+  // Progreso: ganancias y ocupación mes a mes. Cada barbero ve solo lo suyo;
+  // el dueño ve a todo el equipo y el total del salón.
+  "GET staff/progress": async ({ req, q }) => {
+    const me = await needStaff(req);
+    const n = [6, 12].includes(Number(q.get("months"))) ? Number(q.get("months")) : 12;
+    const now = T.nowLocal();
+    const cur = now.date.slice(0, 7);
+    const months = Array.from({ length: n }, (_, i) => shiftMonth(cur, i - n + 1));
+    const prev = shiftMonth(cur, -1);
+    const next = shiftMonth(cur, 1);
+    const start = (m) => m + "-01 00:00";
+    const until = (m) => (m === cur ? now.stamp : start(shiftMonth(m, 1)));
+
+    // Meses cerrados: se guardan unas horas para no releerlo todo cada vez.
+    const past = [...new Set([...months, shiftMonth(cur, -2)])].filter((m) => m < prev);
+    const cached = past.length ? await cmd("MGET", ...past.map((m) => "progm:" + m)) : [];
+    const agg = {};
+    past.forEach((m, i) => cached[i] && (agg[m] = JSON.parse(cached[i])));
+    const need = [...new Set([...past.filter((m) => !agg[m]), prev, cur, next])];
+    const docs = Object.fromEntries(await Promise.all(need.map(async (m) => [m, await monthData(m)])));
+    for (const m of [...past, prev, cur]) {
+      if (agg[m]) continue;
+      agg[m] = progressOf(docs[m], start(m), until(m));
+      if (m < prev) await setJSON("progm:" + m, agg[m], "EX", 6 * 3600);
+    }
+    // El mes pasado hasta el mismo día y hora que hoy, para comparar justo.
+    const [y, mo] = prev.split("-").map(Number);
+    const sameDay = Math.min(Number(now.date.slice(8, 10)), new Date(Date.UTC(y, mo, 0)).getUTCDate());
+    const prevToDate = progressOf(docs[prev], start(prev), `${prev}-${String(sameDay).padStart(2, "0")} ${now.time}`);
+    // Lo que ya está reservado: el resto del mes y los próximos 14 días.
+    const both = { list: [...docs[cur].list, ...docs[next].list], pays: [] };
+    const restOfMonth = progressOf(both, now.stamp, start(next));
+    const ahead = progressOf(both, now.stamp, T.addDays(now.date, 15) + " 00:00");
+    // Mapa de horas: los dos meses anteriores y lo que va de este.
+    const heat = {};
+    for (const m of [shiftMonth(cur, -2), prev, cur])
+      for (const [pid, x] of Object.entries(agg[m].people)) {
+        const h = (heat[pid] ||= {});
+        for (const [k, [b, c]] of Object.entries(x.heat)) (h[k] ||= [0, 0]), (h[k][0] += b), (h[k][1] += c);
+      }
+
+    const ok = (pid) => me.owner || pid === me.id;
+    const pick = (a) => Object.fromEntries(Object.entries(a.people).filter(([pid]) => ok(pid)).map(([pid, { heat, ...x }]) => [pid, x]));
+    const seen = new Set(months.flatMap((m) => Object.keys(agg[m].people)));
+    return {
+      owner: !!me.owner,
+      today: now.date,
+      people: TEAM.filter((p) => ok(p.id) && (p.active !== false || seen.has(p.id))).map((p) => ({ id: p.id, name: p.name, owner: !!p.owner })),
+      months: months.map((m) => ({ month: m, partial: m === cur, people: pick(agg[m]) })),
+      prevToDate: pick(prevToDate),
+      restOfMonth: pick(restOfMonth),
+      ahead: pick(ahead),
+      heat: Object.fromEntries(Object.entries(heat).filter(([pid]) => ok(pid))),
+    };
+  },
+
   // ── Cobros en caja ──────────────────────────────────────────────────────
   // La tablet del local: cualquiera del equipo apunta un cobro a nombre de
   // quien hizo el servicio. Cada barbero ve solo los suyos (y los que ha
@@ -2347,6 +2403,94 @@ async function monthBookings(month) {
 async function monthPays(month) {
   return bookingsByIds2("pay:", await cmd("SMEMBERS", "paymonth:" + month));
 }
+// ── Progreso: ganancias y ocupación ────────────────────────────────────────
+function shiftMonth(month, n) {
+  const [y, m] = month.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 7);
+}
+
+// Todo lo de un mes: citas, horas bloqueadas y cobros de caja.
+async function monthData(month) {
+  const [y, m] = month.split("-").map(Number);
+  const total = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const dates = Array.from({ length: total }, (_, i) => `${month}-${String(i + 1).padStart(2, "0")}`);
+  const sets = await pipe(dates.map((d) => ["SMEMBERS", "day:" + d]));
+  const [list, pays] = await Promise.all([bookingsByIds([...new Set(sets.flat())]), monthPays(month)]);
+  return { list: list.filter((b) => b.date.startsWith(month) && b.status === "confirmed"), pays };
+}
+
+// Ganancias y ocupación de cada barbero entre dos momentos («2026-11-01 00:00»).
+// Ocupación = tramos de 15 min de su horario (sin contar lo bloqueado) que
+// tenían una cita, o un cobro sin cita (se pone justo antes de la hora del
+// cobro, con lo que dura el servicio). Las citas «No vino» no cuentan.
+// Ganancias = lo cobrado en caja, o el precio del servicio si no se apuntó cobro.
+function progressOf({ list, pays }, from, to) {
+  const inside = (stamp) => stamp >= from && stamp < to;
+  const cobradas = new Set(pays.map((x) => x.booking).filter(Boolean));
+  const people = {};
+  const P = (id) => (people[id] ||= { billed: 0, services: 0, clients: 0, booked: 0, cap: 0, heat: {}, _who: new Set(), _days: {} });
+  const day = (id, date) => (P(id)._days[date] ||= { busy: new Set(), off: new Set() });
+  const mark = (set, a, b) => {
+    for (let t = Math.floor(a / LOCK_MIN) * LOCK_MIN; t < b; t += LOCK_MIN) set.add(t);
+  };
+  const who = (x) => (x.email || x.name || "").toLowerCase();
+
+  for (const b of list) {
+    const [a, e] = [T.toMin(b.start), T.toMin(b.end)];
+    if (b.kind === "block") mark(day(b.provider.id, b.date).off, a, e);
+    if (b.kind !== "booking" || b.attendance === "absent") continue;
+    mark(day(b.provider.id, b.date).busy, a, e);
+    if (!inside(b.date + " " + b.start) || cobradas.has(b.id)) continue;
+    const p = P(b.provider.id);
+    p.billed += Number(b.service.price) || 0;
+    p.services++;
+    p._who.add(who(b));
+  }
+  for (const x of pays) {
+    if (!x.booking) {
+      const s = x.items.map((it) => service(it.id)).find(Boolean);
+      const end = T.toMin(x.time);
+      mark(day(x.provider.id, x.date).busy, end - (s?.duration || 30), end);
+    }
+    if (!inside(x.date + " " + x.time)) continue;
+    const p = P(x.provider.id);
+    p.billed += x.amount;
+    p.services++;
+    p._who.add(who(x));
+  }
+
+  // El horario de cada uno, día a día. Quien ya no está en activo solo cuenta
+  // si tuvo algo en ese intervalo.
+  const [d0, d1] = [from.slice(0, 10), to.slice(0, 10)];
+  for (const pr of TEAM) {
+    if (pr.active === false && !people[pr.id]) continue;
+    const p = P(pr.id);
+    for (let date = d0; date <= d1; date = T.addDays(date, 1)) {
+      const wd = T.weekday(date);
+      const d = p._days[date];
+      for (const [a, b] of pr.hours?.[wd] || []) {
+        for (let t = T.toMin(a); t + LOCK_MIN <= T.toMin(b); t += LOCK_MIN) {
+          if (!inside(date + " " + T.toHHMM(t)) || d?.off.has(t)) continue;
+          const busy = d?.busy.has(t) ? LOCK_MIN : 0;
+          const h = (p.heat[wd + "-" + Math.floor(t / 60)] ||= [0, 0]);
+          p.cap += LOCK_MIN;
+          p.booked += busy;
+          h[0] += busy;
+          h[1] += LOCK_MIN;
+        }
+      }
+    }
+  }
+  for (const [id, p] of Object.entries(people)) {
+    p.billed = cents(p.billed);
+    p.clients = p._who.size;
+    delete p._who;
+    delete p._days;
+    if (!p.services && !p.cap) delete people[id];
+  }
+  return { people };
+}
+
 const payLabel = (x) => x.items.map((it) => it.name).join(" + ") || "Cobro";
 
 // Lo que llega del formulario de cobrar: barbero, servicio, extras, importe y forma de pago.

@@ -1554,3 +1554,75 @@ span.pr-thumb { display: grid; }
 /* Debajo de «Añadir a mi calendario», el otro calendario en pequeño. */
 .cal-alt { margin: 8px 0 0; text-align: center; font-size: 13px; }
 .cal-alt a { color: var(--muted); }
+
+/* Progreso: ganancias y ocupación mes a mes (en negro sobre crema, como el
+   resto del panel; el rayado es «ya reservado»). Subidas y bajadas llevan
+   flecha y texto, el color solo acompaña. */
+.pg-filters { display: grid; gap: 8px; margin: 4px 0 6px; }
+.pg-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.pg-chips button { min-height: 36px; padding: 0 14px; background: transparent; color: var(--ink); border: 1px solid var(--line); font-family: var(--serif); font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.pg-chips button.on { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.pg-range { justify-content: flex-end; }
+.pg-range button { min-height: 30px; padding: 0 10px; font-size: 10px; }
+.pg-hero .caja-big { margin-bottom: 8px !important; }
+.pg-vs { position: relative; z-index: 1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin: 0 0 14px; font-size: 13px; color: #d2d2d2; }
+.pg-delta { font-style: normal; font-size: 12px; font-weight: 700; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pg-delta.up { color: #1d7a3a; }
+.pg-delta.down { color: #b3261e; }
+.pg-hero .pg-delta { font-size: 14px; color: #fff; }
+.pg-hero .pg-delta.up { color: #7fdc9b; }
+.pg-hero .pg-delta.down { color: #ff9a92; }
+.pg-tiles > div { gap: 5px; }
+.pg-tiles .pg-delta { font-size: 11px; }
+.comm-box .pg-delta { display: block; margin-top: 3px; font-size: 11px; }
+.pg-card { position: relative; padding: 14px 12px 12px; }
+.pg-chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.pg-grid { stroke: var(--line); stroke-dasharray: 2 3; }
+.pg-base { stroke: var(--ink); stroke-width: 1; }
+.pg-bar { fill: var(--ink); }
+.pg-bar-ahead { fill: url(#pg-hatch); stroke: var(--ink); stroke-width: 1; }
+.pg-axis { font-size: 9.5px; fill: var(--muted); font-family: var(--display); }
+.pg-val { font-size: 10px; font-weight: 700; fill: var(--ink); font-family: var(--display); font-variant-numeric: tabular-nums; }
+.pg-hit { cursor: pointer; outline: none; }
+.pg-hit:hover .pg-bar, .pg-hit.is-on .pg-bar, .pg-hit:focus-visible .pg-bar { fill: color-mix(in srgb, var(--ink) 72%, var(--bg)); }
+.pg-hit.is-on .pg-axis { fill: var(--ink); font-weight: 700; }
+.pg-tip { position: absolute; z-index: 3; transform: translate(-50%, -100%); max-width: 220px; padding: 8px 10px; background: var(--ink); color: var(--bg); font-size: 12px; line-height: 1.35; pointer-events: none; text-align: center; }
+.pg-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin: 10px 0 0; font-size: 12px; color: var(--muted); }
+.pg-key { display: inline-block; width: 12px; height: 12px; background: var(--ink); margin-left: 6px; }
+.pg-key:first-child { margin-left: 0; }
+.pg-key.ahead { background: repeating-linear-gradient(45deg, var(--ink) 0 1.5px, var(--bg) 1.5px 4px); border: 1px solid var(--ink); }
+.pg-trend { font-size: 14px; line-height: 1.5; margin: 12px 2px; }
+.pg-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.pg-table th, .pg-table td { text-align: right; padding: 8px 4px; border-bottom: 1px solid var(--line); }
+.pg-table th:first-child, .pg-table td:first-child { text-align: left; }
+.pg-table th { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.pg-table small { color: var(--muted); }
+.pg-ahead p { margin: 12px 0 0; font-size: 14px; line-height: 1.5; }
+.pg-meter { height: 12px; background: var(--soft); border: 1px solid var(--ink); }
+.pg-meter i { display: block; height: 100%; background: var(--ink); }
+.pg-heat { display: grid; grid-template-columns: 30px repeat(var(--cols), minmax(0, 1fr)); gap: 2px; align-items: center; }
+.pg-hh { font-size: 9px; color: var(--muted); text-align: center; }
+.pg-hd { font-size: 10px; font-weight: 700; color: var(--muted); }
+.pg-cell { display: block; aspect-ratio: 1; min-height: 14px; background: var(--ink); cursor: pointer; outline: none; }
+.pg-cell.off { background: transparent; border: 1px dashed var(--line); cursor: default; }
+.pg-cell.l0 { background: color-mix(in srgb, var(--ink) 6%, var(--bg)); }
+.pg-cell.l1 { background: color-mix(in srgb, var(--ink) 22%, var(--bg)); }
+.pg-cell.l2 { background: color-mix(in srgb, var(--ink) 42%, var(--bg)); }
+.pg-cell.l3 { background: color-mix(in srgb, var(--ink) 62%, var(--bg)); }
+.pg-cell.l4, .pg-cell.l5 { background: color-mix(in srgb, var(--ink) 85%, var(--bg)); }
+.pg-cell.is-on, .pg-cell:focus-visible { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3px var(--ink); }
+.pg-scale { display: flex; align-items: center; justify-content: flex-end; gap: 3px; margin-top: 10px; font-size: 11px; color: var(--muted); }
+.pg-scale .pg-cell { width: 14px; min-height: 0; cursor: default; }
+.pg-scale span { margin: 0 4px; }
+.pg-person { display: block; width: 100%; text-align: left; color: var(--ink); font: inherit; cursor: pointer; }
+.pg-person:hover { border-color: var(--ink); }
+.pg-note { margin-top: 22px; line-height: 1.5; }
+
+/* ── Idioma: ES / EN en la cabecera, junto a «Reservar» ─────────── */
+.hdr-end { justify-self: end; display: flex; align-items: center; gap: 16px; }
+.hdr-lang { cursor: pointer; color: var(--ink); opacity: .55; }
+body[data-page="home"]:not(.scrolled) .hdr-lang { color: #fff; }
+.hdr-btn.hdr-lang, body[data-page="home"]:not(.scrolled) .hdr-btn.hdr-lang { padding: 0 2px; }
+.hdr-lang:hover { opacity: 1; }
+@media (max-width: 420px) { .hdr-end { gap: 12px; } }
+.cb-shop { margin: 10px 0 4px; }
