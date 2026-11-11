@@ -1,6 +1,6 @@
 // Una sola función para toda la API: vercel.json manda aquí /api/<lo que sea>.
 import crypto from "node:crypto";
-import { cmd, pipe, getJSON, setJSON, hgetall, usingMemory, scanKeys, dumpKeys } from "./_lib/store.js";
+import { cmd, pipe, getJSON, setJSON, hgetall, usingMemory, scanKeys, dumpKeys, claim, hit } from "./_lib/store.js";
 import { SERVICES, PROVIDERS, RULES, BUSINESS, POINTS, MEDALS, REWARDS, COMMISSION, TRAINING, EXTRAS, PAY_METHODS, publicCatalog } from "./_lib/config.js";
 import * as T from "./_lib/time.js";
 import { codeMail, send, bookingLines, mailReady } from "./_lib/mail.js";
@@ -72,10 +72,8 @@ async function readBody(req) {
 }
 const ip = (req) => String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "").split(",")[0].trim();
 
-async function limit(key, max, seconds) {
-  const n = await cmd("INCR", "rl:" + key);
-  if (n === 1) await cmd("EXPIRE", "rl:" + key, seconds);
-  if (n > max) fail(429, "Demasiados intentos. Espera unos minutos.");
+async function limit(key, max, seconds, msg = "Demasiados intentos. Espera unos minutos.") {
+  if ((await hit("rl:" + key, seconds)) > max) fail(429, msg);
 }
 
 // ── Sesiones ───────────────────────────────────────────────────────────────
@@ -91,7 +89,9 @@ async function currentUser(req) {
 // equipo) y solo puede cobrar: el resto del panel no la reconoce.
 async function staffOf(req, allowCaja = false) {
   const t = cookies(req)[STAFF];
-  const id = t && (await cmd("GET", "staffsess:" + sha(t)));
+  return staffById(t && (await cmd("GET", "staffsess:" + sha(t))), allowCaja);
+}
+function staffById(id, allowCaja) {
   if (id === "caja") return allowCaja ? { id: "caja", name: "Caja", owner: false, caja: true } : null;
   const p = id && TEAM.find((x) => x.id === id && x.active !== false);
   return p ? { id: p.id, name: p.name, owner: !!p.owner } : null;
@@ -348,16 +348,24 @@ let NORMS = {
   winbackAuto: false, // mandarles un correo solo (una vez cada 60 días como mucho)
   winbackText: "Hace tiempo que no te vemos por el estudio. Tu hueco te está esperando: reserva en un minuto desde la app.",
   winbackOffer: "",
+  remindSoon: true, // otro correo unas 2 horas antes de la cita
+  reviews: false, // pedir reseña por correo después de un corte (hace falta reviewUrl)
+  reviewUrl: "",
+  dailyClose: true, // cada mañana, el resumen de caja de ayer al dueño
+  waitlist: true, // «avísame si se libera» en los días completos
 };
 const WEEK = [0, 1, 2, 3, 4, 5, 6];
+const NORMS0 = NORMS;
 async function loadTeam() {
-  let t = await getJSON("team");
+  // Equipo y normas en un solo viaje a la base de datos.
+  const [rawTeam, rawNorms] = await cmd("MGET", "team", "norms");
+  let t = rawTeam ? JSON.parse(rawTeam) : null;
   if (!Array.isArray(t) || !t.length) {
     t = PROVIDERS.map((p) => ({ ...p, active: true, commission: p.owner ? 0 : (COMMISSION[p.id] ?? 40) }));
     await setJSON("team", t);
   }
   TEAM = t;
-  NORMS = { ...NORMS, ...((await getJSON("norms")) || {}) };
+  NORMS = { ...NORMS0, ...(rawNorms ? JSON.parse(rawNorms) : {}) };
 }
 const activeTeam = () => TEAM.filter((p) => p.active !== false);
 const publicProvider = ({ hours, pinHash, commission, ...p }) => p;
@@ -406,56 +414,59 @@ function freeTimes(p, s, date, busy, now, horizon = RULES.daysAhead) {
   return out;
 }
 
-// Cada tramo de 15 min de la cita se aparta con SET NX: si dos personas pulsan
-// a la vez la misma hora, solo una se la lleva. Los tramos que ya son de esta
-// misma cita (al cambiarla de hora) cuentan como suyos.
-async function holdSlot(b) {
+// ── Apartar, mover y soltar horas ───────────────────────────────────────────
+// Cada tramo de 15 min de la cita tiene un cerrojo `lock:<barbero>:<día>:<hora>`
+// con el id de la cita. `claim` (store.js) comprueba los tramos, los aparta y
+// guarda la cita y sus índices en un solo paso: si dos personas pulsan a la vez
+// la misma hora, solo una se la lleva, y si la función se corta no queda nada
+// a medias. El cerrojo dura hasta una semana después de la cita.
+const lockTtl = (b) => Math.max(86400, T.minutesUntil(b.date, b.end) * 60 + 7 * 86400);
+const indexWrites = (b) => [
+  ["SET", "bk:" + b.id, JSON.stringify(b)],
+  ["HSET", `occ:${b.provider.id}:${monthOf(b.date)}`, b.id, `${b.date}|${b.start}|${b.end}`],
+  ["SADD", "day:" + b.date, b.id],
+  ...(b.email ? [["SADD", "ubk:" + b.email, b.id]] : []),
+];
+async function place(b, { before = [], release = [] } = {}) {
   const keys = lockKeys(b);
-  const got = await pipe(keys.map((k) => ["SET", k, b.id, "NX", "EX", 120 * 86400]));
-  const missing = keys.filter((_, i) => got[i] !== "OK");
-  if (!missing.length) return;
-  const owners = await cmd("MGET", ...missing);
-  if (owners.every((o) => o === b.id)) return;
-  const mine = keys.filter((_, i) => got[i] === "OK");
-  if (mine.length) await cmd("DEL", ...mine);
-  fail(409, "Esa hora se acaba de ocupar. Elige otra, por favor.");
-}
-async function releaseSlot(b, keep = []) {
-  const keys = lockKeys(b).filter((k) => !keep.includes(k));
-  const owners = keys.length ? await cmd("MGET", ...keys) : [];
-  const mine = keys.filter((_, i) => owners[i] === b.id);
-  const ops = [["HDEL", `occ:${b.provider.id}:${monthOf(b.date)}`, b.id]];
-  if (mine.length) ops.push(["DEL", ...mine]);
-  await pipe(ops);
-}
-async function saveNew(b) {
-  await pipe([
-    ["SET", "bk:" + b.id, JSON.stringify(b)],
-    ["HSET", `occ:${b.provider.id}:${monthOf(b.date)}`, b.id, `${b.date}|${b.start}|${b.end}`],
-    ["SADD", "day:" + b.date, b.id],
-    ...(b.email ? [["SADD", "ubk:" + b.email, b.id]] : []),
-  ]);
-}
-
-async function bookingsByIds(ids) {
-  const out = [];
-  for (let i = 0; i < ids.length; i += 300) {
-    const raw = await cmd("MGET", ...ids.slice(i, i + 300).map((id) => "bk:" + id));
-    out.push(...raw.filter(Boolean).map((x) => JSON.parse(x)));
+  for (let round = 0; round < 3; round++) {
+    const r = await claim(keys, b.id, lockTtl(b), [...before, ...indexWrites(b)], release);
+    if (r === true) return;
+    // El tramo es de otra cita. Si esa cita ya no lo ocupa (restos de un fallo
+    // de antes de existir `claim`), se suelta y se vuelve a intentar.
+    const o = await getJSON("bk:" + r);
+    if (o && o.status === "confirmed" && lockKeys(o).some((k) => keys.includes(k))) break;
+    await claim([], r, 1, [], keys);
   }
+  fail(409, "Esa hora se acaba de ocupar. Elige otra, por favor.", { taken: true });
+}
+// Cambia una cita de hora (y de día) de una vez: aparta lo nuevo y suelta lo viejo.
+async function moveTo(b, moved) {
+  const fresh = lockKeys(moved);
+  const before = [];
+  if (b.date !== moved.date) before.push(["SREM", "day:" + b.date, b.id]);
+  if (monthOf(b.date) !== monthOf(moved.date) || b.provider.id !== moved.provider.id) before.push(["HDEL", `occ:${b.provider.id}:${monthOf(b.date)}`, b.id]);
+  await place(moved, { before, release: lockKeys(b).filter((k) => !fresh.includes(k)) });
+}
+// Guarda la cita ya cancelada y suelta su hora, de una vez.
+const unplace = (b, done) =>
+  claim([], b.id, 1, [
+    ["SET", "bk:" + b.id, JSON.stringify(done)],
+    ["HDEL", `occ:${b.provider.id}:${monthOf(b.date)}`, b.id],
+  ], lockKeys(b));
+
+// Muchas citas a la vez: bloques de 300 y hasta 10 bloques por viaje.
+async function bookingsByIds(ids) {
+  const out = [],
+    chunks = [];
+  for (let i = 0; i < ids.length; i += 300) chunks.push(["MGET", ...ids.slice(i, i + 300).map((id) => "bk:" + id)]);
+  for (let i = 0; i < chunks.length; i += 10)
+    for (const raw of await pipe(chunks.slice(i, i + 10))) out.push(...raw.filter(Boolean).map((x) => JSON.parse(x)));
   return out;
 }
 const isPast = (b, now) => b.date + " " + b.start < now.stamp;
 const isActive = (b, now) => b.status === "confirmed" && !isPast(b, now);
 
-function validSlotInput(body) {
-  const s = service(body.service),
-    p = provider(body.provider);
-  if (!s || s.consult) fail(400, "Ese servicio no se reserva por aquí.");
-  if (!p || p.active === false || !canDo(s, p)) fail(400, "Ese barbero no hace este servicio.");
-  if (!T.isDate(body.date) || !T.isTime(body.start)) fail(400, "Elige día y hora.");
-  return { s, p };
-}
 function makeBooking(s, p, date, start, extra) {
   return {
     id: newId(),
@@ -494,6 +505,165 @@ async function notifyOne(to, b, title) {
   );
 }
 
+const hostOf = (req) => process.env.PUBLIC_HOST || req.headers.host || "";
+const shuffle = (a) => {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+};
+
+// ── Reservar (cliente) ─────────────────────────────────────────────────────
+// Con barbero elegido o «sin preferencia» (provider = "any"): entonces se le da
+// al que tenga esa hora libre y menos trabajo ese día.
+async function bookNow(req, res, body) {
+  const s = service(body.service);
+  if (!s || s.consult) fail(400, "Ese servicio no se reserva por aquí.");
+  const anyone = body.provider === "any",
+    fixed = anyone ? null : provider(body.provider);
+  if (!anyone && (!fixed || fixed.active === false || !canDo(s, fixed))) fail(400, "Ese barbero no hace este servicio.");
+  if (!T.isDate(body.date) || !T.isTime(body.start)) fail(400, "Elige día y hora.");
+  const user = await currentUser(req);
+  const email = user ? user.email : normEmail(body.email);
+  // Con la sesión iniciada no hace falta mandar nada: se usan los datos del perfil.
+  // El teléfono es opcional (se pide después, para completar el perfil).
+  const name = clean(body.name) || clean(user?.name),
+    phone = clean(body.phone, 30) || clean(user?.phone, 30);
+  if (!name) fail(400, "Falta tu nombre.");
+  if (!EMAIL.test(email)) fail(400, "Revisa tu correo.");
+  if (phone && !PHONE.test(phone)) fail(400, "Revisa tu teléfono.");
+  if (body.terms !== true) fail(400, "Tienes que aceptar las condiciones.");
+  // Con Stripe activado, toda cita online queda garantizada con una tarjeta.
+  if (Card.cardEnabled() && !user?.card) fail(402, "Añade una tarjeta para garantizar la cita.", { card: true });
+  await limit("book:" + ip(req), 12, 3600);
+  // Una reserva a la vez por persona: dos pestañas pulsando a la vez no se saltan el máximo de citas.
+  if ((await cmd("SET", "booking:" + email, "1", "NX", "EX", 20)) !== "OK") fail(429, "Ya estamos guardando otra reserva tuya. Un momento…");
+  try {
+    const now = T.nowLocal();
+    const mine = await bookingsByIds(await cmd("SMEMBERS", "ubk:" + email));
+    if (mine.filter((b) => isActive(b, now) && !b.series).length >= RULES.maxActive)
+      fail(400, `Ya tienes ${RULES.maxActive} citas pendientes. Cuando pase alguna podrás reservar otra.`);
+
+    const cands = [];
+    for (const p of anyone ? shuffle(activeTeam().filter((p) => canDo(s, p))) : [fixed]) {
+      const busy = await busyOf(p.id, monthOf(body.date));
+      if (freeTimes(p, s, body.date, busy, now).includes(body.start)) cands.push({ p, load: (busy[body.date] || []).reduce((a, [x, y]) => a + y - x, 0) });
+    }
+    cands.sort((a, b) => a.load - b.load);
+    const extra = {
+      email,
+      name,
+      phone,
+      by: "client",
+      ...(anyone ? { anyBarber: true } : {}),
+      ...(user?.card ? { guarantee: { brand: user.card.brand, last4: user.card.last4, at: now.stamp } } : {}),
+    };
+    let b = null;
+    for (const { p } of cands) {
+      const x = makeBooking(s, p, body.date, body.start, extra);
+      try {
+        await place(x);
+        b = x;
+        break;
+      } catch (e) {
+        if (e.status !== 409) throw e;
+      }
+    }
+    if (!b) fail(409, "Esa hora ya no está libre. Mira estas otras:", { alternatives: await alternativesFor(s, fixed, body.date, body.start) });
+    const p = provider(b.provider.id);
+    // Cita que se repite (si el dueño lo permite): cada 1-4 semanas, hasta recurringMax veces.
+    let series = null;
+    if (body.repeat && NORMS.recurring) series = await makeSeries(b, s, p, body.repeat, NORMS.recurringMax, { email, name, phone, by: "client", ...(b.guarantee ? { guarantee: b.guarantee } : {}) });
+
+    // Cuenta: si el correo es nuevo, se crea y se queda dentro en este móvil.
+    // Si ya existía, la cita se guarda igual pero para verla hay que entrar con código.
+    let session = !!user,
+      existing = false,
+      fresh = null;
+    if (user) await ensureUser(email, name, phone);
+    else if (await getJSON("user:" + email)) existing = true;
+    else {
+      await registerNew(req, res, { email, name, phone, ref: body.ref }); // ¿viene invitado? lo apunta
+      session = true;
+      fresh = email;
+    }
+    await cmd("HDEL", "wl:" + b.date, email); // ya tiene hora ese día: fuera de la lista de espera
+
+    await Promise.all([
+      send(
+        email,
+        `Cita reservada · ${T.niceDate(b.date)} ${b.start}`,
+        "Tu cita está reservada",
+        bookingLines(b, T.niceDate(b.date)) +
+          `<p style="margin:14px 0 0;color:#64645e;font-size:13px">Puedes cambiarla o cancelarla desde la app hasta ${NORMS.cancelHours} h antes. Referencia ${b.id}.</p>`,
+      ),
+      notifySalon(b, "Nueva cita"),
+    ]);
+    return { out: { id: b.id, session, existing, series, provider: { id: b.provider.id, name: b.provider.name } }, session: fresh };
+  } finally {
+    await cmd("DEL", "booking:" + email);
+  }
+}
+
+// Cuando la hora elegida ya no está: la misma hora con otro barbero y las horas
+// más cercanas con el mismo (ese día primero y luego los siguientes).
+async function alternativesFor(s, fixed, date, start) {
+  const now = T.nowLocal(),
+    want = T.toMin(start),
+    team = activeTeam().filter((p) => canDo(s, p)),
+    memo = {},
+    out = [];
+  const busyFor = async (p, d) => (memo[p.id + monthOf(d)] ||= await busyOf(p.id, monthOf(d)));
+  const who = (p) => ({ id: p.id, name: p.name });
+  if (fixed)
+    for (const p of team)
+      if (p.id !== fixed.id && freeTimes(p, s, date, await busyFor(p, date), now).includes(start)) out.push({ provider: who(p), date, start });
+  const pool = fixed ? [fixed] : team;
+  for (let i = 0; i < 8 && out.length < 4; i++) {
+    const d = T.addDays(date, i),
+      seen = new Set();
+    for (const p of pool) for (const t of freeTimes(p, s, d, await busyFor(p, d), now)) seen.add(t);
+    const times = [...seen].sort((a, b) => (i ? a.localeCompare(b) : Math.abs(T.toMin(a) - want) - Math.abs(T.toMin(b) - want)));
+    for (const t of times.slice(0, 4 - out.length)) out.push({ provider: fixed ? who(fixed) : null, date: d, start: t });
+  }
+  return out;
+}
+
+// Alguien ha dejado una hora libre: se avisa por correo a quien pidió aviso para
+// ese día, si ahora cabe su servicio. Como mucho un correo cada 3 h por persona y
+// día; se la lleva quien reserve primero.
+async function waitlistPing(date, host) {
+  if (!NORMS.waitlist || !mailReady()) return;
+  try {
+    const entries = Object.entries(hgetall(await cmd("HGETALL", "wl:" + date)));
+    if (!entries.length) return;
+    const now = T.nowLocal(),
+      memo = {};
+    for (const [email, v] of entries) {
+      const w = JSON.parse(v),
+        s = service(w.service);
+      if (!s) continue;
+      const times = new Set();
+      for (const p of activeTeam().filter((p) => canDo(s, p) && (w.provider === "any" || p.id === w.provider)))
+        for (const t of freeTimes(p, s, date, (memo[p.id] ||= await busyOf(p.id, monthOf(date))), now)) times.add(t);
+      if (!times.size || (await cmd("SET", `wlsent:${date}:${email}`, "1", "NX", "EX", 3 * 3600)) !== "OK") continue;
+      const link = host ? `https://${host}/#hueco/${s.id}/${w.provider}/${date}` : "";
+      await send(
+        email,
+        `Se ha liberado una hora · ${T.niceDate(date)}`,
+        "Se ha liberado una hora",
+        `<p style="margin:0 0 10px">Pediste que te avisáramos si quedaba un hueco para <b>${htmlEsc(s.name)}</b> el <b>${htmlEsc(T.niceDate(date))}</b>.</p>
+         <p style="margin:0 0 14px">Ahora hay: <b>${[...times].sort().slice(0, 6).join(" · ")}</b></p>
+         ${link ? `<p style="margin:0 0 12px"><a href="${link}" style="display:inline-block;background:#171717;color:#fff;padding:12px 18px;text-decoration:none">Reservar ahora</a></p>` : ""}
+         <p style="margin:0;color:#64645e;font-size:13px">Se la lleva quien reserve primero.</p>`,
+      );
+    }
+  } catch (e) {
+    console.error("Lista de espera", e);
+  }
+}
+
 // ── Citas que se repiten ───────────────────────────────────────────────────
 // A partir de una cita ya guardada, reserva las siguientes cada `every` semanas
 // a la misma hora y con el mismo barbero. Las fechas que no estén libres se
@@ -522,8 +692,7 @@ async function makeSeries(first, s, p, repeat, maxTimes, extra, staffMade = fals
     }
     const b = makeBooking(s, p, date, first.start, { ...extra, series: id });
     try {
-      await holdSlot(b);
-      await saveNew(b);
+      await place(b);
       made.push(b.id);
     } catch {
       skipped.push(date);
@@ -622,6 +791,181 @@ async function allClients() {
     })
     .filter((c) => c.visits || c.next);
 }
+// ── Tareas automáticas ─────────────────────────────────────────────────────
+// Cada hora (de 9:00 a 21:00 en Canarias): recordatorio de las citas de dentro
+// de 1 a 3 horas y petición de reseña de los cortes acabados hace más de una
+// hora. Una vez al día, en la primera pasada desde las 9:00: recordatorio de
+// mañana, resumen de caja de ayer al dueño, clientes perdidos y, los lunes,
+// copia de seguridad. Cada correo se marca con SET NX ANTES de mandarlo y la
+// cita no se reescribe: si un cliente cancela mientras tanto, su cancelación
+// no se pisa, y aunque dos pasadas coincidan nadie recibe dos correos.
+const ownerMail = async () => {
+  const owner = TEAM.find((p) => p.owner);
+  return owner?.email || (owner && (await staffCfg(owner.id)).email) || BUSINESS.email;
+};
+async function cronTick(req) {
+  const secret = process.env.CRON_SECRET;
+  if (ON_VERCEL && (!secret || !same(String(req.headers.authorization || ""), "Bearer " + secret))) fail(401, "No.");
+  if ((await cmd("SET", "lock:cron", "1", "NX", "EX", 900)) !== "OK") return { skipped: "ya en marcha" };
+  const now = T.nowLocal(),
+    host = hostOf(req);
+  const out = { at: now.stamp, soon: 0, reviews: 0, reminders: 0, winback: 0, close: false, backup: false, mail: mailReady() };
+  const once = async (key, seconds) => (await cmd("SET", key, "1", "NX", "EX", seconds)) === "OK";
+  const changeLink = (b) =>
+    host ? `<a href="https://${host}/#booking/${b.id}">Cámbiala o cancélala desde la app</a>` : "Cámbiala o cancélala desde la app";
+  try {
+    if (!mailReady()) return out;
+    const daytime = now.min >= 9 * 60 && now.min < 21 * 60;
+    const todays = daytime ? await bookingsByIds(await cmd("SMEMBERS", "day:" + now.date)) : [];
+    const live = (b) => b.kind === "booking" && b.status === "confirmed" && b.email;
+
+    // 1) Hoy, de 1 a 3 horas antes. No a quien reservó hace menos de 6 horas.
+    if (NORMS.remindSoon)
+      for (const b of todays) {
+        const left = T.minutesUntil(b.date, b.start);
+        if (!live(b) || left < 60 || left > 180) continue;
+        const [cd, ct] = String(b.created || "").split(" ");
+        if (T.isDate(cd) && T.isTime(ct) && T.minutesUntil(cd, ct) > -360) continue;
+        if (!(await once("soon:" + b.id, 2 * 86400))) continue;
+        const ok = await send(
+          b.email,
+          `Hoy a las ${b.start} con ${b.provider.name.split(" ")[0]}`,
+          "Te esperamos hoy",
+          bookingLines(b, "Hoy") +
+            `<p style="margin:14px 0 0">${htmlEsc(BUSINESS.street)} · ${htmlEsc(BUSINESS.city)}</p>
+             <p style="margin:14px 0 0;color:#64645e;font-size:13px">¿Te ha surgido algo? ${changeLink(b)} cuanto antes, para que otro pueda aprovechar el hueco.</p>`,
+        );
+        if (ok) out.soon++;
+      }
+
+    // 2) Reseña: cortes hechos (marcados «Vino» o cobrados en caja) que acabaron
+    //    hace más de una hora. Una petición cada 6 meses por persona como mucho.
+    if (NORMS.reviews && NORMS.reviewUrl && daytime) {
+      const yesterday = await bookingsByIds(await cmd("SMEMBERS", "day:" + T.addDays(now.date, -1)));
+      for (const b of [...yesterday, ...todays]) {
+        if (!live(b) || b.attendance !== "done" || T.minutesUntil(b.date, b.end) > -60) continue;
+        if (await cmd("GET", "nomkt:" + b.email)) continue;
+        if (!(await once("revask:" + b.id, 7 * 86400)) || !(await once("revmail:" + b.email, 180 * 86400))) continue;
+        const ok = await send(
+          b.email,
+          `¿Qué tal tu ${b.service.name.toLowerCase()}?`,
+          `Gracias por venir${b.name ? ", " + String(b.name).split(" ")[0] : ""}`,
+          `<p style="margin:0 0 12px">Esperamos que ${htmlEsc(b.provider.name.split(" ")[0])} te haya dejado como querías.</p>
+           <p style="margin:0 0 14px">Si te ha gustado, nos ayudas muchísimo contándolo. Es un minuto:</p>
+           <p style="margin:0 0 12px"><a href="${htmlEsc(NORMS.reviewUrl)}" style="display:inline-block;background:#171717;color:#fff;padding:12px 18px;text-decoration:none">Dejar mi reseña</a></p>
+           <p style="margin:0;color:#64645e;font-size:13px">Y si algo no fue bien, responde a este correo: lo lee el equipo.</p>`,
+          await ownerMail(),
+        );
+        if (ok) out.reviews++;
+      }
+    }
+
+    // 3) Una vez al día, desde las 9:00.
+    if (now.min >= 9 * 60 && (await once("cronday:" + now.date, 2 * 86400))) {
+      // a) Recordatorio de las citas de mañana.
+      if (NORMS.reminders) {
+        const tomorrow = T.addDays(now.date, 1);
+        for (const b of await bookingsByIds(await cmd("SMEMBERS", "day:" + tomorrow))) {
+          if (b.date !== tomorrow || !live(b) || b.reminded || !(await once("reminded:" + b.id, 3 * 86400))) continue;
+          const ok = await send(
+            b.email,
+            `Mañana tienes cita · ${b.start} con ${b.provider.name.split(" ")[0]}`,
+            "Te esperamos mañana",
+            bookingLines(b, T.niceDate(b.date)) +
+              `<p style="margin:14px 0 0">${htmlEsc(BUSINESS.street)} · ${htmlEsc(BUSINESS.city)}</p>
+               <p style="margin:14px 0 0;color:#64645e;font-size:13px">¿No puedes venir? ${changeLink(b)} y deja el hueco libre para otro.</p>`,
+          );
+          if (ok) out.reminders++;
+        }
+      }
+      // b) Resumen de caja de ayer al dueño.
+      if (NORMS.dailyClose) {
+        const date = T.addDays(now.date, -1),
+          html = await closeOf(date);
+        if (html) out.close = await send(await ownerMail(), `Caja de ayer · ${T.niceDate(date)}`, "Resumen de ayer", html);
+      }
+      // c) Clientes que se han perdido (como mucho 15 correos al día, y 1 cada 60 días por persona).
+      if (NORMS.winbackAuto) {
+        for (const c of (await allClients()).filter((x) => x.status === "perdido" && !x.optout)) {
+          if (out.winback >= 15) break;
+          if (c.contacted && daysBetween(c.contacted.at.slice(0, 10), now.date) < 60) continue;
+          if (await winbackMail(c, host)) {
+            await setJSON("winback:" + c.email, { at: now.stamp, by: "auto", channel: "email" });
+            out.winback++;
+          }
+        }
+      }
+      // d) Los lunes, copia de seguridad (sin fotos) al correo del dueño.
+      if (T.weekday(now.date) === 1) {
+        const data = await backup("data");
+        out.backup = await send(
+          await ownerMail(),
+          `Copia de seguridad · ${now.date}`,
+          "Copia de seguridad semanal",
+          `<p style="margin:0">Adjunta va la copia de los datos de la app (${data.count} registros). Guárdala: con ella se puede recuperar todo desde el panel, en «Equipo y normas».</p>`,
+          undefined,
+          [{ filename: `nova-copia-${now.date}.json`, content: Buffer.from(JSON.stringify(data)).toString("base64") }],
+        );
+      }
+    }
+    return out;
+  } catch (e) {
+    out.error = String(e.message || e);
+    throw e;
+  } finally {
+    await setJSON("cronlast", out).catch(() => {});
+    await cmd("DEL", "lock:cron").catch(() => {});
+  }
+}
+
+// Lo que el dueño tiene que saber al abrir la agenda: si los correos no salen
+// o si las tareas automáticas llevan horas sin pasar.
+async function ownerAlerts() {
+  const out = [];
+  if (!mailReady()) out.push("Los correos no salen: falta RESEND_API_KEY en Vercel. No se mandan recordatorios, avisos ni resúmenes.");
+  if (ON_VERCEL && !process.env.CRON_SECRET) out.push("Falta CRON_SECRET en Vercel: las tareas automáticas (recordatorios, reseñas, caja) no se ejecutan.");
+  else if (ON_VERCEL) {
+    const last = await getJSON("cronlast");
+    const [d, t] = String(last?.at || "").split(" ");
+    if (!last || !T.isDate(d) || T.minutesUntil(d, t) < -180) out.push(`Las tareas automáticas no pasan desde ${last?.at || "nunca"}. Revisa los Cron Jobs del proyecto en Vercel.`);
+    else if (last.error) out.push("La última pasada automática falló: " + last.error);
+  }
+  return out;
+}
+
+// Resumen de un día para el dueño: lo cobrado (total, por forma de pago y por
+// barbero) y lo que hay que revisar: citas sin cobrar, faltas y cancelaciones.
+async function closeOf(date) {
+  const [payIds, bookIds] = await pipe([
+    ["SMEMBERS", "payday:" + date],
+    ["SMEMBERS", "day:" + date],
+  ]);
+  const [pays, books] = await Promise.all([bookingsByIds2("pay:", payIds), bookingsByIds(bookIds)]);
+  const bk = books.filter((b) => b.date === date && b.kind === "booking");
+  if (!pays.length && !bk.length) return null;
+  const sum = (l) => cents(l.reduce((a, x) => a + x.amount, 0));
+  const eur = (n) => n.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+  const conf = bk.filter((b) => b.status === "confirmed");
+  const unpaid = conf.filter((b) => b.attendance !== "absent" && !b.pay);
+  const absent = conf.filter((b) => b.attendance === "absent");
+  const row = (a, b) => `<tr><td style="padding:4px 0">${a}</td><td style="padding:4px 0;text-align:right">${b}</td></tr>`;
+  const methods = PAY_METHODS.map((m) => [m.name || m.label || m.id, sum(pays.filter((x) => x.method === m.id))]).filter(([, t]) => t);
+  const people = TEAM.map((p) => {
+    const l = pays.filter((x) => x.provider.id === p.id),
+      c = conf.filter((b) => b.provider.id === p.id);
+    return { name: p.name, total: sum(l), n: l.length, citas: c.length };
+  }).filter((p) => p.n || p.citas);
+  return `<p style="margin:0 0 4px;font-size:13px;color:#64645e">${htmlEsc(T.niceDate(date))}</p>
+    <p style="margin:0 0 14px;font-size:28px;font-weight:700">${eur(sum(pays))}<span style="font-size:14px;font-weight:400;color:#64645e"> · ${pays.length} cobros</span></p>
+    <table style="width:100%;border-collapse:collapse;font-size:14px">${methods.map(([n, t]) => row(htmlEsc(n), eur(t))).join("")}</table>
+    <hr style="border:0;border-top:1px solid #dcdad3;margin:14px 0">
+    <table style="width:100%;border-collapse:collapse;font-size:14px">${people.map((p) => row(`${htmlEsc(p.name)} <span style="color:#64645e">(${p.citas} citas)</span>`, eur(p.total))).join("")}</table>
+    <hr style="border:0;border-top:1px solid #dcdad3;margin:14px 0">
+    <p style="margin:0 0 6px"><b>${unpaid.length ? `${unpaid.length} citas sin cobro apuntado` : "Todas las citas tienen su cobro"}</b></p>
+    ${unpaid.length ? `<p style="margin:0 0 10px;font-size:13px;color:#64645e">${unpaid.map((b) => `${b.start} ${htmlEsc(b.name || "")} (${htmlEsc(b.provider.name.split(" ")[0])})`).join(" · ")}</p>` : ""}
+    <p style="margin:0;font-size:13px;color:#64645e">No vinieron: ${absent.length} · Canceladas: ${bk.length - conf.length} (${bk.filter((b) => b.late).length} tarde)</p>`;
+}
+
 // Enlace para darse de baja de los correos de «te echamos de menos».
 async function unsubToken(email) {
   let k = await cmd("GET", "secret:unsub");
@@ -650,7 +994,7 @@ async function winbackMail(c, host) {
 // Todo lo que hay en la base de esta app, en un JSON que se puede guardar y
 // volver a cargar. Se dejan fuera sesiones, códigos y cerrojos (caducan solos
 // y no hacen falta). Las fotos van en un archivo aparte porque pesan mucho.
-const SKIP = /^(sess:|staffsess:|rl:|code:|lock:|chargelock:|rdlock:|secret:)/;
+const SKIP = /^(sess:|staffsess:|rl:|code:|lock:|chargelock:|rdlock:|secret:|idem:|booking:|soon:|reminded:|revask:|wlsent:|cronday:)/;
 const PHOTOKEY = /^(siteimg:|prodimg:|teamimg:)/;
 async function backup(part) {
   const keys = (await scanKeys("*")).filter((k) => !SKIP.test(k) && (part === "photos" ? PHOTOKEY.test(k) : !PHOTOKEY.test(k)));
@@ -660,7 +1004,11 @@ async function backup(part) {
 
 // ── Rutas ──────────────────────────────────────────────────────────────────
 const routes = {
-  "GET catalog": async () => {
+  "GET catalog": async ({ res }) => {
+    // Es igual para todos: el CDN de Vercel lo guarda 30 s y lo sirve sin
+    // despertar la función (y sin tocar la base de datos). El panel, tras
+    // cambiar algo, lo pide con ?t=… para saltarse esa copia.
+    res.setHeader("Cache-Control", "public, max-age=0, s-maxage=30, stale-while-revalidate=300");
     const c = publicCatalog();
     const site = await siteInfo();
     return {
@@ -673,28 +1021,34 @@ const routes = {
     };
   },
 
+  // Se pide cada vez que se abre la app: va en tres viajes a la base de datos
+  // (sesiones, cuenta y renovar), no en ocho.
   "GET me": async ({ req, res }) => {
-    let u = await currentUser(req);
+    const ck = cookies(req);
+    const [email, staffId] = await cmd("MGET", "sess:" + sha(ck[SESSION] || "-"), "staffsess:" + sha(ck[STAFF] || "-"));
+    const st = staffById(staffId, true);
+    const team = activeTeam();
+    const [rawUser, ...cfgs] = await cmd("MGET", email ? "user:" + email : "-", ...team.map((p) => "staffcfg:" + p.id));
+    let u = rawUser ? JSON.parse(rawUser) : null;
     if (u && !u.ref) u = await ensureUser(u.email);
     // Cada vez que se abre la app, la sesión vuelve a valer un año: quien viene
     // una vez al mes no tiene que volver a entrar nunca en ese móvil.
-    const ck = cookies(req);
-    if (u && ck[SESSION]) {
-      await cmd("EXPIRE", "sess:" + sha(ck[SESSION]), YEAR);
+    const renew = [];
+    if (u) {
+      renew.push(["EXPIRE", "sess:" + sha(ck[SESSION]), YEAR]);
       cookie(res, req, SESSION, ck[SESSION], YEAR);
     }
-    if (ck[STAFF] && (await staffOf(req, true))) {
-      await cmd("EXPIRE", "staffsess:" + sha(ck[STAFF]), YEAR);
+    if (st) {
+      renew.push(["EXPIRE", "staffsess:" + sha(ck[STAFF]), YEAR]);
       cookie(res, req, STAFF, ck[STAFF], YEAR);
     }
-    const st = await staffOf(req, true);
+    if (renew.length) await pipe(renew);
     // Si el correo de esta cuenta es el de alguien del equipo, se le ofrece su panel
     // (la clave se pide una vez y luego la sesión dura un año).
     let staffHint = null;
     if (u && !st) {
-      const cfgs = await cmd("MGET", ...activeTeam().map((p) => "staffcfg:" + p.id));
-      const hit = activeTeam().find((p, i) => (p.email && p.email === u.email) || (cfgs[i] && JSON.parse(cfgs[i]).email === u.email));
-      if (hit) staffHint = { id: hit.id, name: hit.name };
+      const found = team.find((p, i) => (p.email && p.email === u.email) || (cfgs[i] && JSON.parse(cfgs[i]).email === u.email));
+      if (found) staffHint = { id: found.id, name: found.name };
     }
     return { user: publicUser(u), staff: st, staffHint, mail: mailReady(), loginCode: LOGIN_CON_CODIGO };
   },
@@ -707,83 +1061,96 @@ const routes = {
     return { name: String(u?.name || "un socio").split(" ")[0], points: POINTS.perFriend };
   },
 
+  // Horas libres de un mes. Con provider = "any", las de todo el equipo juntas.
+  // `full`: días de trabajo sin horas libres, donde se puede pedir aviso.
   "GET avail": async ({ q }) => {
     const s = service(q.get("service")),
-      p = provider(q.get("provider")),
+      pid = q.get("provider"),
       month = q.get("month") || "";
-    if (!s || s.consult || !p || p.active === false || !canDo(s, p) || !/^\d{4}-\d{2}$/.test(month)) fail(400, "Petición incorrecta.");
+    const team = !s ? [] : pid === "any" ? activeTeam().filter((p) => canDo(s, p)) : [provider(pid)].filter((p) => p && p.active !== false && canDo(s, p));
+    if (!s || s.consult || !team.length || !/^\d{4}-\d{2}$/.test(month)) fail(400, "Petición incorrecta.");
     const now = T.nowLocal(),
-      busy = await busyOf(p.id, month),
+      busies = await Promise.all(team.map((p) => busyOf(p.id, month))),
       [y, m] = month.split("-").map(Number),
       total = new Date(Date.UTC(y, m, 0)).getUTCDate(),
-      days = {};
+      days = {},
+      full = [];
     for (let d = 1; d <= total; d++) {
       const date = `${month}-${String(d).padStart(2, "0")}`;
-      days[date] = freeTimes(p, s, date, busy, now);
+      days[date] = [...new Set(team.flatMap((p, i) => freeTimes(p, s, date, busies[i], now)))].sort();
+      if (!days[date].length && NORMS.waitlist && team.some((p) => freeTimes(p, s, date, {}, now).length)) full.push(date);
     }
-    return { days };
+    return { days, full };
   },
 
+  // El móvil manda una clave nueva con cada intento de reserva. Si se corta la
+  // conexión y vuelve a mandar lo mismo, se le contesta con la cita que ya se
+  // guardó, en vez de «esa hora ya no está libre» (la había ocupado él mismo).
   "POST book": async ({ req, res, body }) => {
-    const { s, p } = validSlotInput(body);
-    const user = await currentUser(req);
-    const email = user ? user.email : normEmail(body.email);
-    // Con la sesión iniciada no hace falta mandar nada: se usan los datos del perfil.
-    // El teléfono es opcional (se pide después, para completar el perfil).
-    const name = clean(body.name) || clean(user?.name),
-      phone = clean(body.phone, 30) || clean(user?.phone, 30);
-    if (!name) fail(400, "Falta tu nombre.");
-    if (!EMAIL.test(email)) fail(400, "Revisa tu correo.");
-    if (phone && !PHONE.test(phone)) fail(400, "Revisa tu teléfono.");
-    if (body.terms !== true) fail(400, "Tienes que aceptar las condiciones.");
-    // Con Stripe activado, toda cita online queda garantizada con una tarjeta.
-    if (Card.cardEnabled() && !user?.card) fail(402, "Añade una tarjeta para garantizar la cita.", { card: true });
-    await limit("book:" + ip(req), 12, 3600);
-
-    const now = T.nowLocal();
-    const mine = await bookingsByIds(await cmd("SMEMBERS", "ubk:" + email));
-    if (mine.filter((b) => isActive(b, now) && !b.series).length >= RULES.maxActive)
-      fail(400, `Ya tienes ${RULES.maxActive} citas pendientes. Cuando pase alguna podrás reservar otra.`);
-
-    const busy = await busyOf(p.id, monthOf(body.date));
-    if (!freeTimes(p, s, body.date, busy, now).includes(body.start))
-      fail(409, "Esa hora ya no está libre. Elige otra, por favor.");
-
-    const b = makeBooking(s, p, body.date, body.start, {
-      email,
-      name,
-      phone,
-      by: "client",
-      ...(user?.card ? { guarantee: { brand: user.card.brand, last4: user.card.last4, at: now.stamp } } : {}),
-    });
-    await holdSlot(b);
-    await saveNew(b);
-    // Cita que se repite (si el dueño lo permite): cada 1-4 semanas, hasta recurringMax veces.
-    let series = null;
-    if (body.repeat && NORMS.recurring) series = await makeSeries(b, s, p, body.repeat, NORMS.recurringMax, { email, name, phone, by: "client", ...(b.guarantee ? { guarantee: b.guarantee } : {}) });
-
-    // Cuenta: si el correo es nuevo, se crea y se queda dentro en este móvil.
-    // Si ya existía, la cita se guarda igual pero para verla hay que entrar con código.
-    let session = !!user,
-      existing = false;
-    if (user) await ensureUser(email, name, phone);
-    else if (await getJSON("user:" + email)) existing = true;
-    else {
-      await registerNew(req, res, { email, name, phone, ref: body.ref }); // ¿viene invitado? lo apunta
-      session = true;
+    const idem = /^[A-Za-z0-9_-]{16,64}$/.test(String(body.key || "")) ? "idem:" + body.key : null;
+    if (idem) {
+      const prev = await getJSON(idem);
+      if (prev?.out) {
+        if (prev.session) await startSession(req, res, prev.session);
+        return prev.out;
+      }
+      if (prev || (await cmd("SET", idem, "{}", "NX", "EX", 60)) !== "OK") fail(409, "Tu reserva se está guardando…", { pending: true });
     }
+    try {
+      const r = await bookNow(req, res, body);
+      if (idem) await setJSON(idem, r, "EX", 86400);
+      return r.out;
+    } catch (e) {
+      if (idem) await cmd("DEL", idem);
+      throw e;
+    }
+  },
 
-    await Promise.all([
-      send(
-        email,
-        `Cita reservada · ${T.niceDate(b.date)} ${b.start}`,
-        "Tu cita está reservada",
-        bookingLines(b, T.niceDate(b.date)) +
-          `<p style="margin:14px 0 0;color:#64645e;font-size:13px">Puedes cambiarla o cancelarla desde la app hasta ${NORMS.cancelHours} h antes. Referencia ${b.id}.</p>`,
-      ),
-      notifySalon(b, "Nueva cita"),
+  // Aviso por correo si se libera una hora en un día que está completo.
+  "POST waitlist": async ({ req, body }) => {
+    if (!NORMS.waitlist) fail(400, "Ahora mismo no se apuntan avisos.");
+    const s = service(body.service),
+      pid = body.provider === "any" ? "any" : provider(body.provider)?.id;
+    if (!s || s.consult || !pid) fail(400, "Elige servicio y barbero.");
+    const now = T.nowLocal();
+    if (!T.isDate(body.date) || body.date < now.date || body.date > T.addDays(now.date, RULES.daysAhead)) fail(400, "Elige uno de los próximos días.");
+    const u = await currentUser(req);
+    const email = u ? u.email : normEmail(body.email);
+    if (!EMAIL.test(email)) fail(400, "Pon tu correo para poder avisarte.");
+    await limit("wl:" + ip(req), 10, 3600);
+    const key = "wl:" + body.date;
+    await pipe([
+      ["HSET", key, email, JSON.stringify({ service: s.id, provider: pid, name: clean(u?.name || body.name, 60), at: now.stamp })],
+      ["EXPIRE", key, Math.max(3600, T.minutesUntil(body.date, "23:59") * 60 + 3600)],
     ]);
-    return { id: b.id, session, existing, series };
+    return { ok: true, mail: mailReady() };
+  },
+
+  // La cita para el calendario del móvil (iPhone, Android, Outlook). Sin datos
+  // personales: solo servicio, barbero, sitio y hora, con aviso una hora antes.
+  "GET bookings/:id/ics": async ({ params }) => {
+    const b = await getJSON("bk:" + String(params.id).replace(/[^A-Za-z0-9]/g, ""));
+    if (!b || b.kind !== "booking") fail(404, "No encontramos esa cita.");
+    const z = (ms) => new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+    const esc = (x) => String(x ?? "").replace(/\\/g, "\\\\").replace(/[,;]/g, "\\$&").replace(/\r?\n/g, "\\n");
+    const lines = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//NOVA Studio//Reservas//ES",
+      "METHOD:PUBLISH",
+      "BEGIN:VEVENT",
+      `UID:${b.id}@nova-reservas`,
+      `DTSTAMP:${z(Date.now())}`,
+      `DTSTART:${z(T.epochOf(b.date, b.start))}`,
+      `DTEND:${z(T.epochOf(b.date, b.end))}`,
+      `SUMMARY:${esc(`${b.service.name} · ${BUSINESS.name}`)}`,
+      `DESCRIPTION:${esc(`Con ${b.provider.name}. Referencia ${b.id}.`)}`,
+      `LOCATION:${esc(BUSINESS.street + ", " + BUSINESS.city)}`,
+      ...(b.status === "canceled" ? ["STATUS:CANCELLED"] : ["BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${esc("Cita en " + BUSINESS.name)}`, "TRIGGER:-PT1H", "END:VALARM"]),
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ];
+    return { raw: lines.join("\r\n") + "\r\n", type: "text/calendar; charset=utf-8", cache: "no-store" };
   },
 
   "GET bookings": async ({ req }) => {
@@ -823,7 +1190,6 @@ const routes = {
     // Con menos de X horas el cliente puede cancelar igual (la hora queda libre
     // para otro), pero se marca como tardía y su barbero decide si se cobra.
     const late = !staff && b.kind === "booking" && lateCancel(b);
-    await releaseSlot(b);
     const done = {
       ...b,
       status: "canceled",
@@ -831,19 +1197,21 @@ const routes = {
       canceledAt: T.nowLocal().stamp,
       ...(late ? { late: true, hoursLeft: Math.max(0, Math.round(T.minutesUntil(b.date, b.start) / 6) / 10) } : {}),
     };
-    await setJSON("bk:" + b.id, done);
+    await unplace(b, done);
     // «Cancelar también las siguientes» de una cita que se repite.
     let more = 0;
+    const freed = new Set([b.date]);
     if (body?.series === true && b.series) {
       const ids = await cmd("SMEMBERS", "series:" + b.series);
       for (const x of await bookingsByIds(ids)) {
         if (x.id === b.id || x.status !== "confirmed" || x.date + x.start <= b.date + b.start) continue;
-        await releaseSlot(x);
-        await setJSON("bk:" + x.id, { ...x, status: "canceled", canceledBy: staff ? "staff" : "client", canceledAt: T.nowLocal().stamp, seriesCancel: true });
+        await unplace(x, { ...x, status: "canceled", canceledBy: staff ? "staff" : "client", canceledAt: T.nowLocal().stamp, seriesCancel: true });
+        freed.add(x.date);
         more++;
       }
     }
     if (!staff && b.kind === "booking") await notifySalon(b, late ? "Cancelación tardía" : more ? `Cita cancelada (y ${more} más de la serie)` : "Cita cancelada");
+    for (const d of freed) await waitlistPing(d, hostOf(req));
     return { ok: true, late, fee: late ? feeFor(b, "late") : 0 };
   },
 
@@ -862,15 +1230,9 @@ const routes = {
     if (!freeTimes(p, s, body.date, busy, T.nowLocal()).includes(body.start))
       fail(409, "Esa hora ya no está libre. Elige otra, por favor.");
     const moved = { ...b, date: body.date, start: body.start, end: T.toHHMM(T.toMin(body.start) + b.service.duration) };
-    await holdSlot(moved);
-    await releaseSlot(b, lockKeys(moved));
-    await pipe([
-      ["SET", "bk:" + b.id, JSON.stringify(moved)],
-      ["HSET", `occ:${p.id}:${monthOf(moved.date)}`, b.id, `${moved.date}|${moved.start}|${moved.end}`],
-      ["SREM", "day:" + b.date, b.id],
-      ["SADD", "day:" + moved.date, b.id],
-    ]);
+    await moveTo(b, moved);
     if (!staff) await notifySalon(moved, "Cita cambiada");
+    await waitlistPing(b.date, hostOf(req));
     return { ok: true };
   },
 
@@ -1066,9 +1428,18 @@ const routes = {
   // ── Equipo ──────────────────────────────────────────────────────────────
   "POST staff/login": async ({ req, res, body }) => {
     await limit("staff:" + ip(req), 8, 900);
+    // Además del límite por conexión, uno por cuenta que solo cuenta los fallos:
+    // cambiar de red no sirve para ir probando claves de 4 cifras.
+    const who = String(body.provider || "").replace(/[^a-z0-9_-]/gi, "").slice(0, 30);
+    const failKey = "rl:pinfail:" + who;
+    if ((Number(await cmd("GET", failKey)) || 0) >= 10) fail(429, "Demasiadas claves incorrectas. Espera 15 minutos.");
+    const wrong = async (msg) => {
+      await hit(failKey, 900);
+      fail(400, msg);
+    };
     if (body.provider === "caja") {
       const pin = String(body.pin || "");
-      if (!pin || !activeTeam().some((x) => pinOk(x, pin))) fail(400, "Clave incorrecta. Vale la de cualquiera del equipo.");
+      if (!pin || !activeTeam().some((x) => pinOk(x, pin))) await wrong("Clave incorrecta. Vale la de cualquiera del equipo.");
       const t = token();
       await cmd("SET", "staffsess:" + sha(t), "caja", "EX", YEAR);
       cookie(res, req, STAFF, t, YEAR);
@@ -1077,7 +1448,7 @@ const routes = {
     const p = provider(body.provider);
     if (!p || p.active === false) fail(400, "Elige quién eres.");
     if (!p.pinHash && !pinOf(p)) fail(400, `La clave de ${p.name.split(" ")[0]} aún no está puesta. Pídesela al dueño.`);
-    if (!pinOk(p, String(body.pin || ""))) fail(400, "Clave incorrecta.");
+    if (!pinOk(p, String(body.pin || ""))) await wrong("Clave incorrecta.");
     const t = token();
     await cmd("SET", "staffsess:" + sha(t), p.id, "EX", YEAR);
     cookie(res, req, STAFF, t, YEAR);
@@ -1092,7 +1463,7 @@ const routes = {
   },
 
   "GET staff/day": async ({ req, q }) => {
-    await needStaff(req);
+    const me = await needStaff(req);
     const date = q.get("date");
     if (!T.isDate(date)) fail(400, "Fecha incorrecta.");
     const list = (await bookingsByIds(await cmd("SMEMBERS", "day:" + date)))
@@ -1105,6 +1476,7 @@ const routes = {
       bookings: list.map((b) => (b.email ? { ...b, strikes: info.strikes[b.email] || 0, card: !!info.card[b.email] } : b)),
       cardEnabled: Card.cardEnabled(),
       now: T.nowLocal().stamp,
+      alerts: me.owner ? await ownerAlerts() : [],
     };
   },
 
@@ -1543,8 +1915,7 @@ const routes = {
     const busy = await busyOf(p.id, monthOf(b.date));
     const [x, y] = [T.toMin(b.start), T.toMin(b.end)];
     if ((busy[b.date] || []).some(([s0, e0]) => x < e0 && y > s0)) fail(409, "Choca con otra cita de ese barbero.");
-    await holdSlot(b);
-    await saveNew(b);
+    await place(b);
     if (b.email) await ensureUser(b.email, b.name, b.phone);
     let series = null;
     if (!body.block && body.repeat) series = await makeSeries(b, service(b.service.id), p, body.repeat, 12, { name: b.name, phone: b.phone, email: b.email, by: "staff", byStaff: me.id }, true);
@@ -1749,64 +2120,10 @@ const routes = {
     return { ok: true, photos };
   },
 
-  // ── Tareas diarias (Vercel Cron, una vez al día) ───────────────────────
-  // Recordatorio de la cita de mañana, correo a clientes perdidos (si el dueño
-  // lo activa) y, los lunes, copia de seguridad por correo al dueño.
-  "GET cron/daily": async ({ req }) => {
-    const secret = process.env.CRON_SECRET;
-    if (ON_VERCEL && (!secret || !same(String(req.headers.authorization || ""), "Bearer " + secret))) fail(401, "No.");
-    if ((await cmd("SET", "lock:cron", "1", "NX", "EX", 1800)) !== "OK") return { skipped: "ya en marcha" };
-    const now = T.nowLocal(),
-      host = process.env.PUBLIC_HOST || req.headers.host || "";
-    const out = { reminders: 0, winback: 0, backup: false, mail: mailReady() };
-    // 1) Recordatorios de mañana.
-    if (NORMS.reminders && mailReady()) {
-      const tomorrow = T.addDays(now.date, 1);
-      for (const b of await bookingsByIds(await cmd("SMEMBERS", "day:" + tomorrow))) {
-        if (b.date !== tomorrow || b.kind !== "booking" || b.status !== "confirmed" || !b.email || b.reminded) continue;
-        const ok = await send(
-          b.email,
-          `Mañana tienes cita · ${b.start} con ${b.provider.name.split(" ")[0]}`,
-          "Te esperamos mañana",
-          bookingLines(b, T.niceDate(b.date)) +
-            `<p style="margin:14px 0 0">${htmlEsc(BUSINESS.street)} · ${htmlEsc(BUSINESS.city)}</p>
-             <p style="margin:14px 0 0;color:#64645e;font-size:13px">¿No puedes venir? ${host ? `<a href="https://${host}/#booking/${b.id}">Cámbiala o cancélala desde la app</a>` : "Cámbiala o cancélala desde la app"} y deja el hueco libre para otro.</p>`,
-        );
-        if (ok) {
-          await setJSON("bk:" + b.id, { ...b, reminded: now.stamp });
-          out.reminders++;
-        }
-      }
-    }
-    // 2) Clientes que se han perdido (como mucho 15 correos al día, y 1 cada 60 días por persona).
-    if (NORMS.winbackAuto && mailReady()) {
-      for (const c of (await allClients()).filter((x) => x.status === "perdido" && !x.optout)) {
-        if (out.winback >= 15) break;
-        if (c.contacted && daysBetween(c.contacted.at.slice(0, 10), now.date) < 60) continue;
-        if (await winbackMail(c, host)) {
-          await setJSON("winback:" + c.email, { at: now.stamp, by: "auto", channel: "email" });
-          out.winback++;
-        }
-      }
-    }
-    // 3) Los lunes, copia de seguridad (sin fotos) al correo del dueño.
-    if (T.weekday(now.date) === 1 && mailReady()) {
-      const owner = TEAM.find((p) => p.owner);
-      const to = owner?.email || (owner && (await staffCfg(owner.id)).email) || BUSINESS.email;
-      const data = await backup("data");
-      out.backup = await send(
-        to,
-        `Copia de seguridad · ${now.date}`,
-        "Copia de seguridad semanal",
-        `<p style="margin:0">Adjunta va la copia de los datos de la app (${data.count} registros). Guárdala: con ella se puede recuperar todo desde el panel, en «Equipo y normas».</p>`,
-        undefined,
-        [{ filename: `nova-copia-${now.date}.json`, content: Buffer.from(JSON.stringify(data)).toString("base64") }],
-      );
-    }
-    await setJSON("cronlast", { at: now.stamp, ...out });
-    await cmd("DEL", "lock:cron");
-    return out;
-  },
+  // ── Tareas automáticas (Vercel Cron, cada hora) ────────────────────────
+  // /api/cron/daily sigue valiendo por si queda alguna llamada antigua.
+  "GET cron/tick": async ({ req }) => cronTick(req),
+  "GET cron/daily": async ({ req }) => cronTick(req),
 
   "GET unsub/:email/:t": async ({ params }) => {
     const email = normEmail(decodeURIComponent(params.email));
@@ -1888,7 +2205,13 @@ const routes = {
     if (has("noShowFeePct")) norms.noShowFeePct = num(body.noShowFeePct, 0, 100, "El cobro por no venir va de 0 a 100 %.");
     if (has("recurringMax")) norms.recurringMax = num(body.recurringMax, 2, 12, "Las citas seguidas van de 2 a 12.");
     if (has("lapseDays")) norms.lapseDays = num(body.lapseDays, 14, 365, "Pon entre 14 y 365 días.");
-    for (const k of ["reminders", "recurring", "winbackAuto"]) if (has(k)) norms[k] = body[k] === true;
+    for (const k of ["reminders", "recurring", "winbackAuto", "remindSoon", "reviews", "dailyClose", "waitlist"]) if (has(k)) norms[k] = body[k] === true;
+    if (has("reviewUrl")) {
+      const u = clean(body.reviewUrl, 400);
+      if (u && !/^https:\/\/[^\s"<>]+$/.test(u)) fail(400, "El enlace de reseñas tiene que empezar por https://");
+      norms.reviewUrl = u;
+    }
+    if (norms.reviews && !(norms.reviewUrl ?? NORMS.reviewUrl)) fail(400, "Para pedir reseñas pega antes el enlace donde se dejan.");
     if (has("winbackText")) norms.winbackText = clean(body.winbackText, 600) || NORMS.winbackText;
     if (has("winbackOffer")) norms.winbackOffer = clean(body.winbackOffer, 200);
     await setJSON("norms", norms);
@@ -2178,9 +2501,12 @@ export default async function handler(req, res) {
   } catch (e) {
     const status = e.status || 500;
     if (status >= 500) console.error(e);
+    res.setHeader("Cache-Control", "no-store"); // un error nunca se queda guardado en el CDN
     res.statusCode = status;
     res.end(
       JSON.stringify({
+        // Los datos que acompañan al error (alternativas, «hace falta tarjeta»…) también llegan al móvil.
+        ...(e instanceof HttpError ? Object.fromEntries(Object.entries(e).filter(([k]) => k !== "status")) : {}),
         error: status >= 500 && !e.status ? "Algo ha fallado. Prueba otra vez." : e.message,
         ...(usingMemory() && status >= 500 ? { detail: String(e.message) } : {}),
       }),

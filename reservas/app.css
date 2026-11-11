@@ -1518,3 +1518,39 @@ span.pr-thumb { display: grid; }
 .tp strong { font-family: var(--serif); font-weight: 800; font-size: 13px; text-transform: uppercase; }
 .tp small { font-size: 12px; line-height: 1.3; color: var(--muted); font-weight: 500; }
 .tp.on strong::after { content: " ✓"; }
+
+/* ── Reservar sin fricción: «sin preferencia», alternativas y lista de espera ── */
+/* «Sin preferencia»: una franja sobria encima de los cromos, no un cromo más. */
+.any-pick { display: grid; grid-template-columns: 44px 1fr auto; gap: 14px; align-items: center; margin: 18px 0 4px; padding: 12px 16px 12px 12px; background: #fff; border: 1px solid var(--ink); text-decoration: none; color: var(--ink); transition: background-color .2s var(--ease), color .2s var(--ease); }
+.any-pick strong { display: block; font-family: var(--serif); font-size: 13px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.any-pick small { display: block; font-size: 13px; color: var(--muted); margin-top: 3px; transition: color .2s var(--ease); }
+.any-ic, .face-any { width: 44px; height: 44px; display: grid; place-items: center; background: var(--ink); color: var(--accent); }
+.any-ic svg, .face-any svg { width: 22px; height: 22px; }
+.any-go { font-size: 18px; transition: transform .25s var(--ease); }
+.any-pick:hover { background: var(--ink); color: #fff; }
+.any-pick:hover small { color: var(--accent); }
+.any-pick:hover .any-go { transform: translateX(4px); }
+
+/* Días completos: se ven apagados pero se pueden tocar para pedir aviso. */
+.cal-cell.full { color: #b8b8bd; text-decoration: line-through; text-decoration-thickness: 1px; cursor: pointer; }
+.cal-cell.full:hover { background: #f2f2f2; }
+.cal-cell.full.selected { background: var(--ink); color: #fff; text-decoration: none; }
+.wl-box { display: grid; gap: 6px; background: #fff; border: 1px solid var(--line); padding: 18px; margin-top: 4px; }
+.wl-box strong { font-family: var(--serif); font-size: 14px; letter-spacing: .04em; text-transform: uppercase; }
+.wl-box span { font-size: 14px; color: var(--muted); line-height: 1.5; }
+.wl-box label { margin-top: 8px; }
+.wl-box .btn { margin-top: 10px; }
+
+/* La hora se ocupó: otras cercanas, una por fila, reserva con un toque. */
+.alt-list { display: grid; gap: 8px; margin-top: 16px; }
+.alt-item { display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center; width: 100%; padding: 14px 16px; background: #fff; border: 1px solid var(--line); text-align: left; color: var(--ink); cursor: pointer; transition: border-color .2s var(--ease), background-color .2s var(--ease), color .2s var(--ease); }
+.alt-item strong { display: block; font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.alt-item small { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.alt-item > span:nth-child(2) { font-size: 14px; color: var(--muted); }
+.alt-item b { font-weight: 400; font-size: 18px; }
+.alt-item:hover { background: var(--ink); border-color: var(--ink); color: #fff; }
+.alt-item:hover small, .alt-item:hover > span:nth-child(2) { color: var(--accent); }
+
+/* Debajo de «Añadir a mi calendario», el otro calendario en pequeño. */
+.cal-alt { margin: 8px 0 0; text-align: center; font-size: 13px; }
+.cal-alt a { color: var(--muted); }

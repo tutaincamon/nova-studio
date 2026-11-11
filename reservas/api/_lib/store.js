@@ -60,6 +60,10 @@ function local([cmd, ...a]) {
       mem.set(k, { v: String(v), exp: alive(k)?.exp || 0 });
       return v;
     }
+    case "TTL": {
+      const e = alive(k);
+      return !e ? -2 : e.exp ? Math.ceil((e.exp - Date.now()) / 1000) : -1;
+    }
     case "EXPIRE": {
       const e = alive(k);
       if (!e) return 0;
@@ -133,6 +137,67 @@ export async function pipe(list) {
     if (x.error) throw Error(x.error);
     return x.result;
   });
+}
+
+// ── Apartar y guardar de una vez (todo o nada) ─────────────────────────────
+// `claim` comprueba que ninguno de los tramos `locks` es de otra cita; si no
+// lo es, los aparta para `owner`, suelta los tramos de `release` que sean suyos
+// y hace las escrituras de `writes`, todo en un solo paso dentro de Redis. Si
+// la función se corta a medias no queda nada a medio hacer: ni un tramo
+// apartado sin cita ni una cita sin su tramo.
+// Devuelve true, o el id de la cita que ya tiene alguno de los tramos.
+// `writes`: [["SET", clave, valor], ["HSET", clave, campo, valor], ["SADD"|"SREM"|"HDEL", clave, x]…]
+const CLAIM_LUA = `
+local n, r, owner, ttl = tonumber(ARGV[1]), tonumber(ARGV[2]), ARGV[3], tonumber(ARGV[4])
+for i = 1, n do
+  local v = redis.call('GET', KEYS[i])
+  if v and v ~= owner then return v end
+end
+for i = n + 1, n + r do
+  if redis.call('GET', KEYS[i]) == owner then redis.call('DEL', KEYS[i]) end
+end
+for i = 1, n do redis.call('SET', KEYS[i], owner, 'EX', ttl) end
+local i = 5
+while i <= #ARGV do
+  local c, k, argc = ARGV[i], KEYS[tonumber(ARGV[i + 1])], tonumber(ARGV[i + 2])
+  local a = {}
+  for j = 1, argc do a[j] = ARGV[i + 2 + j] end
+  redis.call(c, k, unpack(a))
+  i = i + 3 + argc
+end
+return 'OK'`;
+
+export async function claim(locks, owner, ttl, writes = [], release = []) {
+  const keys = [...locks, ...release, ...writes.map((w) => w[1])].map((k) => PREFIX + k);
+  const argv = [locks.length, release.length, owner, Math.max(1, Math.round(ttl))];
+  writes.forEach((w, i) => argv.push(w[0].toUpperCase(), locks.length + release.length + i + 1, w.length - 2, ...w.slice(2).map(String)));
+  if (!creds()) {
+    if (process.env.VERCEL) throw Error("La base de datos no está conectada.");
+    // En memoria no hay Lua, pero Node no corta este bucle a medias: es igual de atómico.
+    for (const k of keys.slice(0, locks.length)) {
+      const v = alive(k)?.v;
+      if (v != null && v !== owner) return v;
+    }
+    for (const k of keys.slice(locks.length, locks.length + release.length)) if (alive(k)?.v === owner) mem.delete(k);
+    for (const k of keys.slice(0, locks.length)) local(["SET", k, owner, "EX", argv[3]]);
+    writes.forEach((w, i) => local([w[0], keys[locks.length + release.length + i], ...w.slice(2)]));
+    return true;
+  }
+  const j = await rest("", ["EVAL", CLAIM_LUA, keys.length, ...keys, ...argv.map(String)]);
+  if (j.error) throw Error(j.error);
+  return j.result === "OK" ? true : String(j.result);
+}
+
+// Contador con caducidad para frenar abusos. Si alguna vez se queda sin
+// caducidad (un corte entre los dos pasos), la siguiente llamada se la pone:
+// nadie se queda bloqueado para siempre.
+export async function hit(key, seconds) {
+  const [n, ttl] = await pipe([
+    ["INCR", key],
+    ["TTL", key],
+  ]);
+  if (ttl < 0) await cmd("EXPIRE", key, seconds);
+  return n;
 }
 
 export const getJSON = async (k) => {

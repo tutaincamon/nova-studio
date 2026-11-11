@@ -16,6 +16,13 @@ const shiftMonth = (key, n) => {
   return monthKey(new Date(y, m - 1 + n, 1));
 };
 const dayDate = (iso) => new Date(iso + "T12:00:00");
+// «Ahora» en Canarias, aunque el móvil esté en hora peninsular o de otro país:
+// así «hoy», el mes del calendario y lo que ya ha pasado coinciden con el salón.
+const salonFmt = new Intl.DateTimeFormat("en-CA", { timeZone: "Atlantic/Canary", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+const salonDate = () => {
+  const p = Object.fromEntries(salonFmt.formatToParts(new Date()).map((x) => [x.type, x.value]));
+  return new Date(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute);
+};
 const fmtDay = (iso, opts) => dayDate(iso).toLocaleDateString("es-ES", opts).replace(".", "");
 const longDay = (iso) => cap(fmtDay(iso, { weekday: "long", day: "numeric", month: "long" }));
 const shortDay = (iso) => cap(fmtDay(iso, { weekday: "short", day: "numeric", month: "short" }));
@@ -73,7 +80,7 @@ const SVC_ICONS = {
     '<g class="si-b"><path d="M19.6 21.2 10.4 4.2c-.6-1.1-2-.6-1.6.6l4.9 12.4 3.3 2.6"/><ellipse cx="22" cy="24.6" rx="3.9" ry="3.5" transform="rotate(20 22 24.6)"/></g>' +
     '<circle class="si-f" cx="16" cy="14.5" r="1.1"/>',
   beard:
-    '<path class="si-thin" d="M8.4 8.6C8.4 4.6 11.6 2.6 16 2.6s7.6 2 7.6 6"/>' +
+    '<path class="si-f si-hair" d="M5.6 9.4C4.6 4.4 9 .6 15.4.8c2.2 0 3.6.6 4.4 1.4 1-.6 2.6-.4 3.6.6 2.4 2 3.4 4.4 3 6.6l-2.8-.2c-.2-1.6-1.2-2.6-2.6-3-2.4 1.2-6 1.4-9 .6-1.6.6-2.6 1.6-3 2.8z"/>' +
     '<path class="si-f" fill-rule="evenodd" d="M5.6 7.6h2.8c0 5.4 1.4 9.4 4 11.2 1.6-.5 5.6-.5 7.2 0 2.6-1.8 4-5.8 4-11.2h2.8c0 12-4.6 21.6-10.4 21.6S5.6 19.6 5.6 7.6zM13 21.2c1.8 1.5 4.2 1.5 6 0-1.6 2.6-4.4 2.6-6 0z"/>' +
     '<path class="si-f si-stache" d="M16 15.4c-1.8-1.7-4.6-1.8-6.4-.2-.6.5-1.4.5-1.9 0 .3 2.2 2.6 2.9 4.3 2.5 1.5-.3 2.9-.8 4-1.3 1.1.5 2.5 1 4 1.3 1.7.4 4-.3 4.3-2.5-.5.5-1.3.5-1.9 0-1.8-1.6-4.6-1.5-6.4.2z"/>',
   star:
@@ -120,6 +127,7 @@ let catalog = null,
   cobroDay = "",
   cobroPre = "";
 const availCache = new Map();
+let catalogBust = false; // tras un cambio en el panel, pedir el catálogo saltándose la caché del CDN
 
 function load(k) {
   try {
@@ -135,30 +143,64 @@ function saveDraft() {
 }
 
 // ── Red ────────────────────────────────────────────────────────────────────
-async function api(path, body) {
-  const r = await fetch("/api/" + path, {
-    method: body ? "POST" : "GET",
-    headers: body ? { "Content-Type": "application/json" } : {},
-    body: body ? JSON.stringify(body) : undefined,
-    credentials: "same-origin",
-  });
-  let j = {};
+// Si la red no contesta en 15 s se corta y se dice claro qué pasa (sin conexión
+// o conexión lenta). El error lleva `network` para poder reintentar, y `data`
+// con lo que manda el servidor (por ejemplo, horas alternativas).
+async function api(path, body, { timeout = 15000 } = {}) {
+  const ctl = new AbortController(),
+    timer = setTimeout(() => ctl.abort(), timeout);
+  let r,
+    j = {};
   try {
-    j = await r.json();
-  } catch {}
+    r = await fetch("/api/" + path, {
+      method: body ? "POST" : "GET",
+      headers: body ? { "Content-Type": "application/json" } : {},
+      body: body ? JSON.stringify(body) : undefined,
+      credentials: "same-origin",
+      signal: ctl.signal,
+    });
+    j = await r.json().catch(() => ({}));
+  } catch {
+    const e = Error(navigator.onLine === false ? "Estás sin conexión. Revisa los datos o el wifi y prueba otra vez." : "La conexión va lenta y no ha llegado respuesta. Prueba otra vez.");
+    e.network = true;
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!r.ok) {
-    const e = Error(j.error || "No hay conexión. Prueba otra vez.");
+    const e = Error(j.error || "Algo ha fallado. Prueba otra vez.");
     e.status = r.status;
+    e.data = j;
     throw e;
   }
   return j;
 }
+// Clave de cada intento de reserva (el servidor no la guarda dos veces).
+const newKey = () => (crypto.randomUUID ? crypto.randomUUID() : Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join(""));
 async function loadCatalog() {
   if (!catalog) {
-    catalog = await api("catalog");
+    try {
+      catalog = await api("catalog" + (catalogBust ? "?t=" + Date.now() : ""));
+      catalogBust = false;
+      try {
+        localStorage.setItem("nova_catalog", JSON.stringify(catalog));
+      } catch {}
+    } catch (err) {
+      // Sin red: se abre con lo último que se vio (las horas libres sí hacen falta en vivo).
+      const saved = err.network && load2("nova_catalog");
+      if (!saved) throw err;
+      catalog = saved;
+    }
     applyTheme(catalog.site?.theme);
   }
   return catalog;
+}
+function load2(k) {
+  try {
+    return JSON.parse(localStorage.getItem(k));
+  } catch {
+    return null;
+  }
 }
 // Tema de la web (lo elige el dueño en «Web»): plata por defecto o rosa.
 // Se recuerda en el móvil para pintarlo bien desde el primer instante.
@@ -180,17 +222,34 @@ async function refreshMe() {
     loginCode = r.loginCode;
   } catch {}
 }
+// Horas libres de un mes ({ "2026-12-01": ["10:00", …] }). Se guardan un minuto:
+// con la app abierta mucho rato no se enseñan horas que ya se ha llevado otro.
+// `days.full` (no sale al recorrer el objeto): días completos donde pedir aviso.
 function getAvail(service, provider, month) {
-  const k = `${service}|${provider}|${month}`;
-  if (!availCache.has(k)) {
-    const p = api(`avail?service=${encodeURIComponent(service)}&provider=${encodeURIComponent(provider)}&month=${month}`).then((r) => r.days);
+  const k = `${service}|${provider}|${month}`,
+    hit = availCache.get(k);
+  if (!hit || Date.now() - hit.at > 60000) {
+    const p = api(`avail?service=${encodeURIComponent(service)}&provider=${encodeURIComponent(provider)}&month=${month}`).then((r) =>
+      Object.defineProperty(r.days, "full", { value: new Set(r.full || []), enumerable: false }),
+    );
     p.catch(() => availCache.delete(k));
-    availCache.set(k, p);
+    availCache.set(k, { p, at: Date.now() });
   }
-  return availCache.get(k);
+  return availCache.get(k).p;
 }
+// Al volver a la app tras más de un minuto fuera, el calendario se vuelve a pedir.
+let hiddenAt = 0;
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) return void (hiddenAt = Date.now());
+  if (hiddenAt && Date.now() - hiddenAt > 60000) {
+    availCache.clear();
+    if (["time", "move"].includes(document.body.dataset.page)) render();
+  }
+});
 const svcById = (id) => catalog?.services.find((s) => s.id === id);
-const provById = (id) => catalog?.providers.find((p) => p.id === id);
+// «Sin preferencia»: la primera hora libre de cualquiera del equipo.
+const ANY = { id: "any", name: "Sin preferencia", role: "El primero que esté libre" };
+const provById = (id) => (id === "any" ? ANY : catalog?.providers.find((p) => p.id === id));
 const wa = (text) => `https://wa.me/${catalog.business.whatsapp}?text=${encodeURIComponent(text)}`;
 
 // ── Piezas comunes ─────────────────────────────────────────────────────────
@@ -204,7 +263,9 @@ function toast(text) {
 const heading = (title, sub = "") => `<div class="heading"><h1>${title}</h1>${sub ? `<p class="sub">${sub}</p>` : ""}</div>`;
 const back = (to, label) => `<a class="back-link" href="#${to}">← ${label}</a>`;
 const face = (p, cls = "face") =>
-  (p = p && !p.image ? provById(p.id) || p : p)?.image ? `<img class="${cls}" src="${esc(p.image)}" alt="">` : `<span class="${cls}" aria-hidden="true">${initial(p?.name)}</span>`;
+  p?.id === "any"
+    ? `<span class="${cls} face-any" aria-hidden="true">${svg(ICONS.users)}</span>`
+    : (p = p && !p.image ? provById(p.id) || p : p)?.image ? `<img class="${cls}" src="${esc(p.image)}" alt="">` : `<span class="${cls}" aria-hidden="true">${initial(p?.name)}</span>`;
 const legalLinks = () =>
   `<div class="legal-links" role="navigation" aria-label="Información legal"><a href="#privacidad">Privacidad</a><span>·</span><a href="#condiciones">Condiciones</a><span>·</span><a href="#aviso-legal">Aviso legal</a><span>·</span><a href="#equipo">Equipo</a></div>`;
 function onForm(id, fn) {
@@ -223,7 +284,7 @@ function onForm(id, fn) {
   });
 }
 function untilLabel(iso) {
-  const today = new Date();
+  const today = salonDate();
   today.setHours(12, 0, 0, 0);
   const days = Math.round((dayDate(iso) - today) / 86400000);
   return days <= 0 ? "Hoy" : days === 1 ? "Mañana" : days < 7 ? `En ${days} días` : `En ${Math.round(days / 7)} ${Math.round(days / 7) === 1 ? "semana" : "semanas"}`;
@@ -341,7 +402,7 @@ async function nextFreeSlot() {
   const s = svcById("corte") || catalog.services.find((x) => !x.consult);
   if (!s) return null;
   const team = teamFor(s),
-    m0 = monthKey(new Date());
+    m0 = monthKey(salonDate());
   for (const month of [m0, shiftMonth(m0, 1)]) {
     const res = await Promise.all(team.map((p) => getAvail(s.id, p.id, month).then((days) => ({ p, days }), () => null)));
     let best = null;
@@ -538,6 +599,17 @@ function bookingCard(b, now) {
     <span class="appt-body"><strong>${esc(b.service.name)}</strong><span>${esc(b.start)} · ${esc(b.provider.name)}</span><span class="appt-chips"><span class="appt-state ${state[1]}">${state[0]}</span></span></span>
   </a>`;
 }
+// Botón de calendario: en iPhone/Mac abre el calendario del sistema (.ics);
+// en el resto, Google Calendar. Debajo, el otro por si acaso.
+function calButtons(b, style = "") {
+  const apple = /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent);
+  const ics = `/api/bookings/${encodeURIComponent(b.id)}/ics`,
+    g = gcalLink(b);
+  return (
+    `<a class="btn wide secondary" style="${style}" href="${apple ? ics : g}" ${apple ? "" : 'target="_blank" rel="noopener"'}>${svg(ICONS.cal)} Añadir a mi calendario</a>` +
+    `<p class="cal-alt"><a href="${apple ? g : ics}" ${apple ? 'target="_blank" rel="noopener"' : ""}>${apple ? "¿Usas Google Calendar?" : "¿Usas el calendario del iPhone u Outlook?"}</a></p>`
+  );
+}
 function gcalLink(b) {
   const d = b.date.replace(/-/g, ""),
     t = (x) => x.replace(":", "") + "00";
@@ -631,7 +703,7 @@ const pages = {
         "pointerdown",
         () => {
           const s = svcById(a.getAttribute("href").split("/")[1]);
-          teamFor(s).forEach((p) => getAvail(s.id, p.id, monthKey(new Date())).catch(() => {}));
+          teamFor(s).forEach((p) => getAvail(s.id, p.id, monthKey(salonDate())).catch(() => {}));
         },
         { once: true },
       ),
@@ -647,6 +719,9 @@ const pages = {
     show(
       back("home", "Cambiar servicio") +
         heading("Elige a tu barbero", `${esc(s.name)} · ${s.duration} min · ${euro(s.price)}`) +
+        (team.length > 1
+          ? `<a class="any-pick" href="#time/any"><span class="any-ic" aria-hidden="true">${svg(ICONS.users)}</span><span><strong>Sin preferencia</strong><small>La primera hora libre de cualquiera del equipo</small></span><span class="any-go" aria-hidden="true">→</span></a>`
+          : "") +
         `<div class="cromos${team.length === 1 ? " solo" : ""}">${team
           .map(
             (p, i) => `<a class="cromo" href="#time/${esc(p.id)}">
@@ -660,7 +735,8 @@ const pages = {
           )
           .join("")}</div>`,
     );
-    team.forEach((p) => getAvail(s.id, p.id, monthKey(new Date())).catch(() => {}));
+    team.forEach((p) => getAvail(s.id, p.id, monthKey(salonDate())).catch(() => {}));
+    if (team.length > 1) getAvail(s.id, "any", monthKey(salonDate())).catch(() => {});
     $$(".cromo").forEach((a) =>
       a.addEventListener("click", (e) => {
         if (a.classList.contains("picked")) return;
@@ -694,7 +770,7 @@ const pages = {
     if (!draft.service) return go("home");
     if (draft.provider !== pid) {
       dayPicked = false;
-      calMonth = monthKey(new Date());
+      calMonth = monthKey(salonDate());
       delete draft.start;
     }
     draft.provider = pid;
@@ -702,10 +778,22 @@ const pages = {
     await calendar({ backTo: `barber/${draft.service}`, backLabel: "Cambiar barbero" });
   },
 
+  async hueco([sid, pid, date]) {
+    const s = svcById(sid);
+    if (!s || s.consult || !provById(pid) || !/^\d{4}-\d{2}-\d{2}$/.test(date || "")) return go("home");
+    draft = { service: s.id, provider: pid };
+    saveDraft();
+    calMonth = date.slice(0, 7);
+    selectedDate = date;
+    dayPicked = true;
+    availCache.clear();
+    location.replace("#time/" + pid);
+  },
+
   async move([id]) {
     const { booking: b } = await api("bookings/" + id);
     draft = { service: b.service.id, provider: b.provider.id, moving: b.id };
-    if (!calMonth) calMonth = monthKey(new Date());
+    if (!calMonth) calMonth = monthKey(salonDate());
     await calendar({ backTo: `booking/${b.id}`, backLabel: "Volver a la cita" });
   },
 
@@ -822,17 +910,38 @@ const pages = {
         if (!card) return toast("Sin tarjeta en garantía no podemos guardar la cita.");
       }
       const repeat = d.every ? { every: Number(d.every), times: Number(d.times) } : null;
-      const book = () => api("book", { ...data, ref: refOk || "", service: draft.service, provider: draft.provider, date: draft.date, start: draft.start, terms: true, repeat });
+      // Una clave por hora elegida: si la red se corta y se reintenta, el servidor
+      // reconoce que es la misma reserva y no dice «esa hora ya no está libre».
+      const slot = [draft.service, draft.provider, draft.date, draft.start].join("|");
+      if (draft.keyFor !== slot) Object.assign(draft, { key: newKey(), keyFor: slot });
+      saveDraft();
+      const book = async () => {
+        for (let i = 0; ; i++) {
+          try {
+            return await api("book", { ...data, ref: refOk || "", service: draft.service, provider: draft.provider, date: draft.date, start: draft.start, terms: true, repeat, key: draft.key }, { timeout: 20000 });
+          } catch (err) {
+            if (!(err.network || err.data?.pending) || i >= 3) throw err;
+            if (!i) toast("La conexión va lenta. Seguimos intentándolo…");
+            await new Promise((ok) => setTimeout(ok, 1500 * (i + 1)));
+          }
+        }
+      };
       let r;
       try {
-        r = await book();
+        try {
+          r = await book();
+        } catch (err) {
+          if (err.status !== 402) throw err;
+          if (!(await addCard(data))) return toast("Sin tarjeta en garantía no podemos guardar la cita.");
+          r = await book();
+        }
       } catch (err) {
-        if (err.status !== 402) throw err;
-        if (!(await addCard(data))) return toast("Sin tarjeta en garantía no podemos guardar la cita.");
-        r = await book();
+        if (err.status !== 409 || !err.data?.alternatives?.length) throw err;
+        availCache.clear();
+        return pickAlternative(err.data.alternatives);
       }
       availCache.clear();
-      lastBooked = { id: r.id, existing: r.existing, service: s, provider: p, date: draft.date, start: draft.start, series: r.series };
+      lastBooked = { id: r.id, existing: r.existing, service: s, provider: (r.provider && provById(r.provider.id)) || r.provider || p, date: draft.date, start: draft.start, series: r.series };
       draft = {};
       saveDraft();
       if (r.session) {
@@ -869,7 +978,7 @@ const pages = {
               b.series.skipped.length ? `<span class="warn-line">No había hueco a las ${esc(b.start)} el ${b.series.skipped.map((x) => esc(shortDay(x))).join(", ")}: elige otra hora para ese día.</span>` : ""
             }</div>`
           : "") +
-        `<a class="btn wide secondary" href="${gcalLink({ ...b, end: addMin(b.start, b.service.duration) })}" target="_blank" rel="noopener">${svg(ICONS.cal)} Añadir a mi calendario</a>` +
+        calButtons({ ...b, end: addMin(b.start, b.service.duration) }) +
         (b.existing
           ? `<p class="warning">Ya tenías cuenta con este correo. Entra con tu correo para ver y cambiar todas tus citas.</p><a class="btn wide" href="#login">Entrar a mis citas</a>`
           : `<a class="btn wide" style="margin-top:10px" href="#booking/${esc(b.id)}">Ver, cambiar o cancelar mi cita</a>`) +
@@ -924,7 +1033,7 @@ const pages = {
         chargeNote(b) +
         (active
           ? `<div class="stack">
-              <a class="btn wide secondary" href="${gcalLink(b)}" target="_blank" rel="noopener">${svg(ICONS.cal)} Añadir a mi calendario</a>
+              ${calButtons(b)}
               <a class="btn wide secondary" href="${esc(catalog.business.maps)}" target="_blank" rel="noopener">${svg(ICONS.pin)} Cómo llegar</a>
               ${
                 r.canChange
@@ -1186,13 +1295,45 @@ const pages = {
 for (const [k, [title, body]] of Object.entries(LEGAL))
   pages[k] = async () => show(back("home", "Volver") + heading(title, catalog.business.name) + `<article class="legal-page">${body()}</article>` + legalLinks());
 
+// La hora elegida se la acaba de llevar otro: se ofrecen las más cercanas y
+// con un toque se reserva la que elija (mismos datos, sin volver a escribir nada).
+function pickAlternative(list) {
+  const sh = sheet(
+    `<p class="eyebrow">Se acaba de ocupar</p><h2>Otra persona ha cogido esa hora</h2><p class="muted" style="margin-top:6px">Estas siguen libres. Toca una y queda reservada.</p>
+     <div class="alt-list">${list
+       .map(
+         (a, i) =>
+           `<button type="button" class="alt-item" data-i="${i}"><span><strong>${esc(a.start)}</strong><small>${esc(shortDay(a.date))}</small></span><span>${a.provider ? "con " + esc(first(a.provider.name)) : "con quien esté libre"}</span><b aria-hidden="true">→</b></button>`,
+       )
+       .join("")}</div>
+     <button type="button" class="btn wide secondary" style="margin-top:14px" id="alt-cal">Ver el calendario</button>`,
+  );
+  sh.el.querySelectorAll(".alt-item").forEach(
+    (b) =>
+      (b.onclick = async () => {
+        const a = list[+b.dataset.i];
+        Object.assign(draft, { date: a.date, start: a.start }, a.provider ? { provider: a.provider.id } : {});
+        saveDraft();
+        sh.close();
+        await render();
+        $("#details")?.requestSubmit();
+      }),
+  );
+  sh.el.querySelector("#alt-cal").onclick = () => {
+    sh.close();
+    delete draft.start;
+    saveDraft();
+    go("time/" + draft.provider);
+  };
+}
+
 // ── Calendario (reservar y cambiar de hora) ────────────────────────────────
 async function calendar({ backTo, backLabel }) {
   const s = svcById(draft.service),
     p = provById(draft.provider);
   if (!s || !p) return go("home");
-  if (!calMonth) calMonth = monthKey(new Date());
-  const thisMonth = monthKey(new Date());
+  if (!calMonth) calMonth = monthKey(salonDate());
+  const thisMonth = monthKey(salonDate());
   let avail = await getAvail(s.id, p.id, calMonth);
   const firstOpen = (a) => Object.keys(a).sort().find((d) => a[d].length);
   // Si este mes ya no tiene horas, se pasa solo al siguiente.
@@ -1206,7 +1347,7 @@ async function calendar({ backTo, backLabel }) {
   const [cy, cm] = calMonth.split("-").map(Number),
     lead = (new Date(cy, cm - 1, 1).getDay() + 6) % 7,
     total = new Date(cy, cm, 0).getDate(),
-    todayIso = isoDay(new Date()),
+    todayIso = isoDay(salonDate()),
     times = avail[selectedDate] || [],
     morning = times.filter((t) => t < "14:00"),
     afternoon = times.filter((t) => t >= "14:00"),
@@ -1214,6 +1355,8 @@ async function calendar({ backTo, backLabel }) {
     monthName = cap(new Date(cy, cm - 1, 1).toLocaleDateString("es-ES", { month: "long" })) + " " + cy;
   // Punto de disponibilidad: verde = mucha, naranja = media, rojo = pocas.
   // Se compara con el día más libre del mes (un día sin reservas).
+  // Días completos (solo al reservar, no al cambiar de hora): se pueden tocar para pedir aviso.
+  const full = !draft.moving && avail.full ? avail.full : new Set();
   const fullDay = Math.max(1, ...Object.values(avail).map((a) => a.length)),
     level = (n) => (n <= 2 || n / fullDay <= 0.25 ? ["low", ", quedan pocas horas"] : n / fullDay <= 0.6 ? ["mid", ", disponibilidad media"] : ["", ""]);
   let cells = "";
@@ -1222,8 +1365,9 @@ async function calendar({ backTo, backLabel }) {
     const iso = `${calMonth}-${pad(d)}`,
       n = (avail[iso] || []).length,
       open = n > 0,
+      isFull = !open && full.has(iso),
       [lv, lvLabel] = open ? level(n) : ["", ""];
-    cells += `<button type="button" class="cal-cell${open ? " open" : ""}${lv ? " lvl-" + lv : ""}${iso === selectedDate ? " selected" : ""}${iso === todayIso ? " today" : ""}" data-day="${iso}" ${open ? "" : "disabled"} aria-pressed="${iso === selectedDate}" aria-label="${esc(longDay(iso))}${open ? lvLabel : ", sin horas"}">${d}</button>`;
+    cells += `<button type="button" class="cal-cell${open ? " open" : ""}${isFull ? " full" : ""}${lv ? " lvl-" + lv : ""}${iso === selectedDate ? " selected" : ""}${iso === todayIso ? " today" : ""}" data-day="${iso}" ${open || isFull ? "" : "disabled"} aria-pressed="${iso === selectedDate}" aria-label="${esc(longDay(iso))}${open ? lvLabel : isFull ? ", completo: puedes pedir aviso" : ", sin horas"}">${d}</button>`;
   }
   const maxMonth = shiftMonth(thisMonth, Math.ceil(catalog.rules.daysAhead / 30));
   show(
@@ -1231,7 +1375,12 @@ async function calendar({ backTo, backLabel }) {
       heading(draft.moving ? "Elige la nueva hora" : "Día y hora") +
       `<div class="pick-summary">${face(p)}<div><strong>${esc(s.name)}</strong><span>${esc(p.name)} · ${s.duration} min · ${euro(s.price)}</span></div></div>` +
       `<div class="cal-card"><div class="cal-head"><button type="button" class="cal-nav" id="prev-month" aria-label="Mes anterior" ${calMonth <= thisMonth ? "disabled" : ""}>‹</button><strong>${monthName}</strong><button type="button" class="cal-nav" id="next-month" aria-label="Mes siguiente" ${calMonth >= maxMonth ? "disabled" : ""}>›</button></div><div class="cal-week"><span>L</span><span>M</span><span>X</span><span>J</span><span>V</span><span>S</span><span>D</span></div><div class="cal-grid">${cells}</div></div>` +
-      (selectedDate
+      (selectedDate && full.has(selectedDate) && !times.length
+        ? `<div class="times"><h2 class="times-title">${esc(longDay(selectedDate))}</h2>
+            <div class="wl-box" id="wl-box"><strong>Este día está completo</strong><span>Si alguien cancela, te escribimos al momento para que elijas hora antes que nadie.</span>
+            ${user ? "" : `<label for="wl-email">Tu correo</label><input id="wl-email" type="email" autocomplete="email" value="${esc(draft.email || "")}">`}
+            <button type="button" class="btn wide" id="wl-btn">Avísame si se libera</button></div></div>`
+        : selectedDate
         ? `<div class="times"><h2 class="times-title">${esc(longDay(selectedDate))}</h2>${morning.length ? `<p class="times-label">Mañana</p><div class="time-grid">${morning.map(pill).join("")}</div>` : ""}${afternoon.length ? `<p class="times-label">Tarde</p><div class="time-grid">${afternoon.map(pill).join("")}</div>` : ""}</div>`
         : '<p class="empty">No quedan horas libres este mes. Prueba el mes siguiente.</p>') +
       `<div style="height:90px"></div>`,
@@ -1239,6 +1388,19 @@ async function calendar({ backTo, backLabel }) {
   $("#prev-month").onclick = () => ((calMonth = shiftMonth(calMonth, -1)), (dayPicked = false), render());
   $("#next-month").onclick = () => ((calMonth = shiftMonth(calMonth, 1)), (dayPicked = false), render());
   $$(".cal-cell[data-day]:not([disabled])").forEach((b) => (b.onclick = () => ((selectedDate = b.dataset.day), (dayPicked = true), render())));
+  $("#wl-btn")?.addEventListener("click", async (e) => {
+    const email = user ? user.email : ($("#wl-email")?.value || "").trim();
+    if (!user && !$("#wl-email").reportValidity()) return;
+    e.currentTarget.disabled = true;
+    try {
+      await api("waitlist", { service: s.id, provider: draft.provider, date: selectedDate, email });
+      if (!user) Object.assign(draft, { email }), saveDraft();
+      $("#wl-box").innerHTML = `<strong>Listo, te avisamos</strong><span>Si se libera una hora el ${esc(shortDay(selectedDate))}, te llega un correo a ${esc(email)}. Se la lleva quien reserve primero.</span>`;
+    } catch (err) {
+      e.currentTarget.disabled = false;
+      toast(err.message);
+    }
+  });
 
   // Elegir hora solo la marca; se avanza con «Continuar» por si se equivoca.
   const bar = document.createElement("div");
@@ -1631,7 +1793,7 @@ function staffTop(tab) {
 }
 
 async function staffAgenda() {
-  if (!staffDay) staffDay = isoDay(new Date());
+  if (!staffDay) staffDay = isoDay(salonDate());
   const [r, rd] = await Promise.all([api("staff/day?date=" + staffDay), api("staff/redemptions").catch(() => ({ pending: [] }))]);
   const canjes = rd.pending.length
     ? `<section class="ag-col"><div class="ag-head"><h2>Premios por entregar</h2><span>${rd.pending.length}</span></div>${rd.pending
@@ -1640,7 +1802,7 @@ async function staffAgenda() {
         )
         .join("")}</section>`
     : "";
-  const today = new Date();
+  const today = salonDate();
   let strip = "";
   for (let i = -3; i < 21; i++) {
     const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + i),
@@ -1675,6 +1837,7 @@ async function staffAgenda() {
     .join("");
   show(
     staffTop("agenda") +
+      (r.alerts || []).map((a) => `<p class="warning">${esc(a)}</p>`).join("") +
       `<p class="ag-day">${esc(longDay(staffDay))}</p>` +
       `<div class="day-strip" id="strip">${strip}</div>` +
       `<div class="staff-bar"><button type="button" class="btn" id="new-bk">+ Cita</button><button type="button" class="btn secondary" id="new-block">Bloquear hora</button><button type="button" class="btn secondary" id="new-shop">${svg(ICONS.bag)} Venta de ropa</button></div>` +
@@ -1744,7 +1907,7 @@ function cajaStats(p) {
 }
 
 async function staffCaja() {
-  const nowKey = monthKey(new Date());
+  const nowKey = monthKey(salonDate());
   if (!staffMonth) staffMonth = nowKey;
   const r = await api("staff/summary?month=" + staffMonth);
   const label = monthLabel(r.month);
@@ -2002,7 +2165,7 @@ function bindCobroForm(root, r, x, done) {
 }
 
 async function staffCobros() {
-  const today = isoDay(new Date());
+  const today = isoDay(salonDate());
   if (!cobroDay) cobroDay = today;
   const r = await api("staff/cobros?date=" + cobroDay);
   const isToday = r.date === r.today;
@@ -2259,7 +2422,7 @@ function staffCharge(b) {
   if (c?.status === "refunded") return `<div class="chg"><strong>Cobro devuelto</strong><span>Se le devolvieron ${euro(c.amount)}.</span></div>`;
   if (c?.status === "requires_action")
     return `<div class="chg wait"><strong>⏳ Pendiente de que el cliente lo confirme</strong><span>Su banco pide confirmación. Le hemos avisado: lo verá en «Mis citas» al entrar en la app.</span></div>`;
-  const past = new Date(`${b.date}T${b.start}:00`) < new Date();
+  const past = new Date(`${b.date}T${b.start}:00`) < salonDate();
   if (!late && !past) return `<p class="muted chg-hint">Cuando pase la hora de la cita podrás cobrarle la falta.</p>`;
   if (!b.card) return `<div class="chg"><strong>${esc(why)} · sin tarjeta guardada</strong><span>Este cliente no dejó tarjeta (cita apuntada a mano o de antes). Habla con él por WhatsApp.</span>${forgive}</div>`;
   return `<div class="chg${c ? " bad" : ""}">${
@@ -2339,7 +2502,7 @@ function bindStaffCharge(sh, b) {
 
 // Pestaña «Faltas»: quién no vino este mes y cómo van los cobros.
 async function staffFaltas() {
-  const nowKey = monthKey(new Date());
+  const nowKey = monthKey(salonDate());
   if (!staffMonth) staffMonth = nowKey;
   const r = await api("staff/noshows?month=" + staffMonth);
   const label = monthLabel(r.month);
@@ -2616,7 +2779,7 @@ async function initHabit(h) {
   const s = svcById(h.service),
     p = provById(h.provider);
   // Primera fecha posible: cuando «le toca» (o mañana) y en su día de la semana.
-  let from = new Date();
+  let from = salonDate();
   from.setDate(from.getDate() + 1);
   if (h.every) {
     const due = dayDate(h.last);
@@ -2739,8 +2902,11 @@ async function staffClients() {
 // Estado de las tareas automáticas (recordatorios y correos).
 function autoStatus(n) {
   if (!n.mail) return `<p class="warning" style="margin-top:12px">Los correos aún no se envían: falta activar el servicio de correo. Las opciones quedan guardadas y empezarán a funcionar en cuanto se active.</p>`;
-  if (!n.cron) return `<p class="warning" style="margin-top:12px">Falta activar la tarea diaria en Vercel (variable CRON_SECRET) para que salgan los recordatorios.</p>`;
-  return n.lastCron ? `<p class="muted" style="font-size:12px;margin-top:10px">Última vez: ${esc(n.lastCron.at)} · ${n.lastCron.reminders} recordatorios${n.lastCron.winback ? ` · ${n.lastCron.winback} correos a clientes perdidos` : ""}</p>` : "";
+  if (!n.cron) return `<p class="warning" style="margin-top:12px">Falta activar las tareas automáticas en Vercel (variable CRON_SECRET) para que salgan los recordatorios.</p>`;
+  const c = n.lastCron;
+  return c
+    ? `<p class="muted" style="font-size:12px;margin-top:10px">Última pasada: ${esc(c.at)}${c.error ? ` · <b>falló: ${esc(c.error)}</b>` : ""} · ${c.reminders || 0} recordatorios de mañana · ${c.soon || 0} de hoy${c.reviews ? ` · ${c.reviews} reseñas pedidas` : ""}${c.winback ? ` · ${c.winback} correos a clientes perdidos` : ""}</p>`
+    : "";
 }
 
 // ── Copia de seguridad (solo el dueño) ─────────────────────────────────────
@@ -2775,7 +2941,7 @@ function bindBackup() {
         const r = await api("staff/restore", { confirm: new FormData(ev.target).get("confirm"), backup });
         sh.close();
         toast(`Copia recuperada: ${r.written} registros.`);
-        catalog = null;
+        (catalog = null), (catalogBust = true);
         await loadCatalog();
         render();
       } catch (err) {
@@ -2853,7 +3019,7 @@ async function staffWeb() {
         .join("")}</div>`,
   );
   const reload = async () => {
-    catalog = null;
+    (catalog = null), (catalogBust = true);
     await loadCatalog();
     render();
   };
@@ -2965,8 +3131,16 @@ async function staffTeam() {
         <label for="n-abs">Si no viene, se le puede cobrar</label>
         <div class="pct-field"><input id="n-abs" name="noShowFeePct" inputmode="numeric" required value="${n.noShowFeePct}"><span>% del servicio</span></div>
         <p class="muted" style="font-size:13px;margin:12px 0 0">Nunca se cobra solo: cada barbero decide en su pestaña «Faltas» si cobra o no, por si hay un motivo justificado. Con 0 % no se cobra nunca.</p>
-        <p class="section-label" style="margin-top:22px">Recordatorios y citas que se repiten</p>
-        <label class="check" style="margin-top:0"><input type="checkbox" name="reminders" ${n.reminders ? "checked" : ""}><span>Mandar un correo de recordatorio el día antes de cada cita</span></label>
+        <p class="section-label" style="margin-top:22px">Correos automáticos</p>
+        <label class="check" style="margin-top:0"><input type="checkbox" name="reminders" ${n.reminders ? "checked" : ""}><span>Recordatorio el día antes de cada cita</span></label>
+        <label class="check"><input type="checkbox" name="remindSoon" ${n.remindSoon ? "checked" : ""}><span>Otro recordatorio unas 2 horas antes (no a quien reservó ese mismo día)</span></label>
+        <label class="check"><input type="checkbox" name="waitlist" ${n.waitlist ? "checked" : ""}><span>En los días completos, los clientes pueden pedir aviso. Si alguien cancela, se les escribe al momento</span></label>
+        <label class="check"><input type="checkbox" name="dailyClose" ${n.dailyClose ? "checked" : ""}><span>Cada mañana, el resumen de caja de ayer a tu correo (con las citas que quedaron sin cobrar)</span></label>
+        <label class="check"><input type="checkbox" name="reviews" ${n.reviews ? "checked" : ""}><span>Pedir reseña por correo una hora después de cada corte marcado como hecho (como mucho una vez cada 6 meses por cliente)</span></label>
+        <label for="n-review">Enlace donde se deja la reseña</label>
+        <input id="n-review" name="reviewUrl" type="url" inputmode="url" placeholder="https://g.page/r/…/review" value="${esc(n.reviewUrl || "")}">
+        <p class="muted" style="font-size:12px;margin:6px 0 0">En Google: tu ficha de empresa → «Pedir reseñas» → copiar enlace.</p>
+        <p class="section-label" style="margin-top:22px">Citas que se repiten</p>
         <label class="check"><input type="checkbox" name="recurring" ${n.recurring ? "checked" : ""}><span>Los clientes pueden reservar citas que se repiten (cada 1, 2, 3 o 4 semanas)</span></label>
         <label for="n-rmax">Como mucho, cuántas citas de una vez</label>
         <div class="pct-field"><input id="n-rmax" name="recurringMax" inputmode="numeric" value="${n.recurringMax}"><span>citas</span></div>
@@ -2986,8 +3160,9 @@ async function staffTeam() {
   );
   bindBackup();
   onForm("norms", async (d) => {
-    await api("staff/rules", { ...d, reminders: d.reminders === "on", recurring: d.recurring === "on" });
-    catalog = null;
+    const on = (k) => d[k] === "on";
+    await api("staff/rules", { ...d, reminders: on("reminders"), recurring: on("recurring"), remindSoon: on("remindSoon"), waitlist: on("waitlist"), dailyClose: on("dailyClose"), reviews: on("reviews") });
+    (catalog = null), (catalogBust = true);
     await loadCatalog();
     toast("Normas guardadas.");
     render();
@@ -3067,7 +3242,7 @@ function workerSheet(p, services) {
         photo,
       });
       sh.close();
-      catalog = null;
+      (catalog = null), (catalogBust = true);
       await loadCatalog();
       toast(r.pending ? `Guardado. Ojo: le quedan ${r.pending} citas pendientes; muévelas o cancélalas desde la Agenda.` : p ? "Guardado." : `${first(r.worker.name)} ya está en el equipo.`);
       await render();

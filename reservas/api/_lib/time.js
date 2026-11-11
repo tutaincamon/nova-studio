@@ -39,10 +39,21 @@ export const absMin = (date, hhmm) => {
   return Date.UTC(y, m - 1, d) / 60000 + toMin(hhmm);
 };
 
-export const minutesUntil = (date, hhmm) => {
-  const n = nowLocal();
-  return absMin(date, hhmm) - absMin(n.date, n.time);
+// Momento real (milisegundos UTC) de una fecha y hora de Canarias. Tiene en
+// cuenta el cambio de hora: el 29 de marzo a las 10:00 no está a la misma
+// distancia en horas que el 28 a las 10:00.
+const offsetAt = (ms) => {
+  const p = Object.fromEntries(fmt.formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
+  return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute) - Math.floor(ms / 60000) * 60000;
 };
+export function epochOf(date, hhmm) {
+  const wall = absMin(date, hhmm) * 60000;
+  let t = wall - offsetAt(wall);
+  t = wall - offsetAt(t);
+  return t;
+}
+
+export const minutesUntil = (date, hhmm) => Math.round((epochOf(date, hhmm) - Date.now()) / 60000);
 
 export const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s)) && !isNaN(new Date(s + "T12:00:00Z"));
 export const isTime = (s) => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(s));
