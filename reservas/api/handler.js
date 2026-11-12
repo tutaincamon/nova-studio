@@ -1470,6 +1470,29 @@ async function clubPurchase(u, amount, items, by) {
 
 // ── Rutas ──────────────────────────────────────────────────────────────────
 const routes = {
+  // Piezas del mapa de la portada (OpenStreetMap), servidas desde aquí: así el
+  // móvil del cliente solo habla con nuestro servidor. Solo la zona del estudio
+  // y zooms 13-18, y con caché larga (las piezas apenas cambian), como pide la
+  // política de uso de OpenStreetMap.
+  "GET tile/:z/:x/:y": async ({ params }) => {
+    const z = Number(params.z),
+      x = Number(params.x),
+      y = Number(String(params.y).replace(/\.png$/, ""));
+    if (![z, x, y].every(Number.isInteger) || z < 13 || z > 18) fail(404, "No.");
+    const n = 2 ** z,
+      { lat, lng } = BUSINESS.geo;
+    const cx = ((lng + 180) / 360) * n,
+      cy = ((1 - Math.log(Math.tan((lat * Math.PI) / 180) + 1 / Math.cos((lat * Math.PI) / 180)) / Math.PI) / 2) * n;
+    const r = 3 * 2 ** (z - 13) + 2; // unos 15 km alrededor a zoom 13, menos al acercarse
+    if (Math.abs(x - cx) > r || Math.abs(y - cy) > r) fail(404, "Fuera de la zona.");
+    const res = await fetch(`https://tile.openstreetmap.org/${z}/${x}/${y}.png`, {
+      headers: { "User-Agent": "NOVA-reservas/1.0 (+https://nova.appflu.es)", Referer: "https://nova.appflu.es/" },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) fail(502, "Mapa no disponible.");
+    return { raw: Buffer.from(await res.arrayBuffer()), type: "image/png", cache: "public, max-age=604800, s-maxage=2592000, stale-while-revalidate=604800" };
+  },
+
   "GET catalog": async ({ res }) => {
     // Es igual para todos: el CDN de Vercel lo guarda 30 s y lo sirve sin
     // despertar la función (y sin tocar la base de datos). El panel, tras

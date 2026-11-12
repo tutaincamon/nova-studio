@@ -1792,3 +1792,19 @@ body[data-page="equipo"] #lang-btn { display: none; }
 .er-who strong { font-size: 17px; }
 .er-who span { font-size: 14px; color: var(--muted); }
 .er-who ul { margin: 10px 0 0; padding-left: 18px; font-size: 14px; line-height: 1.6; }
+
+/* ── mapa de la portada: en color y que se mueve ─────────────────────
+   isolation: el mapa crea su propia capa y nunca tapa la cabecera ni la
+   barra de abajo (Leaflet usa z-index altos dentro). */
+.map-frame { isolation: isolate; cursor: pointer; }
+.map-frame.live { cursor: grab; background-image: none; }
+.map-live { position: absolute; inset: 0; z-index: 0; background: #e8e6e1; font: inherit; }
+.map-frame.live > .map-pin { display: none; }
+.map-frame .map-open, .map-frame .map-attr { z-index: 2; }
+.map-open { text-decoration: none; color: var(--ink); }
+.map-attr a { color: inherit; }
+.map-marker { background: none; border: 0; }
+.map-marker .map-pin { position: absolute; left: 0; top: 0; margin: 0; }
+.map-live .leaflet-control-zoom { border: 1px solid var(--ink); border-radius: 0; box-shadow: none; }
+.map-live .leaflet-control-zoom a { width: 32px; height: 32px; line-height: 30px; border-radius: 0 !important; color: var(--ink); font-weight: 400; }
+.map-live .leaflet-control-zoom a:first-child { border-bottom: 1px solid var(--line); }

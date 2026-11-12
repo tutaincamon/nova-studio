@@ -20,6 +20,8 @@ export const BUSINESS = {
   name: "NOVA Studio",
   short: "NOVA",
   // Titular legal (aviso legal, privacidad, condiciones). Es el mismo que el de NOVA Supply.
+  // Dónde está el estudio (para el mapa de la portada).
+  geo: { lat: 27.8398143, lng: -15.441367 },
   holder: "Airam Jesús Matas Marrero",
   nif: "54172828P",
   phone: "658 356 428",

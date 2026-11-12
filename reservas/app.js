@@ -594,7 +594,7 @@ function homeExtras() {
 <section class="home-block" aria-labelledby="location-title">
   <p class="eyebrow">Tu barbería en Vecindario</p>
   <h2 id="location-title">Nos vemos en <em class="serif">el estudio.</em></h2>
-  <a class="map-frame" href="${esc(B.maps)}" ${ext} aria-label="${L("Abrir la ubicación en Google Maps", "Open the location in Google Maps")}"><span class="map-pin" aria-hidden="true"></span><span class="map-open">Ver en Google Maps ↗</span><small class="map-attr">© OpenStreetMap</small></a>
+  <div class="map-frame" id="map-frame" role="region" aria-label="${L("Mapa del estudio", "Map of the studio")}"><span class="map-pin" aria-hidden="true"></span><a class="map-open" href="${esc(B.maps)}" ${ext}>Ver en Google Maps ↗</a><small class="map-attr">© <a href="https://www.openstreetmap.org/copyright" ${ext}>OpenStreetMap</a></small></div>
   <div class="visit card">
     <address><strong>${esc(B.street)}</strong><span>${esc(B.city)}</span></address>
     <div class="hours">${B.hoursText.map(([d, h]) => `<div><span>${esc(d)}</span><strong>${esc(h)}</strong></div>`).join("")}<span class="closed">${esc(B.closedText)}</span></div>
@@ -646,6 +646,82 @@ ${trainingCard()}
   </div>
   <p class="hf-copy">© ${new Date().getFullYear()} NOVA Studio · <em class="serif">Good people, better days.</em></p>
 </footer>`;
+}
+
+// ── Mapa de la portada ─────────────────────────────────────────────────────
+// Mapa de verdad, en color y que se mueve con el dedo (Leaflet, servido desde
+// /assets). Las piezas del mapa pasan por nuestro servidor (/api/tile), así el
+// móvil no habla con nadie más. Tocar sin arrastrar abre Google Maps. Mientras
+// carga (o si algo falla) se ve la imagen fija de antes y al tocarla también
+// se abre Google Maps.
+let leafletP = null;
+function loadLeaflet() {
+  if (window.L?.map) return Promise.resolve(window.L);
+  if (!leafletP)
+    leafletP = new Promise((ok, ko) => {
+      const css = document.createElement("link");
+      css.rel = "stylesheet";
+      css.href = "/assets/leaflet/leaflet.css?v=1.9.4";
+      document.head.append(css);
+      const js = document.createElement("script");
+      js.src = "/assets/leaflet/leaflet.js?v=1.9.4";
+      js.onload = () => ok(window.L);
+      js.onerror = () => ((leafletP = null), ko(Error("leaflet")));
+      document.head.append(js);
+    });
+  return leafletP;
+}
+function initMap() {
+  const box = $("#map-frame"),
+    B = catalog.business;
+  if (!box || !B.geo) return;
+  const openMaps = () => window.open(B.maps, "_blank", "noopener");
+  // Hasta que el mapa esté listo, tocar la imagen abre Google Maps.
+  box.onclick = (e) => !box.classList.contains("live") && !e.target.closest("a") && openMaps();
+  const start = async () => {
+    let Lf;
+    try {
+      Lf = await loadLeaflet();
+    } catch {
+      return;
+    }
+    if (!document.body.contains(box) || box.classList.contains("live")) return;
+    const at = [B.geo.lat, B.geo.lng];
+    const holder = document.createElement("div");
+    holder.className = "map-live";
+    box.prepend(holder);
+    const map = Lf.map(holder, {
+      center: at,
+      zoom: 16,
+      minZoom: 13,
+      maxZoom: 18,
+      scrollWheelZoom: false, // en el ordenador, la rueda sigue bajando la página
+      attributionControl: false,
+      maxBounds: Lf.latLng(at).toBounds(24000),
+      maxBoundsViscosity: 0.8,
+    });
+    Lf.tileLayer("/api/tile/{z}/{x}/{y}.png", { maxZoom: 18, minZoom: 13, detectRetina: false }).addTo(map);
+    const pin = Lf.marker(at, {
+      icon: Lf.divIcon({ className: "map-marker", html: '<span class="map-pin"></span>', iconSize: [28, 28], iconAnchor: [14, 34] }),
+      keyboard: false,
+      title: B.name,
+    }).addTo(map);
+    // «click» no salta después de arrastrar: solo un toque abre Google Maps.
+    map.on("click", openMaps);
+    pin.on("click", openMaps);
+    box.classList.add("live");
+  };
+  if (!("IntersectionObserver" in window)) return start();
+  const io = new IntersectionObserver(
+    (en) => {
+      if (en.some((x) => x.isIntersecting)) {
+        io.disconnect();
+        start();
+      }
+    },
+    { rootMargin: "300px" },
+  );
+  io.observe(box);
 }
 
 // ── Cita: tarjetas ─────────────────────────────────────────────────────────
@@ -839,7 +915,7 @@ const LEGAL = {
     <p>Las tipografías están alojadas en nuestro propio servidor, así que tampoco se conecta nadie más para cargarlas.</p>
 
     <h3>4 · El mapa y los enlaces externos</h3>
-    <p>El mapa de la portada es <b>una imagen alojada en nuestro propio servidor</b> (hecha con datos de © OpenStreetMap), así que verlo no conecta tu móvil con nadie más. Si lo tocas o pulsas «Cómo llegar», se abre Google Maps, que recibe tu dirección IP y puede guardar sus propias cookies según <a href="https://policies.google.com/technologies/cookies" target="_blank" rel="noopener">su política</a>. Lo mismo pasa si sigues un enlace a Booksy, Instagram o WhatsApp: al salir de la app se aplican las cookies de esos sitios.</p>
+    <p>El mapa de la portada (con datos de © OpenStreetMap) <b>se sirve desde nuestro propio servidor</b>: las piezas del mapa las pedimos nosotros a OpenStreetMap y te las damos ya guardadas, así que verlo y moverlo no conecta tu móvil con nadie más. Si lo tocas o pulsas «Cómo llegar», se abre Google Maps, que recibe tu dirección IP y puede guardar sus propias cookies según <a href="https://policies.google.com/technologies/cookies" target="_blank" rel="noopener">su política</a>. Lo mismo pasa si sigues un enlace a Booksy, Instagram o WhatsApp: al salir de la app se aplican las cookies de esos sitios.</p>
 
     <h3>5 · Cómo borrarlas</h3>
     <p>Al cerrar sesión se borra la cookie de sesión. Para borrar todo lo demás, borra los datos de este sitio en tu navegador: <a href="https://support.google.com/chrome/answer/95647" target="_blank" rel="noopener">Chrome</a>, <a href="https://support.apple.com/es-es/105082" target="_blank" rel="noopener">Safari</a>, <a href="https://support.mozilla.org/es/kb/Borrar%20cookies" target="_blank" rel="noopener">Firefox</a> o <a href="https://support.microsoft.com/es-es/microsoft-edge" target="_blank" rel="noopener">Edge</a>. Si bloqueas las cookies de esta app, no podrás mantener la sesión iniciada.</p>
@@ -1048,7 +1124,7 @@ const LEGAL_EN = {
     <p>Fonts are hosted on our own server, so loading them doesn't connect you to anyone else either.</p>
 
     <h3>4 · The map and external links</h3>
-    <p>The map on the home page is <b>an image hosted on our own server</b> (made with © OpenStreetMap data), so seeing it doesn't connect your phone to anyone else. If you tap it or “Directions”, Google Maps opens, which receives your IP address and may set its own cookies under <a href="https://policies.google.com/technologies/cookies" target="_blank" rel="noopener">its policy</a>. The same goes for links to Booksy, Instagram or WhatsApp: once you leave the app, those sites' cookies apply.</p>
+    <p>The map on the home page (with © OpenStreetMap data) <b>is served from our own server</b>: we fetch the map pieces from OpenStreetMap and serve them to you already cached, so seeing it and moving it doesn't connect your phone to anyone else. If you tap it or “Directions”, Google Maps opens, which receives your IP address and may set its own cookies under <a href="https://policies.google.com/technologies/cookies" target="_blank" rel="noopener">its policy</a>. The same goes for links to Booksy, Instagram or WhatsApp: once you leave the app, those sites' cookies apply.</p>
 
     <h3>5 · How to delete them</h3>
     <p>Logging out deletes the session cookie. To delete everything else, clear this site's data in your browser: <a href="https://support.google.com/chrome/answer/95647" target="_blank" rel="noopener">Chrome</a>, <a href="https://support.apple.com/en-us/105082" target="_blank" rel="noopener">Safari</a>, <a href="https://support.mozilla.org/en-US/kb/clear-cookies-and-site-data-firefox" target="_blank" rel="noopener">Firefox</a> or <a href="https://support.microsoft.com/en-us/microsoft-edge" target="_blank" rel="noopener">Edge</a>. If you block this app's cookies, you won't be able to stay logged in.</p>
@@ -1164,6 +1240,7 @@ const pages = {
         legalLinks(),
     );
     initProducts();
+    initMap();
     if (habit) initHabit(habit);
     initHero();
     $$(".mate").forEach((a) =>
