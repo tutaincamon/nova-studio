@@ -1593,6 +1593,54 @@ let clientFilter = "perdido";
 
 const STATUS_CL = { perdido: ["Se ha perdido", "st-cancel"], "le-toca": ["Le toca", "st-wait"], "con-cita": ["Tiene cita", "st-ok"], "al-dia": ["Al día", "st-done"], nuevo: ["Nuevo", ""] };
 
+// Borrar los datos de un cliente que lo pide (solo el dueño).
+function eraseSheet() {
+  const sh = sheet(
+    `<p class="eyebrow">Derecho de supresión</p><h2>Borrar los datos de un cliente</h2>
+     <form id="er-find" style="margin-top:14px"><label for="er-q" style="margin-top:0">Su correo, su código del Club o su teléfono</label>
+     <div class="form-actions" style="margin-top:0"><input id="er-q" name="q" required autocomplete="off" style="flex:2"><button class="btn" type="submit">Buscar</button></div></form>
+     <div id="er-out"></div>`,
+  );
+  const out = sh.el.querySelector("#er-out");
+  sh.el.querySelector("#er-q").focus();
+  sh.el.querySelector("#er-find").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const q = e.target.q.value.trim(),
+      btn = e.target.querySelector("[type=submit]");
+    btn.disabled = true;
+    try {
+      const { preview: p } = await api("staff/clients/erase", { q, dry: true });
+      const block = p.active ? "Tiene citas pendientes: cancélalas antes en la Agenda." : p.owes ? "Tiene un cobro por falta sin cerrar: decide antes en «Faltas» si se cobra." : "";
+      out.innerHTML = `<div class="card er-who"><strong>${esc(p.name || "Sin nombre")}</strong><span>${esc([p.email, p.phone].filter(Boolean).join(" · ") || "Sin datos de contacto")}</span>
+          <ul><li>${p.account ? "Su cuenta del Club" + (p.points ? ` y sus ${nf(p.points)} puntos` : "") : "No tiene cuenta (lo apuntó el equipo)"}</li><li>${p.bookings} ${p.bookings === 1 ? "cita se queda" : "citas se quedan"} sin nombre ni contacto</li><li>Los cobros no se tocan</li></ul></div>` +
+        (block
+          ? `<p class="warning">${esc(block)}</p>`
+          : `<form id="er-go"><label for="er-c">Escribe <b>BORRAR</b> para confirmar. No se puede deshacer.</label><input id="er-c" name="confirm" autocomplete="off" autocapitalize="characters" required>
+             <button class="btn wide danger" style="margin-top:12px" type="submit">Borrar sus datos</button></form>`);
+      const go = out.querySelector("#er-go");
+      if (go)
+        go.addEventListener("submit", async (ev) => {
+          ev.preventDefault();
+          const b2 = ev.target.querySelector("[type=submit]");
+          b2.disabled = true;
+          try {
+            const r = await api("staff/clients/erase", { q, confirm: ev.target.confirm.value });
+            sh.close();
+            toast(`Datos de ${r.name || "ese cliente"} borrados.`);
+            render();
+          } catch (err) {
+            b2.disabled = false;
+            toast(err.message);
+          }
+        });
+    } catch (err) {
+      out.innerHTML = `<p class="warning">${esc(err.message)}</p>`;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
 async function staffClients() {
   if (!staff.owner) return show(staffTop("clientes") + `<p class="ag-free">Esto lo lleva el dueño.</p>`);
   const [r, n] = await Promise.all([api("staff/clients"), api("staff/rules")]);
@@ -1633,8 +1681,12 @@ async function staffClients() {
         <label class="check"><input type="checkbox" name="winbackAuto" ${n.winbackAuto ? "checked" : ""}><span>Mandárselo por correo automáticamente (como mucho una vez cada 60 días, y con enlace para darse de baja)</span></label>
         ${n.mail ? "" : `<p class="warning">El envío de correos aún no está activado: por ahora usa el botón de WhatsApp.</p>`}
         <button class="btn wide" style="margin-top:14px" type="submit">Guardar</button>
-      </form>`,
+      </form>
+      <p class="section-label">Borrar los datos de un cliente</p>
+      <div class="card"><p class="muted" style="margin:0 0 12px;font-size:14px;line-height:1.5">Si alguien te pide que borres sus datos, búscalo aquí. Se borran su cuenta y sus puntos; sus citas se quedan sin nombre ni contacto (para que cuadren las cuentas) y los cobros se guardan, como manda la ley. Las cuentas que pasan 3 años sin uso se borran solas.</p>
+      <button type="button" class="btn wide secondary" id="cl-erase">Buscar a quién borrar</button></div>`,
   );
+  $("#cl-erase").onclick = eraseSheet;
   $$("[data-cf]").forEach((b) => (b.onclick = () => ((clientFilter = b.dataset.cf), render())));
   $$("[data-wa]").forEach((a) => a.addEventListener("click", () => api("staff/clients/contact", { email: a.dataset.wa, channel: "whatsapp" }).catch(() => {})));
   $$("[data-mail]").forEach(
@@ -2336,6 +2388,7 @@ async function staffTraining() {
   show(
     staffTop("formacion") +
       `<div class="stat3 money"><div><strong>${S.total}</strong><span>Interesados</span></div><div><strong>${S.fresh}</strong><span>Sin contactar</span></div><div><strong>${S.enrolled}</strong><span>Apuntados</span></div></div>` +
+      `<p class="muted" style="font-size:13px;margin:0 0 12px">Las fichas se borran solas 2 años después del último contacto (cuando se apuntó o cuando cambiaste su estado o su nota), como dice la política de privacidad.</p>` +
       `<div class="card tr-share"><div><strong>Enlace para compartir</strong><span>${esc(link.replace(/^https?:\/\//, ""))}</span></div><button type="button" class="btn small" id="tr-share">Compartir</button></div>` +
       (S.total
         ? `<details class="caja-more" ${S.total >= 3 ? "open" : ""}><summary>Qué piden</summary>${bars("Nivel", S.level, T.levels)}${bars("Formato", S.format, T.formats)}${bars("Les interesa", S.topics, T.topics)}${bars("Cuándo pueden", S.availability, T.availability)}</details>` +

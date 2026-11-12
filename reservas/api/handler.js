@@ -870,7 +870,8 @@ async function cronTick(req) {
     if (!mailReady()) {
       if (now.min >= 9 * 60 && (await once("cronday:" + now.date, 2 * 86400))) {
         out.purge = await purgeInactive(now, host);
-        await setJSON("crondaily", { at: now.stamp, reminders: 0, winback: 0, close: false, backup: false, purge: out.purge });
+        out.records = await purgeRecords(now);
+        await setJSON("crondaily", { at: now.stamp, reminders: 0, winback: 0, close: false, backup: false, purge: out.purge, records: out.records });
       }
       return out;
     }
@@ -997,7 +998,8 @@ async function cronTick(req) {
       }
       // e) Cuentas sin uso: aviso un mes antes y borrado a los 3 años (política de privacidad).
       out.purge = await purgeInactive(now, host);
-      await setJSON("crondaily", { at: now.stamp, reminders: out.reminders, winback: out.winback, close: out.close, backup: out.backup, purge: out.purge });
+      out.records = await purgeRecords(now);
+      await setJSON("crondaily", { at: now.stamp, reminders: out.reminders, winback: out.winback, close: out.close, backup: out.backup, purge: out.purge, records: out.records });
     }
     return out;
   } catch (e) {
@@ -1100,8 +1102,7 @@ async function eraseAccount(a, now) {
   const ops = [];
   for (const b of a.bookings) {
     if (b.charge) continue;
-    const { guarantee, ...rest } = b;
-    ops.push(["SET", "bk:" + b.id, JSON.stringify({ ...rest, name: "Cliente borrado", email: "", phone: "", erased: now.date })]);
+    ops.push(["SET", "bk:" + b.id, JSON.stringify(anonymous(b, now))]);
   }
   for (const id of a.shopIds) ops.push(["DEL", "sh:" + id]);
   for (const id of a.rdIds) ops.push(["DEL", "rd:" + id], ["SREM", "rdpending", id]);
@@ -1161,6 +1162,82 @@ async function purgeInactive(now, host) {
     }
   }
   if (res.erased) await cmd("INCRBY", "purged:" + now.date.slice(0, 7), res.erased);
+  return res;
+}
+
+// Una cuenta con todo lo que cuelga de ella (para borrarla a petición del cliente).
+async function accountFor(email, now) {
+  const u = await getJSON("user:" + email);
+  if (!u) return null;
+  const [ubk, ush, urd] = await pipe([
+    ["SMEMBERS", "ubk:" + email],
+    ["SMEMBERS", "ush:" + email],
+    ["SMEMBERS", "urd:" + email],
+  ]);
+  const bookings = await bookingsByIds(ubk);
+  return {
+    u,
+    bookings,
+    shopIds: ush,
+    rdIds: urd,
+    active: bookings.some((b) => isActive(b, now)),
+    owes: bookings.some((b) => ["requires_action", "requires_payment_method"].includes(b.charge?.status)),
+  };
+}
+// Citas sin cuenta (apuntadas por el equipo con nombre y teléfono) de un teléfono.
+// No hay índice por teléfono: se recorren los días desde hace 6 años. Es raro
+// (solo cuando alguien pide que borremos sus datos), así que no importa que tarde un poco.
+async function bookingsByPhone(digits, now) {
+  const dates = Array.from({ length: 6 * 365 + RULES.daysAhead + 1 }, (_, i) => T.addDays(now.date, RULES.daysAhead - i));
+  const ids = new Set();
+  for (let i = 0; i < dates.length; i += 400) for (const set of await pipe(dates.slice(i, i + 400).map((d) => ["SMEMBERS", "day:" + d]))) set.forEach((id) => ids.add(id));
+  return (await bookingsByIds([...ids])).filter((b) => b.kind === "booking" && !b.email && String(b.phone || "").replace(/\D/g, "").endsWith(digits.slice(-9)));
+}
+const anonymous = (b, now) => {
+  const { guarantee, ...rest } = b;
+  return { ...rest, name: "Cliente borrado", email: "", phone: "", erased: now.date };
+};
+
+// ── Formación y cobros: lo que la política promete borrar con el tiempo ──
+// Formación: 2 años desde el último contacto (alta, cuando vuelve a apuntarse o
+// cuando el dueño cambia su estado o su nota).
+// Cobros: 6 años completos tras cerrar el año (los de 2026 se borran en 2033),
+// como el Código de Comercio. Con ellos se quitan los datos personales de las
+// citas con cobro por falta de ese año cuya cuenta ya no existe.
+async function purgeRecords(now) {
+  const res = { training: 0, payYears: 0 };
+  const ids = await cmd("SMEMBERS", "trall");
+  if (ids.length) {
+    const line = T.addDays(now.date, -730),
+      ops = [];
+    for (const t of await bookingsByIds2("tr:", ids)) {
+      const last = [t.created, t.updated, t.touched].map(dayOf).filter(T.isDate).sort().at(-1);
+      if (!last || last >= line) continue;
+      ops.push(["DEL", "tr:" + t.id], ["SREM", "trall", t.id]);
+      if (t.phone && (await cmd("GET", "trphone:" + t.phone.replace(/\D/g, ""))) === t.id) ops.push(["DEL", "trphone:" + t.phone.replace(/\D/g, "")]);
+      res.training++;
+    }
+    if (ops.length) await pipe(ops);
+  }
+  const lastYear = Number(now.date.slice(0, 4)) - 7; // los años hasta este ya cumplieron sus 6 años
+  for (let y = Number((await cmd("GET", "paypurged")) || 2025) + 1; y <= lastYear; y++) {
+    for (let m = 1; m <= 12; m++) {
+      const month = `${y}-${String(m).padStart(2, "0")}`;
+      const pays = await cmd("SMEMBERS", "paymonth:" + month);
+      const days = Array.from({ length: new Date(Date.UTC(y, m, 0)).getUTCDate() }, (_, i) => `${month}-${String(i + 1).padStart(2, "0")}`);
+      const books = await bookingsByIds([...new Set((await pipe(days.map((d) => ["SMEMBERS", "day:" + d]))).flat())]);
+      const charged = books.filter((b) => b.charge && b.email);
+      const owners = charged.length ? await cmd("MGET", ...charged.map((b) => "user:" + b.email)) : [];
+      await pipe([
+        ...pays.map((id) => ["DEL", "pay:" + id]),
+        ...days.map((d) => ["DEL", "payday:" + d]),
+        ["DEL", "paymonth:" + month],
+        ...charged.filter((_, i) => !owners[i]).map((b) => ["SET", "bk:" + b.id, JSON.stringify(anonymous(b, now))]),
+      ]);
+    }
+    await cmd("SET", "paypurged", String(y));
+    res.payYears++;
+  }
   return res;
 }
 
@@ -2333,7 +2410,7 @@ const routes = {
       return { ok: true };
     }
     const status = ["new", "contacted", "enrolled", "discarded"].includes(body.status) ? body.status : t.status;
-    await setJSON("tr:" + t.id, { ...t, status, note: body.note !== undefined ? clean(body.note, 400) : t.note });
+    await setJSON("tr:" + t.id, { ...t, status, note: body.note !== undefined ? clean(body.note, 400) : t.note, touched: T.nowLocal().stamp });
     return { ok: true };
   },
 
@@ -2735,6 +2812,60 @@ const routes = {
     const count = (st) => list.filter((c) => c.status === st).length;
     return { list, stats: { total: list.length, lost: count("perdido"), due: count("le-toca"), booked: count("con-cita") }, mail: mailReady() };
   },
+  // Un cliente pide que borremos sus datos (derecho de supresión). Solo el dueño.
+  // Se busca por correo, código del Club o teléfono (los apuntados por el equipo
+  // sin cuenta). Con `dry` solo enseña lo que se va a borrar; para borrar hay que
+  // escribir BORRAR. Borra lo mismo que el borrado por inactividad: la cuenta y el
+  // Club; las citas se quedan sin nombre, correo ni teléfono; los cobros, no se tocan.
+  "POST staff/clients/erase": async ({ req, body }) => {
+    const me = await needStaff(req);
+    if (!me.owner) fail(403, "Solo el dueño puede borrar los datos de un cliente.");
+    const q = clean(body.q, 120),
+      digits = q.replace(/\D/g, ""),
+      now = T.nowLocal();
+    if (!q) fail(400, "Escribe su correo, su código del Club o su teléfono.");
+    let u = await findMember(q);
+    if (!u && digits.length >= 7) {
+      // Por teléfono: primero, ¿hay un socio con ese teléfono?
+      const emails = await allEmails();
+      const raws = emails.length ? (await pipe(Array.from({ length: Math.ceil(emails.length / 300) }, (_, i) => ["MGET", ...emails.slice(i * 300, i * 300 + 300).map((e) => "user:" + e)]))).flat() : [];
+      u = raws.map((x) => x && JSON.parse(x)).find((x) => x?.phone && x.phone.replace(/\D/g, "").endsWith(digits.slice(-9)));
+    }
+    const a = u && (await accountFor(u.email, now));
+    const loose = digits.length >= 7 ? await bookingsByPhone(digits, now) : [];
+    if (!a && !loose.length) fail(404, "No encontramos a nadie con ese dato. Prueba con su correo, su código del Club o su teléfono.");
+    const active = (a?.active || false) || loose.some((b) => isActive(b, now)),
+      owes = a?.owes || false;
+    const summary = {
+      name: a?.u.name || loose[0]?.name || "",
+      email: a?.u.email || "",
+      phone: a?.u.phone || loose[0]?.phone || "",
+      account: !!a,
+      bookings: (a?.bookings.length || 0) + loose.length,
+      points: a ? (await clubOf(a.u)).balance : 0,
+      active,
+      owes,
+    };
+    if (body.dry === true) return { preview: summary };
+    if (String(body.confirm || "").trim().toUpperCase() !== "BORRAR") fail(400, "Escribe BORRAR para confirmar.");
+    if (active) fail(400, "Tiene citas pendientes. Cancélalas antes de borrar sus datos.");
+    if (owes) fail(400, "Tiene un cobro por falta sin cerrar. Decide antes en «Faltas» si se cobra o no.");
+    if (a) await eraseAccount(a, now);
+    const ops = loose.filter((b) => !b.charge).map((b) => ["SET", "bk:" + b.id, JSON.stringify(anonymous(b, now))]);
+    ops.push(["DEL", "contacts:list"], ["INCRBY", "erasedreq:" + now.date.slice(0, 7), 1]);
+    await pipe(ops);
+    // Se le confirma por correo (si lo hay y el correo de la app está activo).
+    if (summary.email && mailReady())
+      await send(
+        summary.email,
+        `Hemos borrado tus datos de ${BUSINESS.short}`,
+        "Tus datos están borrados",
+        `<p style="margin:0 0 12px">Como nos pediste, hemos borrado tu cuenta, tus puntos del Club y tus datos de contacto.</p>
+         <p style="margin:0;color:#64645e;font-size:13px">Solo guardamos, bloqueados, los cobros que la ley nos obliga a conservar 6 años. Si algún día vuelves, puedes reservar como nuevo cliente.</p>`,
+      );
+    return { ok: true, name: summary.name };
+  },
+
   "POST staff/clients/contact": async ({ req, body }) => {
     const me = await needStaff(req);
     if (!me.owner) fail(403, "Los clientes los lleva el dueño.");
