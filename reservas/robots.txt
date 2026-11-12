@@ -2,4 +2,4 @@ User-agent: *
 Allow: /
 Disallow: /equipo
 
-Sitemap: https://novaworld.es/sitemap.xml
+Sitemap: https://nova.appflu.es/sitemap.xml

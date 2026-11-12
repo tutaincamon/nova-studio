@@ -36,6 +36,29 @@ async function save(b) {
   ]);
 }
 
+// Apunta el cobro de una cita como lo haría la Caja (POST staff/cobros).
+async function paid(b, method) {
+  const x = {
+    id: "CD" + b.id.slice(1),
+    provider: b.provider,
+    items: [{ id: b.service.id, name: b.service.name, price: b.service.price }],
+    amount: b.service.price,
+    method,
+    name: b.name,
+    booking: b.id,
+    date: b.date,
+    time: b.end,
+    created: b.date + " " + b.end,
+    by: b.provider.id,
+  };
+  b.pay = { id: x.id, amount: x.amount, method };
+  await pipe([
+    ["SET", "pay:" + x.id, JSON.stringify(x)],
+    ["SADD", "payday:" + x.date, x.id],
+    ["SADD", "paymonth:" + x.date.slice(0, 7), x.id],
+  ]);
+}
+
 export async function seed() {
   const today = nowLocal().date;
   const email = "demo@nova.test";
@@ -51,10 +74,14 @@ export async function seed() {
     [-190, "19:15"], [-150, "12:00", "privado"], [-120, "10:00"], [-95, "18:00"], [-70, "16:30", "corte-barba"],
     [-50, "11:30"], [-30, "13:00"], [-14, "10:45"], [-3, "17:30", "corte-barba"],
   ];
-  for (const [d, t, s] of plan) {
+  // Todos cobrados en caja (los puntos del Club solo llegan con el cobro),
+  // menos el último, que se quedó sin apuntar: no suma hasta que se cobre.
+  for (const [i, [d, t, s]] of plan.entries()) {
     let date = addDays(today, d);
     while ([0, 1].includes(new Date(date + "T12:00:00Z").getUTCDay())) date = addDays(date, -1); // domingo y lunes cierra
-    await save(booking(email, "Alex Demo", date, t, s));
+    const b = booking(email, "Alex Demo", date, t, s);
+    if (i < plan.length - 1) await paid(b, i % 2 ? "tarjeta" : "efectivo");
+    await save(b);
   }
 
   // Dos amigos invitados: uno ya vino (suma), otro aún no.

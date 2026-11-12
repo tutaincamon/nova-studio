@@ -890,7 +890,7 @@ const LEGAL = {
 
     <h3>8 · Club NOVA</h3>
     <ul>
-      <li>Es gratis y forma parte de tu cuenta. Sumas puntos por los servicios y por la ropa de NOVA Supply que pagas en el estudio, según la tabla que ves en la app. Los puntos de la ropa los apunta el equipo al cobrarte.</li>
+      <li>Es gratis y forma parte de tu cuenta. Sumas puntos por los servicios y por la ropa de NOVA Supply que pagas en el estudio, según la tabla que ves en la app. Los puntos llegan cuando el equipo te cobra, no al reservar.</li>
       <li>Los puntos, las ligas, las medallas, los premios y los descuentos no tienen valor en dinero, no se pueden cambiar por dinero ni pasar a otra persona.</li>
       <li>Los premios y ventajas pueden cambiar. Si cambian a peor o cerramos el Club, te avisaremos con al menos 30 días para que puedas canjear tus puntos.</li>
       <li>Si borras la cuenta o pasan 3 años sin usarla, se pierden los puntos.</li>
@@ -1099,7 +1099,7 @@ const LEGAL_EN = {
 
     <h3>8 · NOVA Club</h3>
     <ul>
-      <li>It's free and part of your account. You earn points for services and for NOVA Supply clothing paid for at the studio, as shown in the app. Points for clothing are added by the team when you pay.</li>
+      <li>It's free and part of your account. You earn points for services and for NOVA Supply clothing paid for at the studio, as shown in the app. Points arrive when the team charges you, not when you book.</li>
       <li>Points, leagues, medals, rewards and discounts have no cash value, can't be exchanged for money and can't be transferred to anyone else.</li>
       <li>Rewards and perks may change. If they get worse or we close the Club, we'll give you at least 30 days' notice so you can redeem your points.</li>
       <li>If you delete your account or don't use it for 3 years, your points are lost.</li>
@@ -1315,7 +1315,7 @@ const pages = {
           }
           ${
             user
-              ? `<div class="club-joined"><span class="club-check">✓</span><div><strong>Eres del Club NOVA</strong><span>${L(`Esta cita te suma ${svcPoints(s)} puntos.`, `This booking earns you ${svcPoints(s)} points.`)}</span></div></div>`
+              ? `<div class="club-joined"><span class="club-check">✓</span><div><strong>Eres del Club NOVA</strong><span>${L(`Cuando pagues esta cita en el estudio, sumas ${svcPoints(s)} puntos.`, `Once you pay for this booking at the studio, you earn ${svcPoints(s)} points.`)}</span></div></div>`
               : `<div class="club-card"><span class="club-tag">CLUB</span><h2>Entras en el Club al reservar</h2><p>Con estos mismos datos. Sin contraseñas.</p><ul class="club-perks"><li>${L(`${catalog.points.welcome} puntos de regalo al entrar`, `${catalog.points.welcome} welcome points when you join`)}</li><li>${L(`${catalog.points.perEuro} puntos por cada euro, en la silla y en ${esc(catalog.shop.name)}`, `${catalog.points.perEuro} points per euro, in the chair and at ${esc(catalog.shop.name)}`)}</li><li>${L(`De ${esc(catalog.leagues[0].name)} a ${esc(topLeague().name)}: ligas con premios y descuentos`, `From ${esc(catalog.leagues[0].name)} to ${esc(topLeague().name)}: leagues with rewards and discounts`)}</li></ul>
                   <div class="ref-box${refCode() ? " open" : ""}" id="ref-box"><button type="button" class="ref-toggle" id="ref-toggle"><span aria-hidden="true">🎁</span>¿Te ha invitado un amigo?<b>Pon su código</b></button>
                   <div class="ref-field"><label class="sr-only" for="ref-input">Código de amigo</label><input id="ref-input" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="16" placeholder="Ej.: CARLOS482" value="${esc(refCode())}"><p class="ref-state" id="ref-state" aria-live="polite"></p></div></div></div>`
@@ -1462,7 +1462,7 @@ const pages = {
             <div><small>Precio</small><strong>${euro(b.service.price)}</strong></div>
           </div>
           <div class="tix-cut" aria-hidden="true"></div>
-          <div class="tix-foot"><span>Ref. <b>${esc(b.id)}</b></span><span class="tix-pts">+${pts} ${pts === 1 ? L("punto", "point") : L("puntos", "points")} Club NOVA</span></div>
+          <div class="tix-foot"><span>Ref. <b>${esc(b.id)}</b></span><span class="tix-pts">+${pts} ${pts === 1 ? L("punto", "point") : L("puntos", "points")} ${L("al pagar", "when you pay")}</span></div>
         </div>` +
         (b.series
           ? `<div class="card series-note"><strong>${L(

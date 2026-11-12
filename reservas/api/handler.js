@@ -202,7 +202,9 @@ function longestMonthRun(months) {
 async function clubOf(u) {
   const now = T.nowLocal();
   const mine = await bookingsByIds(await cmd("SMEMBERS", "ubk:" + u.email));
-  const done = mine.filter((b) => b.kind === "booking" && b.status === "confirmed" && isPast(b, now) && b.attendance !== "absent");
+  // Una cita cuenta para el Club (puntos, medallas, rachas) cuando está cobrada
+  // en Caja, no al reservar ni al pasar la hora. Si se quita el cobro, se van.
+  const done = mine.filter((b) => b.kind === "booking" && b.status === "confirmed" && b.pay && b.attendance !== "absent");
   const absences = mine.filter((b) => b.attendance === "absent").length;
 
   // Amigos: el código se apunta al registrarse, pero los puntos solo llegan
@@ -271,7 +273,7 @@ async function clubOf(u) {
   const spent = redemptions.filter((r) => r.status !== "canceled").reduce((a, r) => a + r.reward.cost, 0);
   return { metrics, medals, friends, earned, spent, balance: earned - spent, redemptions, moves: moves.slice(0, 40) };
 }
-// Puntos de una cita: lo que se cobró en caja (o el precio del servicio) × puntos por euro.
+// Puntos de una cita cobrada: lo que se pagó en caja × puntos por euro.
 function pointsOf(b) {
   const price = b.pay?.amount ?? b.service.price ?? SVCS.find((s) => s.id === b.service.id)?.price ?? 15;
   return Math.round(price * POINTS.perEuro);
