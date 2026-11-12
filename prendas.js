@@ -137,6 +137,31 @@ window.SELLO = function (p) {
     return p.tallas.length ? 'Quedan ' + p.tallas.join(' · ') : 'Disponible';
 };
 
+/* El stock de verdad lo lleva el estudio (nova.appflu.es) y vive en la base:
+   /api/catalogo dice qué tallas quedan libres. Si contesta, se pisa la lista
+   de arriba con lo que diga; si no (sin conexión, base sin catálogo…), la web
+   sigue con la lista de arriba tal cual. Nunca se espera más de 2,5 s. */
+window.NOVA_ESPERA = function (sigue) {
+    var hecho = false;
+    function fin() { if (!hecho) { hecho = true; sigue(); } }
+    setTimeout(fin, 2500);
+    fetch('/api/catalogo', { headers: { Accept: 'application/json' } })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) {
+            if (d && d.ok && d.prendas && !hecho) {
+                d.prendas.forEach(function (n) {
+                    var p = window.PRENDA_POR_ID(n.id);
+                    if (!p) return;
+                    p.estado = n.estado === 'oculto' ? 'proximamente' : n.estado;
+                    p.tallas = n.tallas || [];
+                    if (n.precio) p.precio = n.precio;
+                });
+            }
+            fin();
+        })
+        .catch(fin);
+};
+
 window.PRENDA_POR_ID = function (id) {
     for (var i = 0; i < window.PRENDAS.length; i++) {
         if (window.PRENDAS[i].id === id) return window.PRENDAS[i];

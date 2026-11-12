@@ -154,6 +154,9 @@ async function borra(cred, ref) {
     const campo = p.talla && p.color ? p.talla + '-' + p.color : '';
     const dia = String(p.fecha || '').slice(0, 10);
     const ordenes = [['LREM', 'preventa:pedidos', '1', crudo]];
+    // Si estaba apartando una unidad del stock compartido, vuelve a quedar libre.
+    if (p.apartada && p.prenda && (!p.estado || p.estado === 'pendiente'))
+        await pide([['HINCRBY', 'supply:apartadas', p.prenda + '|' + p.talla, '-1']]);
     if (campo) ordenes.push(['HINCRBY', 'preventa:combinaciones', campo, '-1']);
     if (dia) ordenes.push(['DECR', 'preventa:clics:' + dia]);
     const r = await pide(ordenes);
@@ -176,6 +179,12 @@ async function leer(cred) {
         ['HGETALL', 'avisos:drop02'],
         ['GET', 'web:vistas:total']
     ];
+    const extra = [
+        ['LRANGE', 'supply:ventas', '0', '29'],
+        ['GET', 'supply:catalogo'],
+        ['HGETALL', 'supply:stock'],
+        ['HGETALL', 'supply:apartadas']
+    ];
     for (const d of dias) {
         ordenes.push(['GET', 'web:vistas:' + d]);
         ordenes.push(['PFCOUNT', 'web:unicos:' + d]);
@@ -185,11 +194,13 @@ async function leer(cred) {
     const r = await fetch(cred.url.replace(/\/+$/, '') + '/pipeline', {
         method: 'POST',
         headers: { Authorization: 'Bearer ' + cred.token, 'Content-Type': 'application/json' },
-        body: JSON.stringify(ordenes),
+        body: JSON.stringify(ordenes.concat(extra)),
         signal: AbortSignal.timeout(8000)
     });
     if (!r.ok) throw new Error('redis ' + r.status);
     const p = await r.json();
+    const fin = ordenes.length;
+    const json = v => { try { return JSON.parse(v); } catch { return null; } };
     const num = i => Number((p[i] && p[i].result) || 0);
     const trafico = dias.map((dia, i) => ({
         dia,
@@ -207,7 +218,12 @@ async function leer(cred) {
         pedidos: ((p[1] && p[1].result) || []).map(f => { try { return JSON.parse(f); } catch { return null; } }).filter(Boolean),
         avisos,
         vistasTotal: num(3),
-        trafico
+        trafico,
+        // Lo compartido con el estudio (pestaña «Ropa» del panel de Airam).
+        ventas: ((p[fin] && p[fin].result) || []).map(json).filter(Boolean),
+        catalogo: json(p[fin + 1] && p[fin + 1].result),
+        stock: aObjeto(p[fin + 2] && p[fin + 2].result),
+        apartadas: aObjeto(p[fin + 3] && p[fin + 3].result)
     };
 }
 
@@ -231,6 +247,30 @@ function cuando(iso) {
     } catch { return ''; }
 }
 
+// Stock y ventas compartidos con el estudio. Se cambian desde el panel del
+// estudio (nova.appflu.es → Equipo → Ropa); aquí solo se miran.
+function ropa(d) {
+    const cat = Array.isArray(d.catalogo) ? d.catalogo : null;
+    if (!cat && !d.ventas.length) return '';
+    const filas = (cat || []).filter(p => (p.tallas || []).length).map(p => {
+        const celdas = p.tallas.map(t => {
+            const k = p.id + '|' + t;
+            const st = d.stock[k] === undefined ? null : Number(d.stock[k]);
+            const ap = Math.max(0, Number(d.apartadas[k] || 0));
+            return '<span class="u">' + escapa(t) + ' <b>' + (st === null ? '·' : Math.max(0, st - ap)) + '</b>' + (ap ? '<small>+' + ap + ' apart.</small>' : '') + '</span>';
+        }).join('');
+        return '<li class="stock-fila"><b>' + escapa(p.nombre + (p.variante ? ' · ' + p.variante : '')) + '</b> ' + celdas + '</li>';
+    }).join('');
+    const ventas = d.ventas.map(v =>
+        '<li class="reserva"><span class="ref">' + escapa(v.canal === 'web' ? 'WEB' : 'ESTUDIO') + '</span><b>' + escapa(v.nombre || '') + '</b> ' + escapa(v.talla || '') +
+        (v.cantidad > 1 ? ' × ' + v.cantidad : '') + ' · ' + escapa(Number(v.importe || 0).toFixed(2).replace('.', ',')) + ' €<i>' + escapa(String(v.fecha || '').slice(0, 16)) + '</i>' +
+        (v.cliente ? '<span class="quien">' + escapa(v.cliente) + (v.ref ? ' · ' + escapa(v.ref) : '') + '</span>' : '') + '</li>').join('');
+    return '<h2>Stock · unidades libres</h2><p class="nota-lista">Lo lleva el estudio desde su panel (Equipo → Ropa). «·» = esa talla no se cuenta.</p>' +
+        (filas ? '<ul class="stock">' + filas + '</ul>' : '<p class="nota-lista">Aún sin unidades apuntadas.</p>') +
+        '<h2>Ventas · ' + d.ventas.length + '</h2><p class="nota-lista">Las del estudio y las reservas de esta web recogidas, las más nuevas primero.</p>' +
+        (ventas ? '<ul>' + ventas + '</ul>' : '<p class="nota-lista">Aún no hay ventas.</p>');
+}
+
 function pagina(datos, prueba, borrada) {
     const { n: cuenta, tallas: TALLAS, colores: COLORES } = cuadro(datos.combinaciones);
     const n = (t, c) => Number(cuenta[t + '-' + c] || 0);
@@ -252,6 +292,7 @@ function pagina(datos, prueba, borrada) {
             '<li class="reserva">' +
               '<span class="ref">' + escapa(p.ref || '') + '</span>' +
               '<b>' + escapa(talla(p.talla)) + '</b> ' + escapa(p.color) +
+              (p.estado === 'recogida' ? ' <em class="est ok">recogida</em>' : p.estado === 'anulada' ? ' <em class="est">anulada</em>' : '') +
               '<i>' + escapa(cuando(p.fecha)) + '</i>' +
               (p.nombre || p.tel || p.correo
                 ? '<span class="quien">' + escapa(p.nombre || '') +
@@ -353,6 +394,9 @@ li.reserva .ref{color:#6f6b66;font-size:10px;letter-spacing:.08em;margin-right:8
 li.reserva .quien{flex-basis:100%;margin-top:4px;color:#4a4744;font-size:12px;letter-spacing:0}
 li.reserva .quien a{color:#0e0e10;text-underline-offset:2px}
 li.reserva .quien.sin{font-style:italic;font-size:11px;color:#b5b1ac}
+.stock .stock-fila{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline}
+.stock .u{font-size:12px;color:#6b6763}.stock .u b{color:#171717}.stock .u small{margin-left:3px;color:#a9a5a0}
+.est{font-style:normal;font-size:11px;padding:1px 6px;border:1px solid #cfcac4;margin-left:4px}.est.ok{border-color:#9fc9a8;color:#2f6b3c}
 .nota-lista{margin:-4px 0 6px;font-size:11px;line-height:1.6;color:#a9a5a0}
 details{margin-top:4px}
 summary{cursor:pointer;padding:11px 0;font-size:11px;letter-spacing:.14em;text-transform:uppercase;
@@ -399,6 +443,8 @@ cliente aparece y paga. Las que caducan sin recoger siguen contadas aquí.</p>
 </table>
 
 ${trafico}
+
+${ropa(datos)}
 
 <h2>Reservas · ${datos.pedidos.length}</h2>
 ${borrada ? '<p class="prueba ' + (borrada.ok ? 'bien' : 'mal') + '">' + (borrada.ok

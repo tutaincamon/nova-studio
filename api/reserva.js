@@ -70,6 +70,8 @@ const limpia = (v, max) => String(v == null ? '' : v).trim().replace(/\s+/g, ' '
 // El aviso por correo a la tienda vive en _aviso.js, porque el panel también
 // lo usa para su botón de prueba.
 const aviso = require('./_aviso');
+// El catálogo y el stock compartidos con el estudio (ver _supply.js).
+const supply = require('./_supply');
 
 module.exports = async (req, res) => {
     if (req.method !== 'POST') {
@@ -87,20 +89,41 @@ module.exports = async (req, res) => {
     const tel    = limpia(cuerpo.tel, 24);
     const correo = limpia(cuerpo.correo, 160).toLowerCase();
     const talla  = limpia(cuerpo.talla, 6).toUpperCase();
-    const color  = limpia(cuerpo.color, 16).toLowerCase();
+    let   color  = limpia(cuerpo.color, 16).toLowerCase();
+    const prendaPedida = limpia(cuerpo.prenda, 40);
 
     // Se valida aquí aunque el navegador ya lo haya hecho: a esta dirección
     // puede llamar cualquiera, no sólo el formulario.
     if (nombre.length < 2)        return res.status(400).json({ ok: false, error: 'nombre' });
     if (!ES_TEL.test(tel))        return res.status(400).json({ ok: false, error: 'tel' });
     if (!ES_CORREO.test(correo))  return res.status(400).json({ ok: false, error: 'correo' });
-    if (!TALLAS.includes(talla))  return res.status(400).json({ ok: false, error: 'talla' });
-    if (!COLORES.includes(color)) return res.status(400).json({ ok: false, error: 'color' });
 
     const cred = credenciales();
     if (!cred) {
         console.error('Faltan las variables de entorno de la base de datos');
         return res.status(500).json({ ok: false, error: 'sin-base' });
+    }
+
+    // Con el catálogo compartido, manda el stock del estudio: la talla tiene
+    // que quedar libre y se aparta una unidad hasta que se recoja. Sin él
+    // (base sin catálogo todavía), las listas fijas de arriba, como antes.
+    let prenda = null;
+    try {
+        const cat = await supply.catalogo(cred);
+        if (cat) {
+            prenda = cat.find(p => p.id === prendaPedida) || cat.find(p => p.color && p.color === color);
+            if (!prenda || prenda.estado !== 'disponible') return res.status(409).json({ ok: false, error: 'agotado' });
+            if (!prenda.tallas.includes(talla))          return res.status(409).json({ ok: false, error: 'agotado' });
+            if (!(await supply.aparta(cred, prenda.id, talla))) return res.status(409).json({ ok: false, error: 'agotado' });
+            color = prenda.color || color;
+        }
+    } catch (e) {
+        console.error('No se pudo leer el catálogo:', e.message);
+        prenda = null;
+    }
+    if (!prenda) {
+        if (!TALLAS.includes(talla))  return res.status(400).json({ ok: false, error: 'talla' });
+        if (!COLORES.includes(color)) return res.status(400).json({ ok: false, error: 'color' });
     }
 
     const fecha = new Date().toISOString();
@@ -109,6 +132,7 @@ module.exports = async (req, res) => {
     const dia = fecha.slice(0, 10);
 
     const reserva = { ref, nombre, tel, correo, talla, color, fecha, estado: 'pendiente' };
+    if (prenda) { reserva.prenda = prenda.id; reserva.apartada = true; }
 
     try {
         await redis(cred, [
@@ -119,6 +143,7 @@ module.exports = async (req, res) => {
         ]);
     } catch (e) {
         console.error('No se pudo guardar la reserva:', e.message);
+        if (prenda) await supply.libera(cred, prenda.id, talla).catch(() => {});
         return res.status(500).json({ ok: false, error: 'guardar' });
     }
 

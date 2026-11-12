@@ -83,13 +83,9 @@ async function token() {
 
 // Duración estimada por servicio (minutos); config.json puede sobrescribirla
 const DURACION_BASE = {
-    'Corte & Estilismo': 45,
-    'Corte & Barba': 60,
-    'Color & Mechas': 120,
-    'Tratamiento capilar': 60,
-    'Peinado / Evento': 75,
-    'Barbería': 30,
-    'Ritual NOVA': 150
+    'Corte de pelo': 30,
+    'Corte y barba': 30,
+    'Corte privado (Airam Marrero)': 60
 };
 
 function minutos(servicio) {

@@ -259,11 +259,12 @@ async function refreshMe() {
 // Horas libres de un mes ({ "2026-12-01": ["10:00", …] }). Se guardan un minuto:
 // con la app abierta mucho rato no se enseñan horas que ya se ha llevado otro.
 // `days.full` (no sale al recorrer el objeto): días completos donde pedir aviso.
+// El equipo ve también los días de antes de la fecha de apertura (paso desde Booksy).
 function getAvail(service, provider, month) {
-  const k = `${service}|${provider}|${month}`,
+  const k = `${service}|${provider}|${month}|${staff ? 1 : 0}`,
     hit = availCache.get(k);
   if (!hit || Date.now() - hit.at > 60000) {
-    const p = api(`avail?service=${encodeURIComponent(service)}&provider=${encodeURIComponent(provider)}&month=${month}`).then((r) =>
+    const p = api(`avail?service=${encodeURIComponent(service)}&provider=${encodeURIComponent(provider)}&month=${month}${staff ? "&staff=1" : ""}`).then((r) =>
       Object.defineProperty(r.days, "full", { value: new Set(r.full || []), enumerable: false }),
     );
     p.catch(() => availCache.delete(k));
@@ -546,6 +547,31 @@ const tap = () => {
   } catch {}
 };
 
+// Las últimas reseñas de la ficha de Google, tal cual las da Google (sin elegir
+// las buenas). Google pide que salga el nombre de quien la escribe, con enlace a
+// su perfil, y que se vea que vienen de Google Maps.
+function googleReviews(list, ext) {
+  if (!list?.length) return "";
+  return `<div class="g-reviews" role="list">${list
+    .map(
+      (r) => `<figure class="g-review" role="listitem">
+      <span class="g-stars" role="img" aria-label="${L(`${r.rating} de 5 estrellas`, `${r.rating} out of 5 stars`)}">${"★".repeat(r.rating)}<i>${"★".repeat(5 - r.rating)}</i></span>
+      <blockquote>${esc(r.text)}</blockquote>
+      <figcaption>${r.uri ? `<a href="${esc(r.uri)}" ${ext}>${esc(r.author)}</a>` : `<b>${esc(r.author)}</b>`}${r.at ? ` · <time datetime="${esc(r.at)}">${ago(r.at)}</time>` : ""}</figcaption>
+    </figure>`,
+    )
+    .join("")}</div>
+  <p class="g-attr">${L("Reseñas de Google Maps", "Reviews from Google Maps")}</p>`;
+}
+// «hace 3 semanas» desde una fecha AAAA-MM-DD.
+function ago(iso) {
+  const d = Math.max(0, Math.round((Date.parse(isoDay(salonDate())) - Date.parse(iso)) / 864e5));
+  if (d < 1) return L("hoy", "today");
+  const [n, es, esN, en] =
+    d < 7 ? [d, "día", "días", "day"] : d < 30 ? [Math.floor(d / 7), "semana", "semanas", "week"] : d < 365 ? [Math.floor(d / 30), "mes", "meses", "month"] : [Math.floor(d / 365), "año", "años", "year"];
+  return L(`hace ${n} ${n === 1 ? es : esN}`, `${n} ${en}${n === 1 ? "" : "s"} ago`);
+}
+
 function homeExtras() {
   const B = catalog.business,
     ext = 'target="_blank" rel="noopener noreferrer"';
@@ -557,8 +583,9 @@ function homeExtras() {
     <span class="rating-src">${esc(B.rating.source)}</span>
     <span class="rating-number">${esc(B.rating.score)}<small>/ 5</small></span>
     <span class="stars" aria-hidden="true">★★★★★</span>
-    <span class="rating-count"><b data-count="${B.rating.count}">${B.rating.count}</b> ${L("reseñas verificadas", "verified reviews")} · ${esc(tx(B.drink))}</span>
+    <span class="rating-count"><b data-count="${B.rating.count}">${B.rating.count}</b> ${B.rating.source === "Google" ? L("reseñas en Google", "reviews on Google") : L("reseñas verificadas", "verified reviews")} · ${esc(tx(B.drink))}</span>
   </a>
+  ${googleReviews(B.rating.reviews, ext)}
   <div class="home-actions">
     <a class="btn secondary" href="${esc(B.rating.url)}" ${ext}>Leer reseñas ↗</a>
     <a class="btn secondary" href="${esc(B.instagram)}" ${ext}>Ver trabajos en Instagram ↗</a>
@@ -567,7 +594,7 @@ function homeExtras() {
 <section class="home-block" aria-labelledby="location-title">
   <p class="eyebrow">Tu barbería en Vecindario</p>
   <h2 id="location-title">Nos vemos en <em class="serif">el estudio.</em></h2>
-  <div class="map-frame" id="map-frame"><button class="btn secondary map-load" type="button">Ver el mapa</button><small>Se carga desde Google Maps, que recibirá tu IP. <a href="#cookies">Cookies</a></small></div>
+  <a class="map-frame" href="${esc(B.maps)}" ${ext} aria-label="${L("Abrir la ubicación en Google Maps", "Open the location in Google Maps")}"><span class="map-pin" aria-hidden="true"></span><span class="map-open">Ver en Google Maps ↗</span><small class="map-attr">© OpenStreetMap</small></a>
   <div class="visit card">
     <address><strong>${esc(B.street)}</strong><span>${esc(B.city)}</span></address>
     <div class="hours">${B.hoursText.map(([d, h]) => `<div><span>${esc(d)}</span><strong>${esc(h)}</strong></div>`).join("")}<span class="closed">${esc(B.closedText)}</span></div>
@@ -619,20 +646,6 @@ ${trainingCard()}
   </div>
   <p class="hf-copy">© ${new Date().getFullYear()} NOVA Studio · <em class="serif">Good people, better days.</em></p>
 </footer>`;
-}
-function initMap() {
-  // El mapa de Google pone sus propias cookies, así que no se carga hasta que
-  // la persona lo pide (política de cookies, punto 4).
-  const frame = $("#map-frame");
-  const btn = frame && frame.querySelector(".map-load");
-  if (!btn) return;
-  btn.addEventListener("click", () => {
-    const f = document.createElement("iframe");
-    f.title = L("Mapa de NOVA Studio", "NOVA Studio map");
-    f.src = catalog.business.mapEmbed;
-    f.referrerPolicy = "no-referrer-when-downgrade";
-    frame.replaceChildren(f);
-  });
 }
 
 // ── Cita: tarjetas ─────────────────────────────────────────────────────────
@@ -754,7 +767,7 @@ const LEGAL = {
         ["Upstash Inc.", "La base de datos: cuentas, citas, Club y cobros", "Reino Unido (Londres)"],
         ["Resend Inc. (EE. UU.)", "Enviar los correos de la app desde la dirección de NOVA", "EE. UU."],
         cardOn() && ["Stripe Payments Europe Ltd. (Irlanda)", "Guardar tu tarjeta y hacer los cobros por faltas. Stripe es responsable de cumplir sus propias obligaciones como entidad de pago", "Unión Europea y EE. UU."],
-        ["Google Ireland Ltd.", "Nuestro correo (Gmail), donde recibimos tus respuestas, los avisos y las copias de seguridad. El mapa, solo si pulsas «Ver el mapa». Y el calendario de Google si el barbero lo usa para ver su agenda", "Unión Europea y EE. UU."],
+        ["Google Ireland Ltd.", "Nuestro correo (Gmail), donde recibimos tus respuestas, los avisos y las copias de seguridad. Y el calendario de Google si el barbero lo usa para ver su agenda", "Unión Europea y EE. UU."],
         ["Apple Distribution International (Irlanda)", "El calendario de iCloud, si el barbero lo usa para ver su agenda", "Unión Europea y EE. UU."],
         ["WhatsApp Ireland Ltd. (Meta)", "Hablar contigo cuando nos escribes o te escribimos por WhatsApp", "Unión Europea y EE. UU."],
       ],
@@ -810,6 +823,7 @@ const LEGAL = {
         ["nova_seen_…", "Almacenamiento local", "Las medallas y ligas que ya te hemos celebrado, para no repetir la animación. El nombre incluye tu correo", "Hasta que lo borres"],
         ["nova_train", "Almacenamiento local", "Tu nombre y la fecha, si te apuntaste a la formación, para mostrarte que ya estás en la lista", "Hasta que lo borres"],
         ["nova_staff_who", "Almacenamiento local", "El último barbero elegido en la caja. Solo en dispositivos del equipo", "Hasta que lo borres"],
+        ["nova_install", "Almacenamiento local", "Recordar si ya te ofrecimos instalar la app, o si la instalaste, para no volver a preguntarte en un mes", "Hasta que lo borres"],
         ["nova_draft, nova_next, nova_splash", "Almacenamiento de sesión", "La cita que estás reservando, a qué pantalla volver después de entrar y no repetir la animación de inicio", "Se borran al cerrar la pestaña"],
         ["Caché de la app", "Service worker", "Guardar los archivos de la app (diseño, letras, iconos) para que abra rápido y también sin conexión. No contiene datos tuyos", "Hasta la siguiente versión de la app"],
         cardOn() && ["__stripe_mid, __stripe_sid", "Cookies de Stripe", "Prevenir el fraude cuando añades una tarjeta. Solo aparecen en ese momento y son necesarias para el pago", "1 año y 30 minutos"],
@@ -825,7 +839,7 @@ const LEGAL = {
     <p>Las tipografías están alojadas en nuestro propio servidor, así que tampoco se conecta nadie más para cargarlas.</p>
 
     <h3>4 · El mapa y los enlaces externos</h3>
-    <p>El mapa de Google <b>no se carga hasta que pulsas «Ver el mapa»</b>. Si lo pulsas, tu navegador se conecta a Google, que recibe tu dirección IP y puede guardar sus propias cookies según <a href="https://policies.google.com/technologies/cookies" target="_blank" rel="noopener">su política</a>. Lo mismo pasa si sigues un enlace a Booksy, Instagram o WhatsApp: al salir de la app se aplican las cookies de esos sitios.</p>
+    <p>El mapa de la portada es <b>una imagen alojada en nuestro propio servidor</b> (hecha con datos de © OpenStreetMap), así que verlo no conecta tu móvil con nadie más. Si lo tocas o pulsas «Cómo llegar», se abre Google Maps, que recibe tu dirección IP y puede guardar sus propias cookies según <a href="https://policies.google.com/technologies/cookies" target="_blank" rel="noopener">su política</a>. Lo mismo pasa si sigues un enlace a Booksy, Instagram o WhatsApp: al salir de la app se aplican las cookies de esos sitios.</p>
 
     <h3>5 · Cómo borrarlas</h3>
     <p>Al cerrar sesión se borra la cookie de sesión. Para borrar todo lo demás, borra los datos de este sitio en tu navegador: <a href="https://support.google.com/chrome/answer/95647" target="_blank" rel="noopener">Chrome</a>, <a href="https://support.apple.com/es-es/105082" target="_blank" rel="noopener">Safari</a>, <a href="https://support.mozilla.org/es/kb/Borrar%20cookies" target="_blank" rel="noopener">Firefox</a> o <a href="https://support.microsoft.com/es-es/microsoft-edge" target="_blank" rel="noopener">Edge</a>. Si bloqueas las cookies de esta app, no podrás mantener la sesión iniciada.</p>
@@ -962,7 +976,7 @@ const LEGAL_EN = {
         ["Upstash Inc.", "The database: accounts, bookings, Club and payments", "United Kingdom (London)"],
         ["Resend Inc. (USA)", "Sending the app's emails from NOVA's address", "USA"],
         cardOn() && ["Stripe Payments Europe Ltd. (Ireland)", "Storing your card and processing no-show charges. Stripe meets its own obligations as a payment institution", "EU and USA"],
-        ["Google Ireland Ltd.", "Our email (Gmail), where we receive your replies, notices and backups. The map, only if you tap “Show map”. Google Calendar, if a barber uses it to view their schedule", "EU and USA"],
+        ["Google Ireland Ltd.", "Our email (Gmail), where we receive your replies, notices and backups. Google Calendar, if a barber uses it to view their schedule", "EU and USA"],
         ["Apple Distribution International (Ireland)", "iCloud Calendar, if a barber uses it to view their schedule", "EU and USA"],
         ["WhatsApp Ireland Ltd. (Meta)", "Talking to you when you message us or we message you on WhatsApp", "EU and USA"],
       ],
@@ -1018,6 +1032,7 @@ const LEGAL_EN = {
         ["nova_seen_…", "Local storage", "Which medals and leagues we've already celebrated with you, so the animation doesn't repeat. The name includes your email", "Until you clear it"],
         ["nova_train", "Local storage", "Your name and the date, if you joined the training list, to show you're already on it", "Until you clear it"],
         ["nova_staff_who", "Local storage", "The last barber chosen at the front desk. Only on team devices", "Until you clear it"],
+        ["nova_install", "Local storage", "Remembers whether we've already offered to install the app, or you installed it, so we don't ask again for a month", "Until you clear it"],
         ["nova_draft, nova_next, nova_splash", "Session storage", "The booking you're making, where to return after logging in, and not repeating the intro animation", "Deleted when you close the tab"],
         ["App cache", "Service worker", "Stores the app's files (design, fonts, icons) so it opens quickly and works offline. Contains no personal data", "Until the next app version"],
         cardOn() && ["__stripe_mid, __stripe_sid", "Stripe cookies", "Fraud prevention when you add a card. Only set at that moment and necessary for the payment", "1 year and 30 minutes"],
@@ -1033,7 +1048,7 @@ const LEGAL_EN = {
     <p>Fonts are hosted on our own server, so loading them doesn't connect you to anyone else either.</p>
 
     <h3>4 · The map and external links</h3>
-    <p>The Google map <b>does not load until you tap “Show map”</b>. If you do, your browser connects to Google, which receives your IP address and may set its own cookies under <a href="https://policies.google.com/technologies/cookies" target="_blank" rel="noopener">its policy</a>. The same goes for links to Booksy, Instagram or WhatsApp: once you leave the app, those sites' cookies apply.</p>
+    <p>The map on the home page is <b>an image hosted on our own server</b> (made with © OpenStreetMap data), so seeing it doesn't connect your phone to anyone else. If you tap it or “Directions”, Google Maps opens, which receives your IP address and may set its own cookies under <a href="https://policies.google.com/technologies/cookies" target="_blank" rel="noopener">its policy</a>. The same goes for links to Booksy, Instagram or WhatsApp: once you leave the app, those sites' cookies apply.</p>
 
     <h3>5 · How to delete them</h3>
     <p>Logging out deletes the session cookie. To delete everything else, clear this site's data in your browser: <a href="https://support.google.com/chrome/answer/95647" target="_blank" rel="noopener">Chrome</a>, <a href="https://support.apple.com/en-us/105082" target="_blank" rel="noopener">Safari</a>, <a href="https://support.mozilla.org/en-US/kb/clear-cookies-and-site-data-firefox" target="_blank" rel="noopener">Firefox</a> or <a href="https://support.microsoft.com/en-us/microsoft-edge" target="_blank" rel="noopener">Edge</a>. If you block this app's cookies, you won't be able to stay logged in.</p>
@@ -1148,7 +1163,6 @@ const pages = {
         homeExtras() +
         legalLinks(),
     );
-    initMap();
     initProducts();
     if (habit) initHabit(habit);
     initHero();
@@ -1638,6 +1652,7 @@ const pages = {
           ? bk.upcoming.map((b, i) => (i ? `<div class="appts">${bookingCard(b, bk.now)}</div>` : nextApptCard(b))).join("") + `<p class="muted pf-hint">Toca una cita para cambiarla de día u hora o cancelarla. <a href="#bookings">Ver historial</a></p>`
           : `<a class="appt-empty" href="#home"><strong>No tienes citas pendientes</strong><span>Reserva tu próximo corte en un minuto ›</span></a>`
       }
+      ${installCard()}
       ${leagueStrip(L.index)}
       ${nextBlock(m, L)}
       ${medalsBlock(m)}
@@ -1668,6 +1683,7 @@ const pages = {
       <button class="btn wide secondary" type="button" id="logout">${svg(ICONS.logout)} Cerrar sesión</button>` + legalLinks(),
     );
     $$("[data-scroll]").forEach((b) => (b.onclick = () => document.getElementById(b.dataset.scroll)?.scrollIntoView({ behavior: "smooth", block: "start" })));
+    $("#install-btn")?.addEventListener("click", installNow);
     celebrate(m, L);
     $("#photo-in").onchange = async (e) => {
       const f = e.target.files[0];
@@ -1864,8 +1880,10 @@ async function calendar({ backTo, backLabel }) {
   const s = svcById(draft.service),
     p = provById(draft.provider);
   if (!s || !p) return go("home");
-  if (!calMonth) calMonth = monthKey(salonDate());
-  const thisMonth = monthKey(salonDate());
+  // Paso desde Booksy: el cliente reserva aquí solo desde `openFrom`; el calendario empieza en ese mes.
+  const openFrom = !staff && catalog.rules.openFrom,
+    thisMonth = openFrom ? openFrom.slice(0, 7) : monthKey(salonDate());
+  if (!calMonth || calMonth < thisMonth) calMonth = thisMonth;
   let avail = await getAvail(s.id, p.id, calMonth);
   const firstOpen = (a) => Object.keys(a).sort().find((d) => a[d].length);
   // Si este mes ya no tiene horas, se pasa solo al siguiente.
@@ -1906,11 +1924,16 @@ async function calendar({ backTo, backLabel }) {
       [lv, lvLabel] = open ? level(n) : ["", ""];
     cells += `<button type="button" class="cal-cell${open ? " open" : ""}${isFull ? " full" : ""}${lv ? " lvl-" + lv : ""}${iso === selectedDate ? " selected" : ""}${iso === todayIso ? " today" : ""}" data-day="${iso}" ${open || isFull ? "" : "disabled"} aria-pressed="${iso === selectedDate}" aria-label="${esc(longDay(iso))}${open ? lvLabel : isFull ? L(", completo: puedes pedir aviso", ", fully booked: you can ask to be notified") : L(", sin horas", ", no times")}">${d}</button>`;
   }
-  const maxMonth = shiftMonth(thisMonth, Math.ceil(catalog.rules.daysAhead / 30));
+  const maxMonth = shiftMonth(monthKey(salonDate()), Math.ceil(catalog.rules.daysAhead / 30));
   show(
     back(backTo, backLabel) +
       heading(draft.moving ? "Elige la nueva hora" : "Día y hora") +
       `<div class="pick-summary">${face(p)}<div><strong>${esc(s.name)}</strong><span>${esc(p.name)} · ${s.duration} min · ${euro(s.price)}</span></div></div>` +
+      (openFrom
+        ? `<p class="open-from">${L(`Aquí se reserva a partir del <b>${esc(fmtDay(openFrom, { weekday: "long", day: "numeric", month: "long" }))}</b>. Para antes, pide tu cita en Booksy.`, `Online booking here starts on <b>${esc(longDay(openFrom))}</b>. For earlier dates, book on Booksy.`)}${
+            catalog.rules.openBefore ? ` <a href="${esc(catalog.rules.openBefore)}" target="_blank" rel="noopener noreferrer">${L("Ir a Booksy ↗", "Go to Booksy ↗")}</a>` : ""
+          }</p>`
+        : "") +
       `<div class="cal-card"><div class="cal-head"><button type="button" class="cal-nav" id="prev-month" aria-label="Mes anterior" ${calMonth <= thisMonth ? "disabled" : ""}>‹</button><strong>${monthName}</strong><button type="button" class="cal-nav" id="next-month" aria-label="Mes siguiente" ${calMonth >= maxMonth ? "disabled" : ""}>›</button></div><div class="cal-week">${L("LMXJVSD", "MTWTFSS")
         .split("")
         .map((c) => `<span>${c}</span>`)
@@ -3108,6 +3131,7 @@ async function render() {
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", page === "home" ? "#0a090c" : "#f5f4f1");
     lastPage = page;
     hideSplash();
+    installNudge(page);
   };
   try {
     await loadCatalog();
@@ -3123,6 +3147,117 @@ async function render() {
     clearTimeout(busy);
     if (id === renderId) app.classList.remove("is-loading");
   }
+}
+
+// ── Instalar la app ────────────────────────────────────────────────────────
+// Chrome, Edge y Samsung (Android) avisan con `beforeinstallprompt`: se guarda
+// ese aviso y, en vez de la barra del navegador, sale nuestra ventana. Solo a
+// quien entra sin sesión, en el inicio y desde el móvil; con sesión se ofrece
+// en el Perfil. El iPhone no avisa: se explica cómo añadirla desde Compartir.
+// `nova_install`: cuándo se ofreció (no se repite en 30 días) o «done» si ya se instaló.
+let installEvt = null,
+  installTimer = 0;
+function installSeen() {
+  try {
+    return localStorage.getItem("nova_install") || "";
+  } catch {
+    return "x";
+  }
+}
+function installMark(v) {
+  try {
+    localStorage.setItem("nova_install", v);
+  } catch {}
+}
+// "prompt": se instala con un toque · "ios": desde Compartir · "menu": desde el
+// menú del navegador · "": aquí no se puede (ordenador, navegador de Instagram…) o ya está instalada.
+function installWhere() {
+  if (matchMedia("(display-mode: standalone)").matches || navigator.standalone === true) return "";
+  if (!matchMedia("(pointer: coarse)").matches) return "";
+  const ua = navigator.userAgent;
+  if (/Instagram|FBAN|FBAV|FB_IAB|Line\/|TikTok|musical_ly|Snapchat|GSA\/|; wv\)/.test(ua)) return "";
+  if (installEvt) return "prompt";
+  if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return "ios";
+  return "menu";
+}
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  installEvt = e;
+  if (installSeen() === "done") installMark(""); // si el navegador vuelve a ofrecerla es que se desinstaló
+  installNudge(document.body.dataset.page);
+});
+window.addEventListener("appinstalled", () => {
+  installEvt = null;
+  installMark("done");
+  $("#install-card")?.remove();
+  toast(L("Lista: ya la tienes en tu pantalla de inicio.", "Done: it's on your home screen now."));
+});
+// La ventana para quien entra sin sesión, un momento después de ver el inicio.
+function installNudge(page) {
+  clearTimeout(installTimer);
+  if (page !== "home" || user || staff) return;
+  const how = installWhere(),
+    seen = installSeen();
+  if ((how !== "prompt" && how !== "ios") || seen === "done" || seen === "x" || Date.now() - Number(seen) < 30 * 864e5) return;
+  installTimer = setTimeout(() => {
+    if (document.body.dataset.page !== "home" || user || staff || $(".sheet-back")) return;
+    installMark(String(Date.now()));
+    installSheet();
+  }, 2500);
+}
+async function installNow() {
+  const e = installEvt;
+  if (!e) return installSheet();
+  installEvt = null; // cada aviso del navegador sirve una sola vez
+  e.prompt();
+  const r = await e.userChoice.catch(() => null);
+  if (r?.outcome === "accepted") installMark("done");
+}
+const SHARE_ICON =
+  '<svg class="inst-share" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14V3M8.5 6.5 12 3l3.5 3.5M9 9.5H5.5v11h13v-11H15" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>';
+function installSheet() {
+  const how = installWhere();
+  if (!how) return;
+  const steps =
+    how === "ios"
+      ? [
+          L(`Pulsa <b>Compartir</b> ${SHARE_ICON}. En Safari, si no lo ves, está en el menú <b>···</b>.`, `Tap <b>Share</b> ${SHARE_ICON}. In Safari, if you can't see it, it's in the <b>···</b> menu.`),
+          L("Elige <b>Añadir a pantalla de inicio</b> y pulsa <b>Añadir</b>.", "Choose <b>Add to Home Screen</b> and tap <b>Add</b>."),
+        ]
+      : [
+          L("Abre el menú del navegador (<b>⋮</b> o <b>≡</b>).", "Open your browser menu (<b>⋮</b> or <b>≡</b>)."),
+          L("Elige <b>Instalar aplicación</b> o <b>Añadir a pantalla de inicio</b>.", "Choose <b>Install app</b> or <b>Add to Home screen</b>."),
+        ];
+  const s = sheet(`<div class="inst">
+    <img class="inst-icon" src="/assets/icon-192.png" alt="" width="56" height="56">
+    <h2>${L("Instala la app", "Install the app")}</h2>
+    <p class="inst-lead">${L(
+      "Ábrela desde la pantalla de inicio como cualquier otra app: reservas en dos toques y tienes tus citas siempre a mano. Sin pasar por la tienda y casi sin ocupar espacio.",
+      "Open it from your home screen like any other app: book in two taps and keep your appointments at hand. No app store, and it takes up almost no space.",
+    )}</p>
+    ${
+      how === "prompt"
+        ? `<button type="button" class="btn wide" data-install>${L("Instalar", "Install")}</button><button type="button" class="btn wide secondary" data-later>${L("Ahora no", "Not now")}</button>`
+        : `<ol class="inst-steps">${steps.map((x) => `<li><span>${x}</span></li>`).join("")}</ol><button type="button" class="btn wide" data-later>${L("Entendido", "Got it")}</button>`
+    }
+  </div>`);
+  s.el.querySelector("[data-later]").onclick = s.close;
+  const b = s.el.querySelector("[data-install]");
+  if (b)
+    b.onclick = () => {
+      s.close();
+      installNow();
+    };
+}
+// La tarjeta del Perfil para quien ya tiene sesión.
+function installCard() {
+  if (!installWhere() || installSeen() === "done") return "";
+  return `<div id="install-card"><p class="section-label">${L("La app", "The app")}</p>
+    <div class="card inst-card">
+      <img class="inst-icon" src="/assets/icon-192.png" alt="" width="44" height="44">
+      <div class="inst-txt"><strong>${L("Instálala en tu móvil", "Install it on your phone")}</strong><span>${L("Ábrela desde la pantalla de inicio, sin buscarla en el navegador.", "Open it from your home screen, no need to find it in your browser.")}</span></div>
+      <button type="button" class="btn wide secondary" id="install-btn">${L("Instalar", "Install")}</button>
+    </div></div>`;
 }
 
 // Rutas «bonitas» que llevan a una pantalla (por si se comparten).

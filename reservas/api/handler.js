@@ -305,20 +305,138 @@ const THEMES = ["plata", "rosa"];
 const themeOf = (site) => (THEMES.includes(site?.theme) ? site.theme : "plata");
 const slotsFor = (theme) => SITE_SLOTS.map(({ defRosa, ...x }) => ({ ...x, def: theme === "rosa" && defRosa ? defRosa : x.def }));
 const SITE_PHOTO = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
-// Nota y número de reseñas: se leen de la página de Booksy como mucho cada
-// 12 h (Booksy los publica en un bloque de datos estándar). Si algún día falla,
-// se queda el último valor bueno; y el dueño puede fijarlos a mano.
+// Nota, número y últimas reseñas que enseña la web. Salen de la ficha de Google
+// (Places API) cuando hay clave (GOOGLE_PLACES_KEY) y el dueño ha elegido su
+// ficha en la pestaña Web; si no, de la página de Booksy, como antes. Se leen
+// como mucho cada 12 h; si falla, se queda el último valor bueno, con la fuente
+// que tenía (nunca se enseña una nota de Booksy con el nombre de Google). El
+// dueño también puede fijar nota y número a mano.
 async function siteInfo() {
   const site = (await getJSON("site")) || {};
   let r = site.rating || {};
-  const stale = !r.at || Date.now() - r.at > 12 * 3600 * 1000;
-  if (r.mode !== "manual" && stale && (await cmd("SET", "lock:booksy", "1", "NX", "EX", 600)) === "OK") {
-    const got = await readBooksy();
-    r = got ? { ...r, ...got, at: Date.now(), ok: true } : { ...r, at: Date.now(), ok: false };
+  const want = ratingWant(site);
+  const stale = !r.at || Date.now() - r.at > 12 * 3600 * 1000 || r.want !== want;
+  if (r.mode !== "manual" && stale && (await cmd("SET", "lock:rating", "1", "NX", "EX", 600)) === "OK") {
+    r = await refreshRating(r, site);
     await setJSON("site", { ...site, rating: r });
   }
-  return { photos: site.photos || {}, rating: r, theme: themeOf(site), contact: site.contact || {}, notice: site.notice || null };
+  return { photos: site.photos || {}, rating: r, google: site.google || null, theme: themeOf(site), contact: site.contact || {}, notice: site.notice || null };
 }
+const ratingWant = (site) => (site.google?.placeId && googleOn() ? "google" : "booksy");
+// Vuelve a leer la fuente que toca. Lo que no se pudo leer se queda como estaba.
+async function refreshRating(r, site) {
+  const want = ratingWant(site),
+    base = { ...r, mode: "auto", at: Date.now(), want };
+  if (want === "booksy") {
+    const got = await readBooksy();
+    return got ? { ...base, ...got, source: "booksy", reviews: [], ok: true, err: "" } : { ...base, ok: false, err: "Booksy no responde ahora." };
+  }
+  try {
+    const got = await readGoogle(site.google.placeId);
+    if (got.empty) return { ...base, ok: false, write: got.write, err: "Tu ficha de Google aún no tiene reseñas. Mientras, la web sigue enseñando las de Booksy." };
+    return { ...base, ...got, ok: true, err: "" };
+  } catch (e) {
+    return { ...base, ok: false, err: e.message };
+  }
+}
+
+// ── Google (Places API, la versión nueva) ──
+// Una lectura de la ficha cada 12 h son ~60 al mes, y Google da 1.000 gratis
+// al mes de este tipo. Aun así, aquí hay un tope propio (G_MONTH_MAX): si algo
+// se tuerce y empieza a pedir sin parar, se corta antes de que cueste dinero.
+// En local, sin clave, sale una ficha de prueba para poder ver cómo queda.
+const GKEY = process.env.GOOGLE_PLACES_KEY || "";
+const GFAKE = !GKEY && !ON_VERCEL;
+const googleOn = () => !!(GKEY || GFAKE);
+const G_MONTH_MAX = 300;
+const G_ID = /^[A-Za-z0-9_-]{10,300}$/;
+const gMapsLink = (id) => `https://www.google.com/maps/search/?api=1&query=NOVA+Studio&query_place_id=${encodeURIComponent(id)}`;
+const gWriteLink = (id) => `https://search.google.com/local/writereview?placeid=${encodeURIComponent(id)}`;
+async function gfetch(path, { body, mask }) {
+  const k = "gplaces:" + T.nowLocal().date.slice(0, 7);
+  const n = Number(await cmd("INCR", k));
+  if (n === 1) await cmd("EXPIRE", k, 40 * 86400);
+  if (n > G_MONTH_MAX) throw new Error("Este mes ya se ha consultado Google muchas veces. Se vuelve a leer el mes que viene (así nunca cuesta dinero).");
+  let res;
+  try {
+    res = await fetch("https://places.googleapis.com/v1/" + path, {
+      method: body ? "POST" : "GET",
+      signal: AbortSignal.timeout(6000),
+      headers: { "Content-Type": "application/json", "X-Goog-Api-Key": GKEY, "X-Goog-FieldMask": mask },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+  } catch {
+    throw new Error("Google no responde ahora. Prueba más tarde.");
+  }
+  const j = await res.json().catch(() => ({}));
+  if (res.ok) return j;
+  console.error("Google Places", res.status, j?.error?.status, j?.error?.message);
+  if (res.status === 403 || res.status === 401) throw new Error("Google no acepta la clave. Revisa que «Places API (New)» esté activada en Google Cloud y que la clave (GOOGLE_PLACES_KEY) esté bien copiada en Vercel.");
+  if (res.status === 404 || (res.status === 400 && /place/i.test(j?.error?.message || ""))) throw new Error("Google no encuentra esa ficha. Vuelve a buscarla.");
+  if (res.status === 429) throw new Error("Google pide esperar un poco. Prueba en unos minutos.");
+  throw new Error(`Google no ha contestado bien (${res.status}). Prueba más tarde.`);
+}
+// Nota, número, enlaces y hasta 5 reseñas (las que Google considera más útiles,
+// sin filtrar: también salen las que no son de 5 estrellas).
+async function readGoogle(id) {
+  const j = GFAKE ? fakeGoogle() : await gfetch(`places/${encodeURIComponent(id)}?languageCode=es&regionCode=ES`, { mask: "rating,userRatingCount,googleMapsUri,googleMapsLinks,reviews" });
+  const links = j.googleMapsLinks || {},
+    write = links.writeAReviewUri || gWriteLink(id);
+  const sc = Number(j.rating),
+    ct = Math.round(Number(j.userRatingCount)) || 0;
+  if (!(sc > 0 && sc <= 5 && ct > 0)) return { empty: true, write };
+  return {
+    source: "google",
+    score: Math.round(sc * 10) / 10,
+    count: ct,
+    url: links.reviewsUri || links.placeUri || j.googleMapsUri || gMapsLink(id),
+    write,
+    reviews: (Array.isArray(j.reviews) ? j.reviews : []).map(gReview).filter(Boolean).slice(0, 5),
+  };
+}
+// Google exige enseñar el nombre de quien escribe cada reseña (con enlace a su
+// perfil). La foto no se guarda: cargarla mandaría la IP del cliente a Google.
+function gReview(x) {
+  const text = String(x?.originalText?.text || x?.text?.text || "").replace(/\s+/g, " ").trim().slice(0, 700);
+  const author = clean(x?.authorAttribution?.displayName, 60);
+  const rating = Math.round(Number(x?.rating));
+  if (!text || !author || !(rating >= 1 && rating <= 5)) return null;
+  const uri = String(x?.authorAttribution?.uri || "");
+  const at = String(x?.publishTime || "").slice(0, 10);
+  return { author, uri: /^https:\/\/(www\.)?google\.[a-z.]+\//i.test(uri) ? uri : "", rating, text, at: T.isDate(at) ? at : "" };
+}
+// Buscar la ficha por nombre y zona, para que el dueño elija la suya.
+async function searchGoogle(text) {
+  const j = GFAKE
+    ? { places: [fakeGoogle()] }
+    : await gfetch("places:searchText", {
+        body: { textQuery: text, languageCode: "es", regionCode: "ES", pageSize: 5 },
+        mask: "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount",
+      });
+  return (j.places || [])
+    .filter((p) => G_ID.test(p.id || ""))
+    .slice(0, 5)
+    .map((p) => ({ id: p.id, name: clean(p.displayName?.text, 100), address: clean(p.formattedAddress, 160), score: Number(p.rating) || null, count: Number(p.userRatingCount) || 0 }));
+}
+// Solo en local y sin clave: una ficha de prueba, con reseñas que dicen que lo son.
+function fakeGoogle() {
+  const day = (n) => T.addDays(T.nowLocal().date, -n) + "T10:00:00Z";
+  const rv = (i, rating, days, text) => ({ rating, publishTime: day(days), originalText: { text }, authorAttribution: { displayName: "Cliente de prueba " + i, uri: "https://www.google.com/maps/contrib/0" } });
+  return {
+    id: "ChIJ_prueba_NOVA_local",
+    displayName: { text: "NOVA Studio (ficha de prueba)" },
+    formattedAddress: "Av. del Atlántico 317, 35110 Vecindario, Las Palmas",
+    rating: 4.9,
+    userRatingCount: 37,
+    googleMapsUri: "https://maps.google.com/?q=NOVA+Studio+Vecindario",
+    reviews: [
+      rv(1, 5, 4, "Reseña de prueba: así se verá en la web una reseña de Google. Trato de diez y el degradado perfecto."),
+      rv(2, 5, 19, "Reseña de prueba más larga, para ver cómo se corta el texto cuando alguien escribe mucho. Llegué sin saber qué quería y Airam me recomendó un corte que me queda genial. El sitio es muy cuidado, te ofrecen café y la música está bien. Volveré seguro, y ya he reservado la próxima desde la app."),
+      rv(3, 4, 60, "Reseña de prueba con cuatro estrellas."),
+    ],
+  };
+}
+
 async function readBooksy() {
   try {
     const ctl = AbortSignal.timeout(4000);
@@ -336,24 +454,29 @@ async function readBooksy() {
     return null;
   }
 }
-const ratingOut = (r) => ({
-  ...BUSINESS.rating,
-  ...(r.score ? { score: r.score.toFixed(1).replace(".", ","), count: r.count } : {}),
-});
+// Lo que ve el cliente. Sin nada guardado aún, los valores de config.js (Booksy).
+const ratingOut = (r) => {
+  const g = r.source === "google" && r.score;
+  return {
+    ...BUSINESS.rating,
+    ...(g ? { source: "Google", url: r.url } : {}),
+    ...(r.score ? { score: r.score.toFixed(1).replace(".", ","), count: r.count } : {}),
+    reviews: g ? r.reviews || [] : [],
+  };
+};
 
 
 // ── Contacto y aviso temporal (editables por el dueño) ────────────────────
-// Lo que se guarda en «site.contact» pisa lo de config.js. El mapa se saca de
-// la dirección.
+// Lo que se guarda en «site.contact» pisa lo de config.js. El mapa de la
+// portada es una imagen fija (assets/mapa.jpg): si el estudio se muda, hay que
+// rehacerla.
 function contactOut(c = {}) {
   const street = c.street || BUSINESS.street,
     city = c.city || BUSINESS.city;
-  const q = encodeURIComponent(`${street}, ${city}`);
   return {
     street,
     city,
     maps: c.maps || BUSINESS.maps,
-    mapEmbed: c.street || c.city ? `https://maps.google.com/maps?q=${q}&z=16&output=embed` : BUSINESS.mapEmbed,
     whatsapp: c.whatsapp || BUSINESS.whatsapp,
     instagram: c.instagram || BUSINESS.instagram,
   };
@@ -385,6 +508,7 @@ let NORMS = {
   reviewUrl: "",
   dailyClose: true, // cada mañana, el resumen de caja de ayer al dueño
   waitlist: true, // «avísame si se libera» en los días completos
+  openFrom: "", // paso desde Booksy: los clientes reservan en la app solo desde este día (vacío = sin límite)
 };
 const WEEK = [0, 1, 2, 3, 4, 5, 6];
 const NORMS0 = NORMS;
@@ -444,9 +568,12 @@ async function busyOf(providerId, month, exceptId) {
   return busy;
 }
 
-function freeTimes(p, s, date, busy, now, horizon = RULES.daysAhead) {
+// `staff`: lo pide alguien del equipo (cambiar una cita desde la agenda), que
+// puede usar los días de antes de `openFrom`; los clientes, no.
+function freeTimes(p, s, date, busy, now, horizon = RULES.daysAhead, staff = false) {
   const last = T.addDays(now.date, horizon);
   if (date < now.date || date > last) return [];
+  if (!staff && NORMS.openFrom && date < NORMS.openFrom) return [];
   if (isOff(p, date)) return [];
   const out = [];
   for (const [a, b] of p.hours[T.weekday(date)] || []) {
@@ -665,8 +792,10 @@ async function alternativesFor(s, fixed, date, start) {
     for (const p of team)
       if (p.id !== fixed.id && freeTimes(p, s, date, await busyFor(p, date), now).includes(start)) out.push({ provider: who(p), date, start });
   const pool = fixed ? [fixed] : team;
+  // Si pidió un día de antes de la apertura (paso desde Booksy), se busca desde la apertura.
+  const from = NORMS.openFrom && date < NORMS.openFrom ? NORMS.openFrom : date;
   for (let i = 0; i < 8 && out.length < 4; i++) {
-    const d = T.addDays(date, i),
+    const d = T.addDays(from, i),
       seen = new Set();
     for (const p of pool) for (const t of freeTimes(p, s, d, await busyFor(p, d), now)) seen.add(t);
     const times = [...seen].sort((a, b) => (i ? a.localeCompare(b) : Math.abs(T.toMin(a) - want) - Math.abs(T.toMin(b) - want)));
@@ -1352,7 +1481,16 @@ const routes = {
       business: { ...c.business, ...contactOut(site.contact), rating: ratingOut(site.rating) },
       site: { photos: site.photos, theme: site.theme, notice: noticeOut(site.notice), gallery: GALLERY.filter((g) => site.photos[g]) },
       providers: activeTeam().map(publicProvider),
-      rules: { ...c.rules, cancelHours: NORMS.cancelHours, lateFeePct: NORMS.lateFeePct, noShowFeePct: NORMS.noShowFeePct, recurring: NORMS.recurring, recurringMax: NORMS.recurringMax },
+      rules: {
+        ...c.rules,
+        cancelHours: NORMS.cancelHours,
+        lateFeePct: NORMS.lateFeePct,
+        noShowFeePct: NORMS.noShowFeePct,
+        recurring: NORMS.recurring,
+        recurringMax: NORMS.recurringMax,
+        // Mientras dure el paso desde Booksy: desde qué día se reserva aquí y adónde ir para antes.
+        ...(NORMS.openFrom > T.nowLocal().date ? { openFrom: NORMS.openFrom, openBefore: BUSINESS.booksy } : {}),
+      },
       reviews: !!NORMS.reviewUrl,
       card: Card.cardPublic(),
     };
@@ -1435,7 +1573,8 @@ const routes = {
 
   // Horas libres de un mes. Con provider = "any", las de todo el equipo juntas.
   // `full`: días de trabajo sin horas libres, donde se puede pedir aviso.
-  "GET avail": async ({ q }) => {
+  "GET avail": async ({ req, q }) => {
+    const staff = q.get("staff") === "1" && !!(await staffOf(req));
     const s = service(q.get("service")),
       pid = q.get("provider"),
       month = q.get("month") || "";
@@ -1449,7 +1588,7 @@ const routes = {
       full = [];
     for (let d = 1; d <= total; d++) {
       const date = `${month}-${String(d).padStart(2, "0")}`;
-      days[date] = [...new Set(team.flatMap((p, i) => freeTimes(p, s, date, busies[i], now)))].sort();
+      days[date] = [...new Set(team.flatMap((p, i) => freeTimes(p, s, date, busies[i], now, undefined, staff)))].sort();
       if (!days[date].length && NORMS.waitlist && team.some((p) => freeTimes(p, s, date, {}, now).length)) full.push(date);
     }
     return { days, full };
@@ -1599,7 +1738,7 @@ const routes = {
       p = provider(b.provider.id);
     if (!T.isDate(body.date) || !T.isTime(body.start)) fail(400, "Elige día y hora.");
     const busy = await busyOf(p.id, monthOf(body.date), b.id);
-    if (!freeTimes(p, s, body.date, busy, T.nowLocal()).includes(body.start))
+    if (!freeTimes(p, s, body.date, busy, T.nowLocal(), undefined, !!staff).includes(body.start))
       fail(409, "Esa hora ya no está libre. Elige otra, por favor.");
     const moved = { ...b, date: body.date, start: body.start, end: T.toHHMM(T.toMin(body.start) + b.service.duration) };
     await moveTo(b, moved);
@@ -2700,7 +2839,8 @@ const routes = {
       slots: slotsFor(site.theme),
       theme: site.theme,
       photos: site.photos,
-      rating: { ...site.rating, shown: ratingOut(site.rating), url: BUSINESS.rating.url },
+      rating: { ...site.rating, shown: ratingOut(site.rating), want: ratingWant({ google: site.google }) },
+      google: { ready: googleOn(), test: GFAKE, ...(site.google || {}) },
       contact: contactOut(site.contact),
       notice: site.notice || { on: false, text: "", until: "", tone: "info" },
     };
@@ -2746,7 +2886,54 @@ const routes = {
       await setJSON("site", { ...site, theme: body.theme });
       return { ok: true, theme: body.theme, slots: slotsFor(body.theme) };
     }
-    // Reseñas: automáticas desde Booksy o fijadas a mano.
+    // Ficha de Google: buscarla por nombre, elegirla (o pegar su ID) o quitarla.
+    if (body.google) {
+      const g = body.google;
+      if (g.search !== undefined) {
+        if (!googleOn()) fail(400, "Falta la clave de Google (GOOGLE_PLACES_KEY) en Vercel.");
+        const q = clean(g.search, 120);
+        if (G_ID.test(q) && /^(ChIJ|GhIJ|Ei)/.test(q)) return { places: [{ id: q, name: "Ficha con ese ID", address: "", score: null, count: 0 }] };
+        if (q.length < 3) fail(400, "Escribe el nombre de la barbería y el pueblo.");
+        try {
+          return { places: await searchGoogle(q) };
+        } catch (e) {
+          fail(502, e.message);
+        }
+      }
+      if (g.placeId === "") {
+        const { google: _old, ...rest } = site;
+        let r = (site.rating || {}).mode === "manual" ? { ...site.rating, source: "booksy", url: undefined, reviews: [] } : await refreshRating(site.rating || {}, rest);
+        // Si Booksy no contesta, mejor los valores de config.js que una nota de Google con el nombre de Booksy.
+        if (r.source === "google") r = { mode: "auto", at: r.at, want: "booksy", ok: false, err: r.err };
+        await setJSON("site", { ...rest, rating: r });
+        return { ok: true, rating: { ...r, shown: ratingOut(r) } };
+      }
+      const id = String(g.placeId || "").trim();
+      if (!G_ID.test(id)) fail(400, "Ese ID de ficha no vale.");
+      if (!googleOn()) fail(400, "Falta la clave de Google (GOOGLE_PLACES_KEY) en Vercel.");
+      let got;
+      try {
+        got = await readGoogle(id);
+      } catch (e) {
+        fail(502, e.message);
+      }
+      const google = { placeId: id, name: clean(g.name, 100), address: clean(g.address, 160) };
+      const r = got.empty
+        ? { ...(site.rating || {}), mode: "auto", at: Date.now(), want: "google", ok: false, write: got.write, err: "Tu ficha de Google aún no tiene reseñas. Mientras, la web sigue enseñando las de Booksy." }
+        : { ...got, mode: "auto", at: Date.now(), want: "google", ok: true, err: "" };
+      await setJSON("site", { ...site, google, rating: r });
+      // El correo «Dejar mi reseña» lleva a Google: si no había enlace, si era el
+      // de Booksy o si era el de otra ficha de Google puesto solo desde aquí.
+      const norms = { ...((await getJSON("norms")) || {}) };
+      const cur = norms.reviewUrl ?? NORMS.reviewUrl;
+      let reviewUrl = "";
+      if (!cur || /booksy\./i.test(cur) || cur === site.rating?.write || cur.startsWith("https://search.google.com/local/writereview")) {
+        norms.reviewUrl = reviewUrl = got.write;
+        await setJSON("norms", norms);
+      }
+      return { ok: true, google, rating: { ...r, shown: ratingOut(r) }, reviewUrl };
+    }
+    // Reseñas: automáticas (de Google o Booksy) o fijadas a mano.
     if (body.rating) {
       let r = site.rating || {};
       if (body.rating.mode === "manual") {
@@ -2754,10 +2941,12 @@ const routes = {
           ct = Math.round(Number(body.rating.count));
         if (!(sc >= 1 && sc <= 5)) fail(400, "La nota va de 1 a 5.");
         if (!(ct >= 0 && ct < 100000)) fail(400, "Revisa el número de reseñas.");
-        r = { mode: "manual", score: Math.round(sc * 10) / 10, count: ct, at: Date.now(), ok: true };
+        // A mano se apunta a la fuente que toca ahora; si es Google, se guardan sus reseñas leídas.
+        const gid = ratingWant(site) === "google" && site.google.placeId;
+        const keep = gid && r.source === "google";
+        r = { mode: "manual", source: gid ? "google" : "booksy", url: gid ? (keep && r.url) || gMapsLink(gid) : undefined, reviews: keep ? r.reviews || [] : [], score: Math.round(sc * 10) / 10, count: ct, at: Date.now(), ok: true };
       } else {
-        const got = await readBooksy();
-        r = got ? { mode: "auto", ...got, at: Date.now(), ok: true } : { ...r, mode: "auto", at: Date.now(), ok: false };
+        r = await refreshRating(r, site);
       }
       await setJSON("site", { ...site, rating: r });
       return { ok: true, rating: { ...r, shown: ratingOut(r) } };
@@ -3030,6 +3219,11 @@ const routes = {
     if (norms.reviews && !(norms.reviewUrl ?? NORMS.reviewUrl)) fail(400, "Para pedir reseñas pega antes el enlace donde se dejan.");
     if (has("winbackText")) norms.winbackText = clean(body.winbackText, 600) || NORMS.winbackText;
     if (has("winbackOffer")) norms.winbackOffer = clean(body.winbackOffer, 200);
+    if (has("openFrom")) {
+      const d = String(body.openFrom || "");
+      if (d && !T.isDate(d)) fail(400, "Revisa la fecha desde la que se reserva en la app.");
+      norms.openFrom = d;
+    }
     await setJSON("norms", norms);
     return { ok: true, ...NORMS, ...norms };
   },

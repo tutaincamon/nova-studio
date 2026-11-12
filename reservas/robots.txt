@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /equipo
+
+Sitemap: https://novaworld.es/sitemap.xml

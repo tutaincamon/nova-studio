@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>NOVA Studio · La barbería de las estrellas</title>
-<meta name="description" content="NOVA Studio — barbería y estilismo en Vecindario, Gran Canaria. Corte, barba, color y tratamientos. Reserva tu cita.">
+<meta name="description" content="NOVA Studio — barbería y estilismo en Vecindario, Gran Canaria. Corte de pelo, corte y barba, corte privado y servicios VIP. Reserva tu cita.">
 <meta name="theme-color" content="#050507">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -200,6 +200,11 @@ h2 em{font-style:italic;color:var(--gold-soft)}
 .card h3{position:relative;font-family:var(--serif);font-weight:400;font-size:clamp(20px,2.6vw,26px);margin:0 0 10px}
 .card p{position:relative;margin:0 0 20px;color:var(--muted);font-size:14px;line-height:1.65}
 .price{position:relative;font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:var(--gold)}
+a.price{text-decoration:none;border-bottom:1px solid var(--line);padding-bottom:2px}
+a.price:hover{color:var(--gold-soft);border-color:var(--gold-soft)}
+.nota-carta{margin:-8px 0 clamp(26px,4vw,40px);font-size:13px;letter-spacing:.04em;color:var(--muted)}
+.nota-carta a{color:var(--gold);text-decoration:none}
+.nota-carta .estrellas{color:var(--gold);letter-spacing:.12em;margin-right:4px}
 
 /* ---------- tira de fotos, entre las tarjetas de servicios ----------
    Las cuatro fotos son verticales o cuadradas (de 0,56 a 0,94). Al estirarlas
@@ -384,6 +389,7 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(72%) sepia(52%
 .info{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:clamp(24px,4vw,44px)}
 .info h4{font-size:10px;letter-spacing:.32em;text-transform:uppercase;color:var(--gold);margin:0 0 14px;font-weight:400}
 .info p{margin:0;color:var(--muted);font-size:14px;line-height:1.85}
+.info p + p{margin-top:12px}
 .info a{color:var(--muted);text-decoration:none;transition:color .3s ease}
 .info a:hover{color:var(--gold-soft)}
 
@@ -507,24 +513,30 @@ footer{
     <section class="block" id="servicios">
         <p class="eyebrow reveal">Carta</p>
         <h2 class="reveal">Nuestros <em>servicios</em></h2>
-        <p class="lede reveal">Cada cabello tiene su propia órbita. Estudiamos tu rostro, tu textura y tu rutina
-            para diseñar un resultado que siga brillando mucho después de salir por la puerta.</p>
+        <p class="lede reveal">Un espacio de imagen y estilo donde la barbería se encuentra con la creatividad,
+            la moda y la cultura urbana. Cuidamos cada detalle para que la experiencia sea tuya, dentro y fuera del sillón.</p>
+        <p class="nota-carta reveal"><span class="estrellas" aria-hidden="true">★★★★★</span> 5,0 · 174 reseñas en
+            <a href="https://booksy.com/es-es/9802_nova-studio_barberia_69860_balos" target="_blank" rel="noopener">Booksy</a>
+            · Todos los servicios incluyen una bebida (café o agua)</p>
 
         <div class="grid">
             <article class="card reveal">
-                <h3>Corte &amp; Estilismo</h3>
-                <p>Diagnóstico personalizado, corte a medida y acabado con peinado profesional.</p>
-                <span class="price">desde 15 €</span>
+                <h3>Corte de pelo</h3>
+                <p>Asesoramiento personalizado y análisis de la naturalidad de tu cabello. Trabajo a tijera y
+                    degradados con transiciones suaves: precisión, naturalidad y una imagen que encaja contigo.</p>
+                <span class="price">15 € · 30 min</span>
             </article>
             <article class="card reveal">
-                <h3>Corte &amp; Barba</h3>
-                <p>El clásico completo: corte, perfilado de barba con toalla caliente y ritual de afeitado.</p>
-                <span class="price">desde 22 €</span>
+                <h3>Corte y barba</h3>
+                <p>Tu corte más el diseño y perfilado de la barba según tu rostro, con limpieza del cuello
+                    a máquina afeitadora.</p>
+                <span class="price">19 € · 30 min</span>
             </article>
             <article class="card reveal">
-                <h3>Barbería</h3>
-                <p>Arreglo y diseño de barba, apurado a navaja y perfilado de contornos.</p>
-                <span class="price">desde 10 €</span>
+                <h3>Corte privado</h3>
+                <p>Con Airam Marrero, en un formato más privado: más tiempo de asesoramiento y de detalle.
+                    Pensado para artistas y cantantes, abierto a cualquier cliente.</p>
+                <span class="price">36 € · 1 h</span>
             </article>
         </div>
 
@@ -553,19 +565,15 @@ footer{
 
         <div class="grid">
             <article class="card reveal">
-                <h3>Color &amp; Mechas</h3>
-                <p>Decoloración, mechas, coloración global y correcciones con protector de fibra capilar.</p>
-                <span class="price">desde 30 €</span>
+                <h3>Corte fuera de horario</h3>
+                <p>¿No reservaste a tiempo? Te buscamos un hueco especial o fuera del horario habitual,
+                    con suplemento. Sujeto a disponibilidad.</p>
+                <a class="price" href="https://wa.me/34658356428?text=Hola%20NOVA%20Studio%2C%20quer%C3%ADa%20un%20corte%20fuera%20de%20horario" target="_blank" rel="noopener">30 € · Solo por WhatsApp</a>
             </article>
             <article class="card reveal">
-                <h3>Tratamientos</h3>
-                <p>Hidratación profunda, keratina y ritual anticaída con masaje craneal.</p>
-                <span class="price">desde 20 €</span>
-            </article>
-            <article class="card reveal">
-                <h3>Ritual NOVA</h3>
-                <p>Nuestra experiencia estrella: diagnóstico, tratamiento, corte, barba y acabado.</p>
-                <span class="price">desde 45 €</span>
+                <h3>Contrataciones y servicios VIP</h3>
+                <p>Corte exclusivo con traslado incluido: vamos a donde estés. Duración según el encargo.</p>
+                <a class="price" href="https://wa.me/34658356428?text=Hola%20NOVA%20Studio%2C%20quer%C3%ADa%20informaci%C3%B3n%20sobre%20servicios%20VIP" target="_blank" rel="noopener">Precio a consultar · WhatsApp</a>
             </article>
         </div>
     </section>
@@ -598,19 +606,18 @@ footer{
                         <label for="servicio">Servicio <span class="req">*</span></label>
                         <select id="servicio" name="servicio" required>
                             <option value="" disabled selected>Elige un servicio</option>
-                            <option>Corte &amp; Estilismo</option>
-                            <option>Corte &amp; Barba</option>
-                            <option>Barbería</option>
-                            <option>Color &amp; Mechas</option>
-                            <option>Tratamiento capilar</option>
-                            <option>Ritual NOVA</option>
+                            <option>Corte de pelo</option>
+                            <option>Corte y barba</option>
+                            <option>Corte privado (Airam Marrero)</option>
                         </select>
                     </div>
                     <div class="field">
                         <label for="pro">Profesional</label>
                         <select id="pro" name="pro">
                             <option value="Sin preferencia" selected>Sin preferencia</option>
-                            <option>Equipo NOVA</option>
+                            <option>Airam Marrero</option>
+                            <option>Ehedey Macías</option>
+                            <option>Noah Ríos</option>
                         </select>
                     </div>
                     <div class="field">
@@ -623,7 +630,7 @@ footer{
                     </div>
                     <div class="field wide">
                         <label for="notas">Notas para el equipo</label>
-                        <textarea id="notas" name="notas" placeholder="Alergias, referencias, si vienes con color previo…"></textarea>
+                        <textarea id="notas" name="notas" placeholder="Referencias, cómo lo quieres, cualquier detalle…"></textarea>
                     </div>
                 </div>
 
@@ -631,7 +638,7 @@ footer{
 
                 <div class="actions">
                     <button class="btn" type="submit" id="enviar">Solicitar cita</button>
-                    <a class="btn ghost" href="tel:+34600000000">Llamar al salón</a>
+                    <a class="btn ghost" href="https://wa.me/34658356428" target="_blank" rel="noopener">Escribir por WhatsApp</a>
                 </div>
                 <p class="note">Al enviar aceptas que contactemos contigo para gestionar la reserva.
                     No compartimos tus datos con terceros.</p>
@@ -716,7 +723,7 @@ footer{
                 <p class="err" id="j-err" role="alert"></p>
                 <div class="actions">
                     <button class="btn" type="submit" id="j-enviar">Enviar candidatura</button>
-                    <a class="btn ghost" href="mailto:hola@novastudio.es?subject=Candidatura%20NOVA%20Studio">Enviar por email</a>
+                    <a class="btn ghost" href="mailto:novastudioworld@gmail.com?subject=Candidatura%20NOVA%20Studio">Enviar por email</a>
                 </div>
                 <p class="note">Guardamos tu candidatura únicamente para este proceso de selección.</p>
             </form>
@@ -748,6 +755,11 @@ footer{
                         Av. del Atlántico, 317<br>35110 Vecindario<br>Las Palmas · Gran Canaria
                     </a>
                 </p>
+                <p>Aparcamiento · Pago con tarjeta · Wi&#8209;Fi<br>También a domicilio</p>
+            </div>
+            <div>
+                <h4>Equipo</h4>
+                <p>Airam Marrero<br>Ehedey Macías<br>Noah Ríos</p>
             </div>
             <div>
                 <h4>Horario</h4>
@@ -756,9 +768,10 @@ footer{
             <div>
                 <h4>Contacto</h4>
                 <p>
-                    <a href="tel:+34600000000">600 000 000</a><br>
-                    <a href="mailto:hola@novastudio.es">hola@novastudio.es</a><br>
-                    <a href="#" rel="noopener">@nova.studio</a>
+                    <a href="https://wa.me/34658356428" target="_blank" rel="noopener">658 356 428 · solo WhatsApp</a><br>
+                    <a href="mailto:novastudioworld@gmail.com">novastudioworld@gmail.com</a><br>
+                    <a href="https://www.instagram.com/novastudio.gc/" target="_blank" rel="noopener">@novastudio.gc</a><br>
+                    <a href="https://booksy.com/es-es/9802_nova-studio_barberia_69860_balos" target="_blank" rel="noopener">Reservar en Booksy</a>
                 </p>
             </div>
         </div>
@@ -784,7 +797,7 @@ footer{
    ══════════════════════════════════════════════════════════════ */
 // La supernova ya no son 300 imágenes: se dibuja por código en supernova.js.
 // El guion de la escena y sus tiempos están allí, en la constante T.
-const TEL_WHATSAPP = '34600000000';                 // ← número real del salón
+const TEL_WHATSAPP = '34658356428';                 // WhatsApp del salón (sacado de Booksy)
 const DIRECCION = 'Av. del Atlántico, 317, 35110 Vecindario, Las Palmas';
 const TZ = 'Atlantic/Canary';
 
@@ -1004,9 +1017,13 @@ function enlaceGoogle(r, minutos) {
 /* Duraciones, también en el cliente: si la web está publicada como estática
    (GitHub Pages y similares) no hay servidor que las calcule. */
 const DURACIONES = {
-    'Corte & Estilismo': 45, 'Corte & Barba': 60, 'Barbería': 30,
-    'Color & Mechas': 120, 'Tratamiento capilar': 60, 'Ritual NOVA': 150
+    'Corte de pelo': 30, 'Corte y barba': 30, 'Corte privado (Airam Marrero)': 60
 };
+
+// El corte privado sólo lo hace Airam: si se elige, el profesional se pone solo.
+document.getElementById('servicio').addEventListener('change', e => {
+    if (e.target.value.includes('Airam')) document.getElementById('pro').value = 'Airam Marrero';
+});
 
 let sinServidor = false;
 fetch('/api/estado')
@@ -1181,7 +1198,7 @@ join.addEventListener('submit', async e => {
         const cuerpo = `Puesto: ${cand.puesto}\nExperiencia: ${cand.experiencia}\n` +
                        `Nombre: ${cand.nombre}\nTeléfono: ${cand.tel}\n` +
                        (cand.email ? `Email: ${cand.email}\n` : '') + `\n${cand.mensaje}`;
-        jb.href = `mailto:hola@novastudio.es?subject=${encodeURIComponent('Candidatura · ' + cand.nombre)}`
+        jb.href = `mailto:novastudioworld@gmail.com?subject=${encodeURIComponent('Candidatura · ' + cand.nombre)}`
                 + `&body=${encodeURIComponent(cuerpo)}`;
     }
 

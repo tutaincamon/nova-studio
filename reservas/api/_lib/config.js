@@ -28,16 +28,18 @@ export const BUSINESS = {
   street: "Av. del Atlántico, 317",
   city: "35110 Vecindario · Gran Canaria",
   maps: "https://maps.google.com/?q=Av.+del+Atl%C3%A1ntico+317,+35110+Vecindario,+Las+Palmas",
-  mapEmbed: "https://maps.google.com/maps?q=Av.+del+Atl%C3%A1ntico+317,+35110+Vecindario,+Las+Palmas&z=16&output=embed",
   whatsapp: "34658356428",
   email: "novastudioworld@gmail.com",
   instagram: "https://www.instagram.com/novastudio.gc/",
+  // Hasta que el dueño elige su ficha de Google en la pestaña Web, la nota sale de Booksy.
   rating: {
     score: "5,0",
     count: 174,
     source: "Booksy",
     url: "https://booksy.com/es-es/9802_nova-studio_barberia_69860_balos",
   },
+  // Para el paso desde Booksy: adónde mandar a quien quiere cita antes de la fecha de apertura.
+  booksy: "https://booksy.com/es-es/9802_nova-studio_barberia_69860_balos",
   hoursText: [
     ["Martes a viernes", "10:00 — 20:00"],
     ["Sábado", "10:00 — 15:00"],

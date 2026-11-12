@@ -8,7 +8,7 @@
 
    Igual que en la portada, aquí NO se cobra: se aparta y se paga en tienda.
    ══════════════════════════════════════════════════════════════════════════ */
-(function () {
+(window.NOVA_ESPERA || function (f) { f(); })(function () {
     'use strict';
 
     var ES_CORREO = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -159,7 +159,7 @@
         var marcada = form.querySelector('input[name="talla"]:checked');
         var datos = {
             nombre: valor('nombre'), tel: valor('tel'), correo: valor('correo'),
-            talla: marcada ? marcada.value : '', color: p.color
+            talla: marcada ? marcada.value : '', color: p.color, prenda: p.id
         };
 
         if (!datos.talla)                  return falla('Elige una talla.');
@@ -187,9 +187,11 @@
             }
             throw new Error((res.datos && res.datos.error) || 'fallo');
         })
-        .catch(function () {
+        .catch(function (err) {
             boton.disabled = false;
-            aviso.textContent = 'No hemos podido reservarla. Inténtalo otra vez o escríbenos.';
+            aviso.textContent = err && err.message === 'agotado'
+                ? 'Esa talla se acaba de agotar. Prueba con otra o escríbenos.'
+                : 'No hemos podido reservarla. Inténtalo otra vez o escríbenos.';
         });
     });
 
@@ -223,4 +225,4 @@
         // clic en el fondo oscuro: el evento le llega al propio <dialog>
         caja.addEventListener('click', function (e) { if (e.target === caja) caja.close(); });
     })();
-})();
+});

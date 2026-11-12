@@ -13,7 +13,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500&family=Space+Mono:wght@400;700&family=Inter:wght@300&family=Montserrat:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
-    --blanco:#ffffff;      /* la mitad clara */
+    --blanco:#ffffff;      /* la mitad clara */
+
     --alto-fijo:72px;      /* lo que ocupa la cabecera fija */
     --gris-ficha:#ebebeb;  /* el fondo de las fotos del catálogo */
     --tinta:#0e0e10;
@@ -41,7 +42,8 @@
 
 *{box-sizing:border-box}
 /* La página acaba en negro: lo que sobre por debajo sigue siendo noche. */
-html{background:var(--noche);scroll-behavior:smooth}
+html{background:var(--noche);scroll-behavior:smooth}
+
 body{padding-top:var(--alto-fijo)}
 body{
     margin:0;
@@ -1152,6 +1154,28 @@ footer{
             fallo('No hemos podido conectar. Comprueba tu conexión e inténtalo otra vez.');
         });
     });
+})();
+</script>
+
+<!-- Los sellos («Quedan L · XL», «Sold out») y los precios salen del stock
+     que lleva el estudio. Si no contesta, se quedan los que hay escritos. -->
+<script>
+(function(){
+    fetch('/api/catalogo').then(function(r){ return r.ok ? r.json() : null; }).then(function(d){
+        if(!d || !d.ok) return;
+        d.prendas.forEach(function(p){
+            var art = document.getElementById(p.id);
+            if(!art) return;
+            var sello = art.querySelector('.sello'), precio = art.querySelector('.art-precio');
+            if(sello){
+                sello.textContent = p.estado === 'agotado' ? 'Sold out'
+                    : p.estado === 'disponible' ? (p.tallas.length ? 'Quedan ' + p.tallas.join(' · ') : 'Disponible')
+                    : 'Próximamente';
+                sello.classList.toggle('sello--fin', p.estado === 'agotado');
+            }
+            if(precio && p.precio) precio.textContent = p.precio;
+        });
+    }).catch(function(){});
 })();
 </script>
 

@@ -1952,7 +1952,17 @@ async function staffWeb() {
   if (!staff.owner) return show(staffTop("web") + `<p class="ag-free">Esto lo lleva el dueño.</p>`);
   const r = await api("staff/site");
   const R = r.rating,
+    G = r.google,
+    src = R.want === "google" ? "Google" : "Booksy",
     when = R.at ? new Date(R.at).toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+  // Reseñas: de la ficha de Google cuando hay clave y ficha elegida; si no, de Booksy.
+  const wrStatus = R.mode === "manual" ? "Puestas a mano" : R.ok === false ? `${esc(R.err || `No se pudo leer ${src}.`)} · ${esc(when)}` : `Se leen solas de ${src} · última vez ${esc(when)}`;
+  const gBlock = !G.ready
+    ? `<p class="wr-g muted">Para enseñar las reseñas de Google falta la clave de Google en Vercel (<code>GOOGLE_PLACES_KEY</code>). Mientras, salen de Booksy.</p>`
+    : G.placeId
+      ? `<div class="wr-g"><p><b>Ficha de Google:</b> ${esc(G.name || G.placeId)}${G.address ? `<small>${esc(G.address)}</small>` : ""}${G.test ? `<small>Ficha de prueba: en local y sin clave de Google.</small>` : ""}</p>
+        <div class="form-actions"><button type="button" class="btn secondary" id="wg-find">Cambiar de ficha</button><button type="button" class="btn secondary" id="wg-off">Quitar</button></div></div>`
+      : `<div class="wr-g"><p><b>Elige tu ficha de Google</b> y la web enseñará sus reseñas en vez de las de Booksy.</p><button type="button" class="btn wide" id="wg-find">Buscar mi ficha</button></div>`;
   show(
     staffTop("web") +
       `<p class="section-label">Aviso temporal</p>
@@ -1983,12 +1993,11 @@ async function staffWeb() {
             `<button type="button" class="tp tp-${id}${(r.theme || "plata") === id ? " on" : ""}" data-theme-set="${id}" aria-pressed="${(r.theme || "plata") === id}"><span class="tp-sw" aria-hidden="true"><i></i><i></i><i></i></span><strong>${name}</strong><small>${txt}</small></button>`,
         )
         .join("")}</div>
-      <p class="section-label">Reseñas de ${esc(catalog.business.rating.source)}</p>
+      <p class="section-label">Reseñas</p>
       <div class="card web-rating">
-        <div class="wr-now"><strong>★ ${esc(R.shown.score)}</strong><span>${R.shown.count} reseñas<small>${
-          R.mode === "manual" ? "Puestas a mano" : R.ok === false ? `No se pudo leer Booksy (${esc(when)}). Se ven las últimas buenas.` : `Se leen solas de Booksy · última vez ${esc(when)}`
-        }</small></span></div>
-        <div class="form-actions" style="margin-top:12px"><button type="button" class="btn secondary" id="wr-auto">${R.mode === "manual" ? "Volver a leerlas de Booksy" : "Actualizar ahora"}</button><button type="button" class="btn secondary" id="wr-manual">Poner a mano</button></div>
+        <div class="wr-now"><strong>★ ${esc(R.shown.score)}</strong><span>${R.shown.count} reseñas de ${esc(R.shown.source)}<small>${wrStatus}</small></span></div>
+        <div class="form-actions" style="margin-top:12px"><button type="button" class="btn secondary" id="wr-auto">${R.mode === "manual" ? `Volver a leerlas de ${src}` : "Actualizar ahora"}</button><button type="button" class="btn secondary" id="wr-manual">Poner a mano</button></div>
+        ${gBlock}
       </div>
       <p class="section-label">Fotos de la web</p>
       <p class="muted" style="margin-top:-4px">Toca una foto para cambiarla. Se ve al momento en la web; puedes volver a la original cuando quieras.</p>
@@ -2035,15 +2044,77 @@ async function staffWeb() {
     e.currentTarget.disabled = true;
     try {
       const x = await api("staff/site", { rating: { mode: "auto" } });
-      toast(x.rating.ok ? `Leídas de Booksy: ★ ${x.rating.shown.score} · ${x.rating.shown.count} reseñas.` : "Booksy no responde ahora. Prueba más tarde o ponlas a mano.");
+      toast(x.rating.ok ? `Leídas de ${src}: ★ ${x.rating.shown.score} · ${x.rating.shown.count} reseñas.` : x.rating.err || `${src} no responde ahora. Prueba más tarde o ponlas a mano.`);
       reload();
     } catch (err) {
       toast(err.message);
     }
   };
+  // Buscar la ficha de Google por nombre (o pegar su ID) y elegirla.
+  $("#wg-find")?.addEventListener("click", () => {
+    const sh = sheet(
+      `<p class="eyebrow">Reseñas</p><h2>Tu ficha de Google</h2>
+      <form id="wg-form"><label for="wg-q">Nombre de la barbería y pueblo</label><input id="wg-q" name="q" required maxlength="120" value="NOVA Studio Vecindario">
+      <button class="btn wide" style="margin-top:12px" type="submit">Buscar</button></form>
+      <div id="wg-res" class="wg-res" aria-live="polite"></div>
+      <p class="muted" style="font-size:12px;margin-top:14px">¿No sale la tuya? Pega en el buscador el ID de la ficha (empieza por ChIJ). Se saca en <a href="https://developers.google.com/maps/documentation/places/web-service/place-id" target="_blank" rel="noopener">el buscador de IDs de Google</a>.</p>`,
+    );
+    let hits = [];
+    sh.el.querySelector("#wg-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const box = sh.el.querySelector("#wg-res"),
+        btn = e.target.querySelector("button");
+      btn.disabled = true;
+      box.innerHTML = `<p class="muted">Buscando en Google…</p>`;
+      try {
+        hits = (await api("staff/site", { google: { search: e.target.q.value } })).places;
+        box.innerHTML = hits.length
+          ? hits
+              .map(
+                (p, i) =>
+                  `<button type="button" class="wg-hit" data-i="${i}"><strong>${esc(p.name)}</strong><span>${esc(p.address)}${p.score ? ` · ★ ${String(p.score).replace(".", ",")} (${p.count})` : ""}</span></button>`,
+              )
+              .join("")
+          : `<p class="muted">No sale nada con ese nombre. Prueba con otro (por ejemplo, el de la ficha tal cual).</p>`;
+      } catch (err) {
+        box.innerHTML = `<p class="muted">${esc(err.message)}</p>`;
+      }
+      btn.disabled = false;
+      box.querySelectorAll(".wg-hit").forEach(
+        (b) =>
+          (b.onclick = async () => {
+            const p = hits[+b.dataset.i];
+            box.querySelectorAll(".wg-hit").forEach((x) => (x.disabled = true));
+            try {
+              const x = await api("staff/site", { google: { placeId: p.id, name: p.name, address: p.address } });
+              sh.close();
+              toast(
+                (x.rating.ok ? `Listo: la web ya enseña las reseñas de Google (★ ${x.rating.shown.score} · ${x.rating.shown.count}).` : x.rating.err || "Ficha guardada.") +
+                  (x.reviewUrl ? " El correo «Dejar mi reseña» también lleva ahora a Google." : ""),
+              );
+              reload();
+            } catch (err) {
+              toast(err.message);
+              box.querySelectorAll(".wg-hit").forEach((x) => (x.disabled = false));
+            }
+          }),
+      );
+    });
+  });
+  $("#wg-off")?.addEventListener("click", async (e) => {
+    if (!confirm("¿Quitar la ficha de Google? La web volverá a enseñar las reseñas de Booksy.")) return;
+    e.currentTarget.disabled = true;
+    try {
+      await api("staff/site", { google: { placeId: "" } });
+      toast("Ficha quitada. La web vuelve a enseñar Booksy.");
+      reload();
+    } catch (err) {
+      toast(err.message);
+    }
+  });
   $("#wr-manual").onclick = () => {
     const sh = sheet(
-      `<p class="eyebrow">Reseñas</p><h2>Poner a mano</h2><p class="muted">Úsalo solo si Booksy deja de leerse solo. Mientras esté a mano, no se actualiza.</p>
+      `<p class="eyebrow">Reseñas</p><h2>Poner a mano</h2><p class="muted">Úsalo solo si ${src} deja de leerse solo. Mientras esté a mano, no se actualiza.</p>
       <form id="wr-form"><label for="wr-s">Nota (de 1 a 5)</label><input id="wr-s" name="score" inputmode="decimal" required value="${esc(R.shown.score)}">
       <label for="wr-c">Número de reseñas</label><input id="wr-c" name="count" inputmode="numeric" required value="${esc(R.shown.count)}">
       <button class="btn wide" style="margin-top:16px" type="submit">Guardar</button></form>`,
@@ -2138,6 +2209,10 @@ async function staffTeam() {
         <label class="check"><input type="checkbox" name="recurring" ${n.recurring ? "checked" : ""}><span>Los clientes pueden reservar citas que se repiten (cada 1, 2, 3 o 4 semanas)</span></label>
         <label for="n-rmax">Como mucho, cuántas citas de una vez</label>
         <div class="pct-field"><input id="n-rmax" name="recurringMax" inputmode="numeric" value="${n.recurringMax}"><span>citas</span></div>
+        <p class="section-label" style="margin-top:22px">Paso desde Booksy</p>
+        <label for="n-open" style="margin-top:0">Los clientes reservan en la app desde el</label>
+        <input id="n-open" name="openFrom" type="date" value="${esc(n.openFrom || "")}">
+        <p class="muted" style="font-size:12px;margin:6px 0 0">Antes de ese día la agenda sigue en Booksy, y la app manda allí a quien pida cita para esas fechas. El equipo puede apuntar citas en la app cualquier día. En Booksy, cierra los días desde esta fecha para que las dos agendas no se pisen. Vacío = sin límite.</p>
         ${autoStatus(n)}
         <button class="btn wide" style="margin-top:14px" type="submit">Guardar normas</button>
       </form>

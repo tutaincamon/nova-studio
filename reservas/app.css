@@ -376,10 +376,33 @@ img.face, img.na-face { object-position: 50% 18%; }
 .stars { color: #0a090c; font-size: 22px; letter-spacing: 2px; }
 .rating-count { grid-column: 1 / -1; font-size: 13px; color: var(--muted); }
 .home-actions { display: grid; gap: 10px; margin-top: 12px; }
-.map-frame { position: relative; height: 260px; border-radius: 0; overflow: hidden; background: #e9e8e2; border: 1px solid var(--line); display: grid; place-items: center; color: var(--muted); font-size: 13px; }
-.map-frame { gap: 8px; align-content: center; text-align: center; padding: 16px; }
-.map-frame small { font-size: 12px; max-width: 30ch; }
-.map-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+/* Reseñas de Google: en el móvil se deslizan de lado; en pantalla ancha, en rejilla */
+.g-reviews { display: grid; grid-auto-flow: column; grid-auto-columns: min(300px, 84%); gap: 10px; overflow-x: auto; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; margin-top: 10px; padding-bottom: 4px; scrollbar-width: none; }
+.g-reviews::-webkit-scrollbar { display: none; }
+.g-review { scroll-snap-align: start; display: flex; flex-direction: column; gap: 10px; margin: 0; background: #fff; border: 1px solid var(--line); padding: 18px; }
+.g-stars { color: var(--ink); font-size: 13px; letter-spacing: 2px; }
+.g-stars i { font-style: normal; opacity: .18; }
+.g-review blockquote { flex: 1; margin: 0; font-size: 14px; line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+.g-review figcaption { font-size: 12px; color: var(--muted); }
+.g-review figcaption a, .g-review figcaption b { color: var(--ink); font-weight: 700; text-decoration: none; }
+.g-attr { margin: 8px 0 0; font-size: 11px; letter-spacing: .3px; color: var(--muted); }
+@media (min-width: 761px) {
+  .g-reviews { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: visible; }
+  .g-review:nth-child(n + 5) { display: none; } /* filas completas: 2×2 o 4 en fila */
+}
+@media (min-width: 1100px) { .g-reviews { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+/* Calendario mientras dura el paso desde Booksy */
+.open-from { margin: 0 0 14px; padding: 14px 16px; background: #fff; border: 1px solid var(--line); font-size: 14px; line-height: 1.5; color: var(--muted); }
+.open-from b { color: var(--ink); }
+.open-from a { color: var(--ink); font-weight: 700; white-space: nowrap; }
+/* Mapa: imagen propia (assets/mapa.jpg, centrada en el estudio a 1200×520),
+   sin nada de Google hasta que se toca. */
+.map-frame { position: relative; display: block; height: 260px; overflow: hidden; background: #ececec url("/assets/mapa.jpg") center / 1200px auto no-repeat; border: 1px solid var(--line); color: var(--ink); text-decoration: none; }
+.map-pin { position: absolute; left: 50%; top: 50%; width: 28px; height: 28px; margin: -34px 0 0 -14px; background: var(--ink); border-radius: 50% 50% 50% 0; transform: rotate(-45deg); box-shadow: -3px 5px 12px rgba(0, 0, 0, .3); }
+.map-pin::after { content: ""; position: absolute; inset: 9px; border-radius: 50%; background: #fff; }
+.map-open { position: absolute; left: 12px; bottom: 12px; padding: 8px 12px; background: #fff; border: 1px solid var(--ink); font-size: 12px; font-weight: 700; letter-spacing: .02em; transition: background .2s, color .2s; }
+.map-frame:hover .map-open, .map-frame:focus-visible .map-open { background: var(--ink); color: #fff; }
+.map-attr { position: absolute; right: 0; bottom: 0; padding: 2px 6px; background: rgba(255, 255, 255, .8); font-size: 10px; color: var(--muted); }
 .visit { display: grid; gap: 16px; margin-top: 12px; }
 .visit address { font-style: normal; display: grid; gap: 3px; }
 .visit address strong { font-size: 18px; }
@@ -614,6 +637,21 @@ img.face, img.na-face { object-position: 50% 18%; }
 .sheet h2 { margin-top: 4px; font-size: 24px; }
 .sheet-close { position: absolute; top: 14px; right: 14px; width: 38px; min-height: 38px; padding: 0; border-radius: 50%; background: #fff; color: var(--ink); border-color: var(--line); font-size: 20px; }
 @media (min-width: 640px) { .sheet-back { align-items: center; } .sheet { border-radius: 0; } }
+/* ── Instalar la app: ventana para quien entra sin sesión y tarjeta del Perfil ── */
+.inst-icon { display: block; flex: none; width: 56px; height: 56px; }
+.inst h2 { margin: 16px 0 8px; }
+.inst-lead { margin: 0 0 18px; max-width: 46ch; font-size: 14px; line-height: 1.55; color: var(--muted); }
+.inst .btn + .btn { margin-top: 10px; }
+.inst-steps { list-style: none; counter-reset: paso; margin: 0 0 18px; padding: 0; border-top: 1px solid var(--line); }
+.inst-steps li { counter-increment: paso; display: grid; grid-template-columns: 26px 1fr; gap: 8px; padding: 13px 0; border-bottom: 1px solid var(--line); font-size: 14px; line-height: 1.5; }
+.inst-steps li::before { content: counter(paso); font-family: var(--serif); font-weight: 800; font-size: 13px; line-height: 21px; }
+.inst-share { width: 17px; height: 17px; vertical-align: -3px; }
+.inst-card { display: grid; grid-template-columns: 44px 1fr; align-items: center; gap: 14px; padding: 16px; }
+.inst-card .inst-icon { width: 44px; height: 44px; }
+.inst-txt { flex: 1; min-width: 0; }
+.inst-txt strong { display: block; font-size: 15px; }
+.inst-txt span { display: block; margin-top: 2px; font-size: 13px; line-height: 1.45; color: var(--muted); }
+.inst-card .btn { grid-column: 1 / -1; }
 
 /* ── app instalada en la pantalla de inicio ───────────────────────── */
 @media (display-mode: standalone) {
@@ -1470,6 +1508,13 @@ span.pr-thumb { display: grid; }
 .wr-now strong { font-size: 30px; white-space: nowrap; }
 .wr-now span { display: grid; gap: 2px; font-size: 15px; font-weight: 600; }
 .wr-now small { font-size: 12px; font-weight: 400; color: var(--muted); line-height: 1.4; }
+.wr-g { margin: 16px 0 0; padding-top: 14px; border-top: 1px solid var(--soft); font-size: 14px; line-height: 1.5; }
+.wr-g p { margin: 0 0 10px; }
+.wr-g small { display: block; font-size: 12px; color: var(--muted); }
+.wg-res { display: grid; gap: 8px; margin-top: 14px; }
+.wg-hit { display: grid; gap: 3px; width: 100%; text-align: left; background: #fff; border: 1px solid var(--line); padding: 12px 14px; font: inherit; color: var(--ink); cursor: pointer; }
+.wg-hit span { font-size: 13px; color: var(--muted); }
+.wg-hit:disabled { opacity: .5; }
 .web-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 12px; }
 .web-slot { display: grid; gap: 2px; align-content: start; text-align: left; min-height: 0; padding: 0; background: none; border: 0; border-radius: 0; color: var(--ink); font-weight: 400; text-transform: none; letter-spacing: 0; font-family: inherit; width: 100%; cursor: pointer; }
 .ws-pic { position: relative; display: block; aspect-ratio: 3 / 4; background: var(--soft); border: 1px solid var(--line); overflow: hidden; margin-bottom: 6px; }
