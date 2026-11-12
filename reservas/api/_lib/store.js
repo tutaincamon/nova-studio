@@ -55,8 +55,9 @@ function local([cmd, ...a]) {
     }
     case "DEL":
       return a.reduce((n, x) => n + (mem.delete(x) ? 1 : 0), 0);
-    case "INCR": {
-      const v = Number(alive(k)?.v || 0) + 1;
+    case "INCR":
+    case "INCRBY": {
+      const v = Number(alive(k)?.v || 0) + (cmd === "INCRBY" ? Number(a[1]) : 1);
       mem.set(k, { v: String(v), exp: alive(k)?.exp || 0 });
       return v;
     }

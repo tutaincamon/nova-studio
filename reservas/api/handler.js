@@ -865,7 +865,15 @@ async function cronTick(req) {
   const changeLink = (b) =>
     host ? `<a href="https://${host}/#booking/${b.id}">Cámbiala o cancélala desde la app</a>` : "Cámbiala o cancélala desde la app";
   try {
-    if (!mailReady()) return out;
+    // Sin correo no se manda nada, pero lo que no envía nada se hace igual:
+    // borrar las cuentas que pasaron 3 años sin uso (lo promete la política).
+    if (!mailReady()) {
+      if (now.min >= 9 * 60 && (await once("cronday:" + now.date, 2 * 86400))) {
+        out.purge = await purgeInactive(now, host);
+        await setJSON("crondaily", { at: now.stamp, reminders: 0, winback: 0, close: false, backup: false, purge: out.purge });
+      }
+      return out;
+    }
     const daytime = now.min >= 9 * 60 && now.min < 21 * 60;
     const todays = daytime ? await bookingsByIds(await cmd("SMEMBERS", "day:" + now.date)) : [];
     const live = (b) => b.kind === "booking" && b.status === "confirmed" && b.email;
@@ -987,6 +995,9 @@ async function cronTick(req) {
           [{ filename: `nova-copia-${now.date}.json`, content: Buffer.from(JSON.stringify(data)).toString("base64") }],
         );
       }
+      // e) Cuentas sin uso: aviso un mes antes y borrado a los 3 años (política de privacidad).
+      out.purge = await purgeInactive(now, host);
+      await setJSON("crondaily", { at: now.stamp, reminders: out.reminders, winback: out.winback, close: out.close, backup: out.backup, purge: out.purge });
     }
     return out;
   } catch (e) {
@@ -1011,6 +1022,146 @@ async function ownerAlerts() {
     else if (last.error) out.push("La última pasada automática falló: " + last.error);
   }
   return out;
+}
+
+// ── Cuentas sin uso ─────────────────────────────────────────────────────────
+// La política de privacidad promete borrar la cuenta tras 3 años «sin citas ni
+// uso». Uso = abrir la app con la sesión iniciada (`seen:`), cualquier cita
+// (aunque se cancelara), compras de ropa del Club y premios canjeados.
+// Un mes antes se avisa por correo; si vuelve a entrar, no se borra.
+// Nunca se borra a quien tiene una cita pendiente o un cobro por falta sin
+// cerrar, ni a nadie del equipo. Como mucho PURGE_MAX cuentas al día.
+const PURGE_DAYS = 3 * 365 + 1,
+  PURGE_WARN_DAYS = 30,
+  PURGE_MAX = 25;
+const dayOf = (stamp) => String(stamp || "").slice(0, 10);
+
+// Cuentas que llevan sin uso al menos (3 años − 30 días), con todo lo necesario para avisar o borrar.
+async function staleAccounts(now) {
+  const warnLine = T.addDays(now.date, -(PURGE_DAYS - PURGE_WARN_DAYS));
+  const emails = await allEmails();
+  if (!emails.length) return [];
+  const reads = [];
+  for (let i = 0; i < emails.length; i += 300) reads.push(["MGET", ...emails.slice(i, i + 300).map((e) => "user:" + e)]);
+  // Solo se mira a fondo a quien se dio de alta antes de esa fecha: el resto no puede llevar tanto sin uso.
+  const old = (await pipe(reads))
+    .flat()
+    .map((raw) => (raw ? JSON.parse(raw) : null))
+    .filter((u) => u?.email && dayOf(u.created) < warnLine);
+  if (!old.length) return [];
+  const per = await pipe(
+    old.flatMap((u) => [
+      ["SMEMBERS", "ubk:" + u.email],
+      ["SMEMBERS", "ush:" + u.email],
+      ["SMEMBERS", "urd:" + u.email],
+      ["GET", "seen:" + u.email],
+      ["GET", "purgewarn:" + u.email],
+    ]),
+  );
+  const books = await bookingsByIds([...new Set(old.flatMap((_, i) => per[i * 5]))]);
+  const byId = new Map(books.map((b) => [b.id, b]));
+  const [shops, rds] = await Promise.all([bookingsByIds2("sh:", [...new Set(old.flatMap((_, i) => per[i * 5 + 1]))]), bookingsByIds2("rd:", [...new Set(old.flatMap((_, i) => per[i * 5 + 2]))])]);
+  const shopBy = new Map(shops.map((x) => [x.id, x])),
+    rdBy = new Map(rds.map((x) => [x.id, x]));
+  const out = [];
+  old.forEach((u, i) => {
+    const bookings = per[i * 5].map((id) => byId.get(id)).filter(Boolean);
+    const shopIds = per[i * 5 + 1],
+      rdIds = per[i * 5 + 2];
+    const dates = [
+      dayOf(u.created),
+      dayOf(per[i * 5 + 3]),
+      ...bookings.flatMap((b) => [b.date, dayOf(b.created), dayOf(b.canceledAt)]),
+      ...shopIds.map((id) => dayOf(shopBy.get(id)?.created)),
+      ...rdIds.map((id) => dayOf(rdBy.get(id)?.created)),
+    ].filter(T.isDate);
+    const last = dates.sort().at(-1) || "";
+    if (last >= warnLine) return;
+    out.push({
+      u,
+      last,
+      warned: per[i * 5 + 4] || "",
+      bookings,
+      shopIds,
+      rdIds,
+      active: bookings.some((b) => isActive(b, now)),
+      owes: bookings.some((b) => ["requires_action", "requires_payment_method"].includes(b.charge?.status)),
+    });
+  });
+  return out;
+}
+
+// Borra una cuenta. Las citas se quedan para las cuentas del salón, pero sin
+// nombre, correo ni teléfono. Las que tienen un cobro por falta y los cobros de
+// caja (`pay:`) no se tocan: la ley obliga a guardarlos 6 años.
+async function eraseAccount(a, now) {
+  const u = a.u,
+    email = u.email;
+  const ops = [];
+  for (const b of a.bookings) {
+    if (b.charge) continue;
+    const { guarantee, ...rest } = b;
+    ops.push(["SET", "bk:" + b.id, JSON.stringify({ ...rest, name: "Cliente borrado", email: "", phone: "", erased: now.date })]);
+  }
+  for (const id of a.shopIds) ops.push(["DEL", "sh:" + id]);
+  for (const id of a.rdIds) ops.push(["DEL", "rd:" + id], ["SREM", "rdpending", id]);
+  // A quien invitó, se le quita la referencia a este correo.
+  const friends = await cmd("SMEMBERS", "refs:" + email);
+  if (friends.length) {
+    const raws = await cmd("MGET", ...friends.map((f) => "user:" + f));
+    raws.forEach((raw) => {
+      const f = raw && JSON.parse(raw);
+      if (f?.referredBy === email) ops.push(["SET", "user:" + f.email, JSON.stringify({ ...f, referredBy: null })]);
+    });
+  }
+  if (u.ref && (await cmd("GET", "refcode:" + u.ref)) === email) ops.push(["DEL", "refcode:" + u.ref]);
+  for (const k of ["user:", "ubk:", "ush:", "urd:", "refs:", "seen:", "purgewarn:", "winback:", "nomkt:", "reviewed:", "revmail:", "backmail:"]) ops.push(["DEL", k + email]);
+  ops.push(["SREM", "users", email], ["DEL", "contacts:list"]);
+  await pipe(ops);
+  if (u.card?.pm) await Card.removeCard(u.card.pm).catch(() => {});
+}
+
+// La pasada diaria: avisa a quien le falta un mes y borra a quien ya pasó el plazo.
+async function purgeInactive(now, host) {
+  const res = { warned: 0, erased: 0, kept: 0 };
+  const list = await staleAccounts(now);
+  if (!list.length) return res;
+  const cfgs = await cmd("MGET", ...TEAM.map((p) => "staffcfg:" + p.id));
+  const team = new Set(TEAM.flatMap((p, i) => [p.email, cfgs[i] && JSON.parse(cfgs[i]).email]).filter(Boolean).map((e) => e.toLowerCase()));
+  const deadline = T.addDays(now.date, -PURGE_DAYS);
+  for (const a of list) {
+    if (a.active || a.owes || team.has(a.u.email)) {
+      res.kept++;
+      continue;
+    }
+    const warnedLongAgo = a.warned && daysBetween(a.warned, now.date) >= PURGE_WARN_DAYS;
+    // Se borra si pasó el plazo y se avisó hace al menos un mes (o si no hay
+    // forma de avisar porque el correo de la app no está activo).
+    if (a.last < deadline && (warnedLongAgo || !mailReady())) {
+      if (res.erased >= PURGE_MAX) continue;
+      await eraseAccount(a, now);
+      res.erased++;
+      continue;
+    }
+    if (a.warned || !mailReady()) continue;
+    const when = T.addDays(a.last, PURGE_DAYS) > T.addDays(now.date, PURGE_WARN_DAYS) ? T.addDays(a.last, PURGE_DAYS) : T.addDays(now.date, PURGE_WARN_DAYS);
+    const first = String(a.u.name || "").split(" ")[0];
+    const ok = await send(
+      a.u.email,
+      `Tu cuenta de ${BUSINESS.short} se borrará el ${T.niceDate(when).toLowerCase()}`,
+      `Hace mucho que no te vemos${first ? ", " + first : ""}`,
+      `<p style="margin:0 0 12px">Tu cuenta del Club ${htmlEsc(BUSINESS.short)} lleva casi 3 años sin uso. Como dice nuestra política de privacidad, el <b>${htmlEsc(T.niceDate(when))}</b> la borraremos, y con ella tus puntos y medallas.</p>
+       <p style="margin:0 0 14px">Si quieres conservarla, basta con que entres en la app antes de esa fecha.</p>
+       ${host ? `<p style="margin:0 0 12px"><a href="https://${host}/#profile" style="display:inline-block;background:#171717;color:#fff;padding:12px 18px;text-decoration:none">Entrar y conservar mi cuenta</a></p>` : ""}
+       <p style="margin:0;color:#64645e;font-size:13px">Si prefieres que se borre, no hace falta que hagas nada.</p>`,
+    );
+    if (ok) {
+      await cmd("SET", "purgewarn:" + a.u.email, now.date, "EX", 150 * 86400);
+      res.warned++;
+    }
+  }
+  if (res.erased) await cmd("INCRBY", "purged:" + now.date.slice(0, 7), res.erased);
+  return res;
 }
 
 // Resumen de un día para el dueño: lo cobrado (total, por forma de pago y por
@@ -1144,7 +1295,7 @@ const routes = {
     // una vez al mes no tiene que volver a entrar nunca en ese móvil.
     const renew = [];
     if (u) {
-      renew.push(["EXPIRE", "sess:" + sha(ck[SESSION]), YEAR]);
+      renew.push(["EXPIRE", "sess:" + sha(ck[SESSION]), YEAR], ["SET", "seen:" + u.email, T.nowLocal().date]);
       cookie(res, req, SESSION, ck[SESSION], YEAR);
     }
     if (st) {
@@ -2720,7 +2871,8 @@ const routes = {
   // ── Normas de cancelación (solo el dueño) ───────────────────────────────
   "GET staff/rules": async ({ req }) => {
     await needStaff(req);
-    return { ...NORMS, mail: mailReady(), cron: !ON_VERCEL || !!process.env.CRON_SECRET, lastCron: (await getJSON("cronlast")) || null };
+    const [last, daily] = await cmd("MGET", "cronlast", "crondaily");
+    return { ...NORMS, mail: mailReady(), cron: !ON_VERCEL || !!process.env.CRON_SECRET, lastCron: last ? JSON.parse(last) : null, lastDaily: daily ? JSON.parse(daily) : null };
   },
   "POST staff/rules": async ({ req, body }) => {
     const me = await needStaff(req);
