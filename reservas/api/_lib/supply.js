@@ -92,6 +92,7 @@ export const prendaDePedido = (prendas, ped) => prendas.find((p) => p.id === ped
 const slug = (x) =>
   String(x || "")
     .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-zA-Z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .toLowerCase()

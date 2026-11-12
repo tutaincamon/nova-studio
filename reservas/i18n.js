@@ -104,6 +104,8 @@ const EN = {
   "Privacidad": "Privacy",
   "Condiciones": "Terms",
   "Aviso legal": "Legal notice",
+  "Ver el mapa": "Show map",
+  "Se carga desde Google Maps, que recibirá tu IP.": "Loads from Google Maps, which will receive your IP.",
   "Equipo": "Team",
   "Barbería · Vecindario": "Barbershop · Vecindario",
   "NOVA Studio, inicio": "NOVA Studio, home",

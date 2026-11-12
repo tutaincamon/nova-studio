@@ -153,7 +153,10 @@ async function ensureUser(email, name, phone, extra = {}) {
     u = { email, name: name || "", phone: phone || "", no, created: T.nowLocal().stamp, ...extra };
     u.ref = await makeRefCode(email, name);
     await setJSON("user:" + email, u);
-    await cmd("SADD", "users", email);
+    await pipe([
+      ["SADD", "users", email],
+      ["DEL", "contacts:list"],
+    ]);
   } else if ((name && !u.name) || (phone && !u.phone) || !u.ref) {
     u = { ...u, name: u.name || name, phone: u.phone || phone };
     if (!u.ref) u.ref = await makeRefCode(email, u.name);
@@ -270,7 +273,7 @@ async function clubOf(u) {
 }
 // Puntos de una cita: lo que se cobró en caja (o el precio del servicio) × puntos por euro.
 function pointsOf(b) {
-  const price = b.pay?.amount ?? b.service.price ?? SERVICES.find((s) => s.id === b.service.id)?.price ?? 15;
+  const price = b.pay?.amount ?? b.service.price ?? SVCS.find((s) => s.id === b.service.id)?.price ?? 15;
   return Math.round(price * POINTS.perEuro);
 }
 async function bookingsByIds2(prefix, ids) {
@@ -282,7 +285,11 @@ async function bookingsByIds2(prefix, ids) {
 // ── Fotos de la web y reseñas (editables por el dueño) ────────────────────
 // Cada hueco de foto tiene una por defecto (en /assets). Si el dueño sube otra,
 // se guarda en `siteimg:<hueco>` y la web la pide a /api/site/<hueco>/photo.
+// Trabajos recientes (galería de la portada): hasta 6 huecos, sin foto por defecto.
+const GALLERY = ["trabajo1", "trabajo2", "trabajo3", "trabajo4", "trabajo5", "trabajo6"];
 const SITE_SLOTS = [
+  { id: "logo", label: "Logo", where: "Cabecera y billete de la reserva", def: "/assets/logo.png", max: 600, logo: true },
+  ...GALLERY.map((id, i) => ({ id, label: `Trabajo reciente ${i + 1}`, where: "Galería «Trabajos recientes» de la portada", def: "", max: 1200 })),
   { id: "hero", label: "Portada (móvil, en vertical)", where: "Lo primero que se ve en el móvil", def: "/assets/hero-plata.jpg", defRosa: "/assets/hero-rosa.jpg", max: 1400 },
   { id: "hero-wide", label: "Portada (ordenador, en horizontal)", where: "Lo primero que se ve en el ordenador", def: "/assets/hero-plata-wide.jpg", defRosa: "/assets/hero-rosa-wide.jpg", max: 1800 },
   { id: "cabina", label: "En cabina", where: "Galería «Imagen y estilo»", def: "/assets/cabina.jpg", max: 1000 },
@@ -310,7 +317,7 @@ async function siteInfo() {
     r = got ? { ...r, ...got, at: Date.now(), ok: true } : { ...r, at: Date.now(), ok: false };
     await setJSON("site", { ...site, rating: r });
   }
-  return { photos: site.photos || {}, rating: r, theme: themeOf(site) };
+  return { photos: site.photos || {}, rating: r, theme: themeOf(site), contact: site.contact || {}, notice: site.notice || null };
 }
 async function readBooksy() {
   try {
@@ -334,6 +341,29 @@ const ratingOut = (r) => ({
   ...(r.score ? { score: r.score.toFixed(1).replace(".", ","), count: r.count } : {}),
 });
 
+
+// ── Contacto y aviso temporal (editables por el dueño) ────────────────────
+// Lo que se guarda en «site.contact» pisa lo de config.js. El mapa se saca de
+// la dirección.
+function contactOut(c = {}) {
+  const street = c.street || BUSINESS.street,
+    city = c.city || BUSINESS.city;
+  const q = encodeURIComponent(`${street}, ${city}`);
+  return {
+    street,
+    city,
+    maps: c.maps || BUSINESS.maps,
+    mapEmbed: c.street || c.city ? `https://maps.google.com/maps?q=${q}&z=16&output=embed` : BUSINESS.mapEmbed,
+    whatsapp: c.whatsapp || BUSINESS.whatsapp,
+    instagram: c.instagram || BUSINESS.instagram,
+  };
+}
+// El aviso se ve si está encendido y no ha pasado su fecha de fin.
+function noticeOut(n) {
+  if (!n?.on || !n.text) return null;
+  if (n.until && n.until < T.nowLocal().date) return null;
+  return { text: n.text, tone: n.tone === "alerta" ? "alerta" : "info" };
+}
 // ── Equipo y normas (editables por el dueño desde su panel) ───────────────
 // El equipo vive en la base de datos. La primera vez se copia el de config.js.
 // Se carga al principio de cada petición (ver `handler`), así que provider()
@@ -360,7 +390,14 @@ const WEEK = [0, 1, 2, 3, 4, 5, 6];
 const NORMS0 = NORMS;
 async function loadTeam() {
   // Equipo y normas en un solo viaje a la base de datos.
-  const [rawTeam, rawNorms] = await cmd("MGET", "team", "norms");
+  const [rawTeam, rawNorms, rawSvcs] = await cmd("MGET", "team", "norms", "services");
+  // Servicios: los edita el dueño (pestaña «Servicios»); la primera vez, los de config.js.
+  let sv = rawSvcs ? JSON.parse(rawSvcs) : null;
+  if (!Array.isArray(sv) || !sv.length) {
+    sv = SERVICES.map((x) => ({ ...x, active: true }));
+    await setJSON("services", sv);
+  }
+  SVCS = sv;
   let t = rawTeam ? JSON.parse(rawTeam) : null;
   if (!Array.isArray(t) || !t.length) {
     t = PROVIDERS.map((p) => ({ ...p, active: true, commission: p.owner ? 0 : (COMMISSION[p.id] ?? 40) }));
@@ -370,13 +407,18 @@ async function loadTeam() {
   NORMS = { ...NORMS0, ...(rawNorms ? JSON.parse(rawNorms) : {}) };
 }
 const activeTeam = () => TEAM.filter((p) => p.active !== false);
-const publicProvider = ({ hours, pinHash, commission, ...p }) => p;
+let SVCS = SERVICES;
+const activeSvcs = () => SVCS.filter((x) => x.active !== false);
+// Vacaciones o días libres de un barbero: [{ from, to, note }] con fechas AAAA-MM-DD.
+const isOff = (p, date) => (p.off || []).some((r) => date >= r.from && date <= r.to);
+// Lo que el catálogo enseña de cada barbero: ni su clave, ni su correo, ni su comisión, ni el motivo de sus días libres.
+const publicProvider = ({ hours, pinHash, commission, email, off, ...p }) => ({ ...p, off: (off || []).map(({ from, to }) => ({ from, to })) });
 // Lo que se cobra si no viene o si cancela con menos de `cancelHours` horas.
 const feeFor = (b, kind) => cents(((Number(b.service.price) || 0) * (kind === "late" ? NORMS.lateFeePct : NORMS.noShowFeePct)) / 100);
 const lateCancel = (b) => T.minutesUntil(b.date, b.start) < NORMS.cancelHours * 60;
 
 // ── Agenda ─────────────────────────────────────────────────────────────────
-const service = (id) => SERVICES.find((s) => s.id === id);
+const service = (id) => SVCS.find((s) => s.id === id);
 const provider = (id) => TEAM.find((p) => p.id === id);
 const canDo = (s, p) => (!s.providers?.length || s.providers.includes(p.id)) && (!p.services?.length || p.services.includes(s.id));
 const monthOf = (date) => date.slice(0, 7);
@@ -405,6 +447,7 @@ async function busyOf(providerId, month, exceptId) {
 function freeTimes(p, s, date, busy, now, horizon = RULES.daysAhead) {
   const last = T.addDays(now.date, horizon);
   if (date < now.date || date > last) return [];
+  if (isOff(p, date)) return [];
   const out = [];
   for (const [a, b] of p.hours[T.weekday(date)] || []) {
     for (let t = T.toMin(a); t + s.duration <= T.toMin(b); t += RULES.step) {
@@ -521,7 +564,7 @@ const shuffle = (a) => {
 // al que tenga esa hora libre y menos trabajo ese día.
 async function bookNow(req, res, body) {
   const s = service(body.service);
-  if (!s || s.consult) fail(400, "Ese servicio no se reserva por aquí.");
+  if (!s || s.consult || s.active === false) fail(400, "Ese servicio no se reserva por aquí.");
   const anyone = body.provider === "any",
     fixed = anyone ? null : provider(body.provider);
   if (!anyone && (!fixed || fixed.active === false || !canDo(s, fixed))) fail(400, "Ese barbero no hace este servicio.");
@@ -748,15 +791,21 @@ function habitOf(list, now) {
 // Para cada socio: cuándo vino por última vez, cada cuánto suele venir y si
 // tiene cita. «Perdido» = sin cita y más días sin venir que lapseDays (o que
 // el doble de lo que suele tardar, si es más).
+// Los correos de todos los socios (el índice `users`). La primera vez se
+// completa con los socios de antes de existir el índice.
+async function allEmails() {
+  const [emails, done] = await pipe([
+    ["SMEMBERS", "users"],
+    ["GET", "usersidx"],
+  ]);
+  if (done) return emails;
+  const old = (await scanKeys("user:*")).map((k) => k.slice(5));
+  if (old.length) await cmd("SADD", "users", ...old);
+  await cmd("SET", "usersidx", "1");
+  return [...new Set([...emails, ...old])];
+}
 async function allClients() {
-  let emails = await cmd("SMEMBERS", "users");
-  if (!(await cmd("GET", "usersidx"))) {
-    // Una vez: los socios de antes de existir el índice.
-    const old = (await scanKeys("user:*")).map((k) => k.slice(5));
-    if (old.length) await cmd("SADD", "users", ...old);
-    await cmd("SET", "usersidx", "1");
-    emails = [...new Set([...emails, ...old])];
-  }
+  const emails = await allEmails();
   if (!emails.length) return [];
   const now = T.nowLocal();
   const [users, sets, contacts, optout] = await Promise.all([
@@ -863,12 +912,12 @@ async function cronTick(req) {
             : `Los buenos cortes se mantienen mejor si vuelves en 3 o 4 semanas.`;
           const ok = await send(
             b.email,
-            `¿Ya sabes cuándo vuelves${first ? ", " + first : ""}?`,
+            `Publi · ¿Ya sabes cuándo vuelves${first ? ", " + first : ""}?`,
             `Gracias por venir${first ? ", " + first : ""}`,
             `<p style="margin:0 0 12px">Esperamos que ${htmlEsc(barber)} te haya dejado como querías.</p>
              <p style="margin:0 0 14px">${hint} Si lo dejas reservado ya, te aseguras tu hueco.</p>
              <p style="margin:0 0 12px"><a href="https://${host}/#time/${encodeURIComponent(b.provider.id)}" style="display:inline-block;background:#171717;color:#fff;padding:12px 18px;text-decoration:none">Ver huecos con ${htmlEsc(barber)}</a></p>
-             <p style="margin:0;color:#64645e;font-size:13px">Y si algo no fue bien, responde a este correo: lo lee el equipo.</p>`,
+             <p style="margin:0;color:#64645e;font-size:13px">Y si algo no fue bien, responde a este correo: lo lee el equipo.</p>` + (await unsubFoot(b.email, host)),
             await ownerMail(),
           );
           if (ok) out.rebook++;
@@ -884,7 +933,7 @@ async function cronTick(req) {
           `<p style="margin:0 0 12px">Esperamos que ${htmlEsc(barber)} te haya dejado como querías.</p>
            <p style="margin:0 0 14px">Si te ha gustado, nos ayudas muchísimo contándolo. Es un minuto:</p>
            <p style="margin:0 0 12px"><a href="${htmlEsc(link)}" style="display:inline-block;background:#171717;color:#fff;padding:12px 18px;text-decoration:none">Dejar mi reseña</a></p>
-           <p style="margin:0;color:#64645e;font-size:13px">Y si algo no fue bien, responde a este correo: lo lee el equipo.</p>`,
+           <p style="margin:0;color:#64645e;font-size:13px">Y si algo no fue bien, responde a este correo: lo lee el equipo.</p>` + (await unsubFoot(b.email, host)),
           await ownerMail(),
         );
         if (ok) out.reviews++;
@@ -1016,6 +1065,12 @@ const goReview = () =>
   NORMS.reviewUrl
     ? { redirect: NORMS.reviewUrl }
     : { raw: `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><body style="font-family:Arial;padding:40px 20px;text-align:center"><h1 style="font-size:22px">¡Gracias!</h1><p>El enlace de reseñas no está disponible ahora mismo. Prueba más tarde.</p></body>`, type: "text/html; charset=utf-8" };
+// Pie de baja para los correos comerciales (art. 21 LSSI: en cada uno hay que
+// poder darse de baja de forma sencilla y gratuita).
+async function unsubFoot(email, host) {
+  const t = await unsubToken(email);
+  return `<p style="margin:12px 0 0;color:#64645e;font-size:12px">¿No quieres más correos así? ${host ? `<a href="https://${host}/api/unsub/${encodeURIComponent(email)}/${t}">Darte de baja</a>` : "Respóndenos y te quitamos."}</p>`;
+}
 async function winbackMail(c, host) {
   if (c.optout || !c.email) return false;
   const t = await unsubToken(c.email);
@@ -1023,7 +1078,7 @@ async function winbackMail(c, host) {
   const off = NORMS.winbackOffer ? `<p style="margin:0 0 12px;padding:12px;border:1px solid #dcdad3;background:#f5f4f0"><b>${htmlEsc(NORMS.winbackOffer)}</b></p>` : "";
   return send(
     c.email,
-    `${c.name ? c.name.split(" ")[0] + ", t" : "T"}e echamos de menos en ${BUSINESS.short}`,
+    `Publi · ${c.name ? c.name.split(" ")[0] + ", t" : "T"}e echamos de menos en ${BUSINESS.short}`,
     "Te echamos de menos",
     `<p style="margin:0 0 12px">${c.name ? "Hola " + htmlEsc(c.name.split(" ")[0]) + ": " : ""}${htmlEsc(NORMS.winbackText)}</p>${off}
      ${base ? `<p style="margin:0 0 12px"><a href="${base}/#home" style="display:inline-block;background:#171717;color:#fff;padding:12px 18px;text-decoration:none">Reservar cita</a></p>` : ""}
@@ -1035,7 +1090,7 @@ async function winbackMail(c, host) {
 // Todo lo que hay en la base de esta app, en un JSON que se puede guardar y
 // volver a cargar. Se dejan fuera sesiones, códigos y cerrojos (caducan solos
 // y no hacen falta). Las fotos van en un archivo aparte porque pesan mucho.
-const SKIP = /^(sess:|staffsess:|rl:|code:|lock:|chargelock:|rdlock:|secret:|idem:|booking:|soon:|reminded:|revask:|wlsent:|cronday:)/;
+const SKIP = /^(sess:|staffsess:|rl:|code:|lock:|chargelock:|rdlock:|secret:|idem:|booking:|soon:|reminded:|revask:|wlsent:|cronday:|contacts:)/;
 const PHOTOKEY = /^(siteimg:|prodimg:|teamimg:)/;
 async function backup(part) {
   const keys = (await scanKeys("*")).filter((k) => !SKIP.test(k) && (part === "photos" ? PHOTOKEY.test(k) : !PHOTOKEY.test(k)));
@@ -1065,8 +1120,9 @@ const routes = {
     const site = await siteInfo();
     return {
       ...c,
-      business: { ...c.business, rating: ratingOut(site.rating) },
-      site: { photos: site.photos, theme: site.theme },
+      services: activeSvcs(),
+      business: { ...c.business, ...contactOut(site.contact), rating: ratingOut(site.rating) },
+      site: { photos: site.photos, theme: site.theme, notice: noticeOut(site.notice), gallery: GALLERY.filter((g) => site.photos[g]) },
       providers: activeTeam().map(publicProvider),
       rules: { ...c.rules, cancelHours: NORMS.cancelHours, lateFeePct: NORMS.lateFeePct, noShowFeePct: NORMS.noShowFeePct, recurring: NORMS.recurring, recurringMax: NORMS.recurringMax },
       reviews: !!NORMS.reviewUrl,
@@ -1114,6 +1170,41 @@ const routes = {
     return { name: String(u?.name || "un socio").split(" ")[0], points: POINTS.perFriend };
   },
 
+  // El «próximo hueco libre» de la portada: la primera hora de cualquiera del
+  // equipo para un servicio. Es igual para todos, así que el CDN lo guarda 30 s
+  // y casi todas las visitas lo reciben sin despertar la función. Todo el
+  // equipo y los dos meses se leen en un solo viaje a la base de datos.
+  "GET next": async ({ res, q }) => {
+    const s = service(q.get("service")) || activeSvcs().find((x) => !x.consult);
+    if (!s || s.consult || s.active === false) fail(400, "Petición incorrecta.");
+    res.setHeader("Cache-Control", "public, max-age=0, s-maxage=30, stale-while-revalidate=120");
+    const now = T.nowLocal(),
+      team = activeTeam().filter((p) => canDo(s, p)),
+      months = [monthOf(now.date), monthOf(T.addDays(monthOf(now.date) + "-01", 32))]; // este mes y el siguiente
+    const pairs = team.flatMap((p) => months.map((m) => [p, m]));
+    const raws = await pipe(pairs.map(([p, m]) => ["HGETALL", `occ:${p.id}:${m}`]));
+    const busy = {};
+    pairs.forEach(([p], i) => {
+      const b = (busy[p.id] ||= {});
+      for (const v of Object.values(hgetall(raws[i]))) {
+        const [date, a, z] = v.split("|");
+        (b[date] ||= []).push([T.toMin(a), T.toMin(z)]);
+      }
+    });
+    for (let i = 0; i <= RULES.daysAhead; i++) {
+      const date = T.addDays(now.date, i);
+      if (!months.includes(monthOf(date))) break;
+      let best = null;
+      for (const p of team) {
+        const t = freeTimes(p, s, date, busy[p.id] || {}, now)[0];
+        const load = (busy[p.id]?.[date] || []).reduce((a, [x, y]) => a + y - x, 0);
+        if (t && (!best || t < best.start || (t === best.start && load < best.load))) best = { provider: p.id, start: t, load };
+      }
+      if (best) return { service: s.id, provider: best.provider, date, start: best.start };
+    }
+    return { service: s.id, none: true };
+  },
+
   // Horas libres de un mes. Con provider = "any", las de todo el equipo juntas.
   // `full`: días de trabajo sin horas libres, donde se puede pedir aviso.
   "GET avail": async ({ q }) => {
@@ -1121,7 +1212,7 @@ const routes = {
       pid = q.get("provider"),
       month = q.get("month") || "";
     const team = !s ? [] : pid === "any" ? activeTeam().filter((p) => canDo(s, p)) : [provider(pid)].filter((p) => p && p.active !== false && canDo(s, p));
-    if (!s || s.consult || !team.length || !/^\d{4}-\d{2}$/.test(month)) fail(400, "Petición incorrecta.");
+    if (!s || s.consult || s.active === false || !team.length || !/^\d{4}-\d{2}$/.test(month)) fail(400, "Petición incorrecta.");
     const now = T.nowLocal(),
       busies = await Promise.all(team.map((p) => busyOf(p.id, month))),
       [y, m] = month.split("-").map(Number),
@@ -1164,7 +1255,7 @@ const routes = {
     if (!NORMS.waitlist) fail(400, "Ahora mismo no se apuntan avisos.");
     const s = service(body.service),
       pid = body.provider === "any" ? "any" : provider(body.provider)?.id;
-    if (!s || s.consult || !pid) fail(400, "Elige servicio y barbero.");
+    if (!s || s.consult || s.active === false || !pid) fail(400, "Elige servicio y barbero.");
     const now = T.nowLocal();
     if (!T.isDate(body.date) || body.date < now.date || body.date > T.addDays(now.date, RULES.daysAhead)) fail(400, "Elige uno de los próximos días.");
     const u = await currentUser(req);
@@ -1525,7 +1616,7 @@ const routes = {
     const info = await strikesAndCards(list.map((b) => b.email));
     return {
       date,
-      providers: TEAM.filter((p) => p.active !== false || list.some((b) => b.provider.id === p.id)).map((p) => ({ id: p.id, name: p.name, hours: p.hours?.[T.weekday(date)] || [] })),
+      providers: TEAM.filter((p) => p.active !== false || list.some((b) => b.provider.id === p.id)).map((p) => ({ id: p.id, name: p.name, hours: isOff(p, date) ? [] : p.hours?.[T.weekday(date)] || [], off: isOff(p, date) ? (p.off || []).find((r) => date >= r.from && date <= r.to) : null })),
       bookings: list.map((b) => (b.email ? { ...b, strikes: info.strikes[b.email] || 0, card: !!info.card[b.email] } : b)),
       cardEnabled: Card.cardEnabled(),
       now: T.nowLocal().stamp,
@@ -2095,6 +2186,39 @@ const routes = {
     return { ok: true };
   },
 
+  // Clientes que ya han venido, para autocompletar al apuntar una cita: los
+  // socios y quien fue apuntado sin correo en los últimos 4 meses. Se calcula
+  // como mucho cada 15 minutos, y de nuevo en cuanto se apunta a alguien nuevo.
+  "GET staff/contacts": async ({ req }) => {
+    await needStaff(req);
+    const saved = await cmd("GET", "contacts:list");
+    if (saved) return { raw: saved, type: "application/json; charset=utf-8" };
+    const now = T.nowLocal(),
+      emails = await allEmails(),
+      reads = [];
+    for (let i = 0; i < emails.length; i += 300) reads.push(["MGET", ...emails.slice(i, i + 300).map((e) => "user:" + e)]);
+    const dates = Array.from({ length: 121 + RULES.daysAhead }, (_, i) => T.addDays(now.date, i - 120));
+    const [users, sets] = await Promise.all([pipe(reads), pipe(dates.map((d) => ["SMEMBERS", "day:" + d]))]);
+    const digits = (p) => String(p || "").replace(/D/g, "");
+    const out = new Map(),
+      phones = new Set();
+    for (const raw of users.flat()) {
+      const u = raw && JSON.parse(raw);
+      if (!u?.name) continue;
+      out.set(u.email, { n: u.name, p: u.phone || "", e: u.email });
+      if (u.phone) phones.add(digits(u.phone));
+    }
+    for (const b of await bookingsByIds([...new Set(sets.flat())])) {
+      if (b.kind !== "booking" || b.email || !b.name) continue;
+      const k = digits(b.phone) || "n:" + b.name.toLowerCase();
+      if (out.has(k) || (b.phone && phones.has(digits(b.phone)))) continue;
+      out.set(k, { n: b.name, p: b.phone || "", e: "" });
+    }
+    const json = JSON.stringify({ contacts: [...out.values()].sort((a, b) => a.n.localeCompare(b.n, "es")) });
+    await cmd("SET", "contacts:list", json, "EX", 900);
+    return { raw: json, type: "application/json; charset=utf-8" };
+  },
+
   // Cita apuntada por el equipo (llamada, WhatsApp, alguien que entra) o bloqueo de horas.
   "POST staff/book": async ({ req, body }) => {
     const me = await needStaff(req);
@@ -2127,6 +2251,7 @@ const routes = {
     const [x, y] = [T.toMin(b.start), T.toMin(b.end)];
     if ((busy[b.date] || []).some(([s0, e0]) => x < e0 && y > s0)) fail(409, "Choca con otra cita de ese barbero.");
     await place(b);
+    if (!body.block) await cmd("DEL", "contacts:list");
     if (b.email) await ensureUser(b.email, b.name, b.phone);
     let series = null;
     if (!body.block && body.repeat) series = await makeSeries(b, service(b.service.id), p, body.repeat, 12, { name: b.name, phone: b.phone, email: b.email, by: "staff", byStaff: me.id }, true);
@@ -2343,12 +2468,50 @@ const routes = {
     const me = await needStaff(req);
     if (!me.owner) fail(403, "La web la lleva el dueño.");
     const site = await siteInfo();
-    return { slots: slotsFor(site.theme), theme: site.theme, photos: site.photos, rating: { ...site.rating, shown: ratingOut(site.rating), url: BUSINESS.rating.url } };
+    return {
+      slots: slotsFor(site.theme),
+      theme: site.theme,
+      photos: site.photos,
+      rating: { ...site.rating, shown: ratingOut(site.rating), url: BUSINESS.rating.url },
+      contact: contactOut(site.contact),
+      notice: site.notice || { on: false, text: "", until: "", tone: "info" },
+    };
   },
   "POST staff/site": async ({ req, body }) => {
     const me = await needStaff(req);
     if (!me.owner) fail(403, "La web la lleva el dueño.");
     const site = (await getJSON("site")) || {};
+    // Contacto: dirección, mapa, WhatsApp e Instagram.
+    if (body.contact) {
+      const c = body.contact,
+        out = {};
+      const url = (v, re, msg) => {
+        const x = clean(v, 300);
+        if (x && !re.test(x)) fail(400, msg);
+        return x;
+      };
+      out.street = clean(c.street, 80);
+      out.city = clean(c.city, 80);
+      out.maps = url(c.maps, /^https:\/\/([a-z0-9-]+\.)*(google\.[a-z.]+|goo\.gl|maps\.app\.goo\.gl)\//i, "El enlace del mapa tiene que ser de Google Maps (https://maps.app.goo.gl/… o https://www.google.com/maps/…).");
+      const wa = String(c.whatsapp || "").replace(/\D/g, "");
+      if (wa && (wa.length < 9 || wa.length > 15)) fail(400, "Revisa el WhatsApp: el número con el prefijo, por ejemplo 34658356428.");
+      out.whatsapp = wa.length === 9 ? "34" + wa : wa;
+      let ig = clean(c.instagram, 120).replace(/^@/, "");
+      if (ig && !/^https?:\/\//i.test(ig)) ig = "https://www.instagram.com/" + ig.replace(/[^a-zA-Z0-9._]/g, "") + "/";
+      out.instagram = url(ig, /^https:\/\/(www\.)?instagram\.com\//i, "El Instagram tiene que ser tu usuario o un enlace de instagram.com.");
+      await setJSON("site", { ...site, contact: out });
+      return { ok: true, contact: contactOut(out) };
+    }
+    // Aviso temporal (el banner de arriba): encendido o apagado, con fecha de fin opcional.
+    if (body.notice) {
+      const n = body.notice;
+      const text = clean(n.text, 160);
+      if (n.on === true && !text) fail(400, "Escribe el aviso.");
+      if (n.until && !T.isDate(n.until)) fail(400, "Revisa la fecha de fin.");
+      const notice = { on: n.on === true, text, until: n.until || "", tone: n.tone === "alerta" ? "alerta" : "info" };
+      await setJSON("site", { ...site, notice });
+      return { ok: true, notice };
+    }
     // Tema (plata o rosa): se guarda junto al resto de ajustes de la web.
     if (body.theme !== undefined) {
       if (!THEMES.includes(body.theme)) fail(400, "Ese tema no existe.");
@@ -2379,7 +2542,8 @@ const routes = {
       await cmd("DEL", "siteimg:" + slot.id);
     } else {
       const photo = String(body.photo || "");
-      if (!SITE_PHOTO.test(photo) || photo.length > 900000) fail(400, "Esa foto no vale o es demasiado grande. Prueba con otra.");
+      // La app la deja en webp de 200 KB como mucho antes de subirla (≈ 275 000 letras en base64).
+      if (!SITE_PHOTO.test(photo) || photo.length > 300000) fail(400, "Esa foto no vale o es demasiado grande. Prueba con otra.");
       photos[slot.id] = String(Date.now());
       await cmd("SET", "siteimg:" + slot.id, photo);
     }
@@ -2464,6 +2628,95 @@ const routes = {
     return { ok: true, written: b.data.length };
   },
 
+  // ── Servicios (solo el dueño) ───────────────────────────────────────────
+  "GET staff/services": async ({ req }) => {
+    const me = await needStaff(req);
+    if (!me.owner) fail(403, "Los servicios los lleva el dueño.");
+    return { services: SVCS, team: TEAM.map((p) => ({ id: p.id, name: p.name })) };
+  },
+  "POST staff/services": async ({ req, body }) => {
+    const me = await needStaff(req);
+    if (!me.owner) fail(403, "Los servicios los lleva el dueño.");
+    const prev = body.id ? SVCS.find((x) => x.id === body.id) : null;
+    if (body.id && !prev) fail(404, "Ese servicio ya no existe.");
+    if (body.delete === true) {
+      if (activeSvcs().filter((x) => !x.consult && x.id !== prev.id).length === 0) fail(400, "Tiene que quedar al menos un servicio para reservar.");
+      await setJSON("services", SVCS.filter((x) => x.id !== prev.id));
+      return { ok: true };
+    }
+    const name = clean(body.name, 50);
+    if (!name) fail(400, "Ponle un nombre.");
+    const desc = clean(body.desc, 200);
+    if (desc.length > 80) fail(400, "La descripción, como mucho 80 letras.");
+    const consult = body.consult === true;
+    const duration = Math.round(Number(body.duration));
+    if (!consult && !(duration >= 15 && duration <= 240 && duration % 15 === 0)) fail(400, "La duración va de 15 en 15 minutos (de 15 a 240).");
+    const price = body.price === "" || body.price == null ? null : Math.round(Number(String(body.price).replace(",", ".")) * 100) / 100;
+    if (price !== null && !(price >= 0 && price < 10000)) fail(400, "Revisa el precio.");
+    if (!consult && price === null) fail(400, "Pon el precio.");
+    const icons = ["scissors", "beard", "star", "moon", "crown", "drop", "gem", "bolt"];
+    const providers = [].concat(body.providers || []).filter((id) => TEAM.some((p) => p.id === id));
+    let id = prev?.id;
+    if (!id) {
+      const base = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase().slice(0, 24) || "servicio";
+      id = base;
+      for (let i = 2; SVCS.some((x) => x.id === id); i++) id = base + "-" + i;
+    }
+    const item = {
+      ...(prev || {}),
+      id,
+      name,
+      desc,
+      price,
+      duration: consult ? prev?.duration || null : duration,
+      consult,
+      icon: icons.includes(body.icon) ? body.icon : prev?.icon || "scissors",
+      active: body.active !== false,
+      ...(providers.length ? { providers } : {}),
+    };
+    if (!providers.length) delete item.providers;
+    if (!item.active && !consult && activeSvcs().filter((x) => !x.consult && x.id !== id).length === 0) fail(400, "Tiene que quedar al menos un servicio activo para reservar.");
+    // Si un servicio se pone «solo con alguien», los demás dejan de ofrecerlo.
+    const list = prev ? SVCS.map((x) => (x.id === id ? item : x)) : [...SVCS, item];
+    if (body.move === "up" || body.move === "down") {
+      const i = list.findIndex((x) => x.id === id),
+        j = body.move === "up" ? i - 1 : i + 1;
+      if (j >= 0 && j < list.length) [list[i], list[j]] = [list[j], list[i]];
+    }
+    await setJSON("services", list);
+    return { ok: true, service: item };
+  },
+
+  // ── Vacaciones y días libres ───────────────────────────────────────────
+  // El dueño para cualquiera; cada barbero, para él mismo.
+  "POST staff/off": async ({ req, body }) => {
+    const me = await needStaff(req);
+    const p = provider(body.provider || me.id);
+    if (!p) fail(400, "Elige barbero.");
+    if (!canManage(me, p.id)) fail(403, "Solo puedes poner tus propias vacaciones.");
+    const from = String(body.from || ""),
+      to = String(body.to || body.from || "");
+    if (body.delete === true) {
+      const off = (p.off || []).filter((r) => !(r.from === from && r.to === to));
+      TEAM = TEAM.map((x) => (x.id === p.id ? { ...x, off } : x));
+      await setJSON("team", TEAM);
+      return { ok: true, off };
+    }
+    if (!T.isDate(from) || !T.isDate(to) || to < from) fail(400, "Revisa las fechas: la de vuelta tiene que ser igual o después de la de salida.");
+    if (T.addDays(from, 120) < to) fail(400, "Como mucho 120 días seguidos.");
+    const today = T.nowLocal().date;
+    if (to < today) fail(400, "Esas fechas ya han pasado.");
+    const off = [...(p.off || []).filter((r) => r.to >= today), { from, to, note: clean(body.note, 60) }].sort((a, b) => a.from.localeCompare(b.from));
+    TEAM = TEAM.map((x) => (x.id === p.id ? { ...x, off } : x));
+    await setJSON("team", TEAM);
+    // Citas que ya tenía esos días: se avisan para moverlas a mano.
+    const days = [];
+    for (let d = from; d <= to; d = T.addDays(d, 1)) days.push(d);
+    const sets = await pipe(days.map((d) => ["SMEMBERS", "day:" + d]));
+    const clash = (await bookingsByIds([...new Set(sets.flat())])).filter((b) => b.provider.id === p.id && b.kind === "booking" && b.status === "confirmed");
+    return { ok: true, off, clash: clash.map((b) => ({ id: b.id, date: b.date, start: b.start, name: b.name })) };
+  },
+
   // ── Normas de cancelación (solo el dueño) ───────────────────────────────
   "GET staff/rules": async ({ req }) => {
     await needStaff(req);
@@ -2504,7 +2757,7 @@ const routes = {
     if (!me.owner) fail(403, "El equipo lo lleva el dueño.");
     return {
       team: TEAM.map(({ pinHash, ...p }) => ({ ...p, hasPin: !!pinHash || !!pinOf(p), pinFrom: pinHash ? "panel" : pinOf(p) ? "vercel" : "" })),
-      services: SERVICES.filter((s) => !s.consult).map((s) => ({ id: s.id, name: s.name, only: s.providers || [] })),
+      services: activeSvcs().filter((s) => !s.consult).map((s) => ({ id: s.id, name: s.name, only: s.providers || [] })),
     };
   },
   "GET team/:id/photo": async ({ params }) => {
@@ -2533,7 +2786,7 @@ const routes = {
       hours[d] = [[a, b]];
     }
     if (!WEEK.some((d) => hours[d].length)) fail(400, "Marca al menos un día de trabajo.");
-    const bookable = SERVICES.filter((s) => !s.consult).map((s) => s.id);
+    const bookable = SVCS.filter((s) => !s.consult).map((s) => s.id);
     const services = [...new Set([].concat(body.services || []).filter((x) => bookable.includes(x)))];
     if (!services.length) fail(400, "Marca al menos un servicio.");
     const commission = prev?.owner ? 0 : Math.round(Number(String(body.commission ?? (prev?.commission ?? 40)).replace(",", ".")) * 10) / 10;

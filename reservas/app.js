@@ -134,6 +134,9 @@ let catalog = null,
   cobroDay = "",
   cobroPre = "";
 const availCache = new Map();
+let agendaTimer = 0,
+  agendaQuiet = false; // refresco automático de la agenda
+let staffMove = ""; // cita que el equipo está cambiando de hora desde la agenda
 let catalogBust = false; // tras un cambio en el panel, pedir el catálogo saltándose la caché del CDN
 
 function load(k) {
@@ -184,7 +187,13 @@ async function api(path, body, { timeout = 15000 } = {}) {
 }
 // Clave de cada intento de reserva (el servidor no la guarda dos veces).
 const newKey = () => (crypto.randomUUID ? crypto.randomUUID() : Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join(""));
-async function loadCatalog() {
+// Una sola petición aunque lo pidan varios a la vez (el arranque y la primera pantalla).
+let catalogP = null;
+function loadCatalog() {
+  if (catalog) return Promise.resolve(catalog);
+  return (catalogP ||= fetchCatalog().finally(() => (catalogP = null)));
+}
+async function fetchCatalog() {
   if (!catalog) {
     try {
       catalog = await api("catalog" + (catalogBust ? "?t=" + Date.now() : ""));
@@ -250,7 +259,7 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) return void (hiddenAt = Date.now());
   if (hiddenAt && Date.now() - hiddenAt > 60000) {
     availCache.clear();
-    if (["time", "move"].includes(document.body.dataset.page)) render();
+    if (["time", "move"].includes(document.body.dataset.page) || (location.hash === "#equipo" && !$(".sheet-back"))) render();
   }
 });
 const svcById = (id) => catalog?.services.find((s) => s.id === id);
@@ -282,7 +291,7 @@ const face = (p, cls = "face") =>
     ? `<span class="${cls} face-any" aria-hidden="true">${svg(ICONS.users)}</span>`
     : (p = p && !p.image ? provById(p.id) || p : p)?.image ? `<img class="${cls}" src="${esc(p.image)}" alt="">` : `<span class="${cls}" aria-hidden="true">${initial(p?.name)}</span>`;
 const legalLinks = () =>
-  `<div class="legal-links" role="navigation" aria-label="Información legal"><a href="#privacidad">Privacidad</a><span>·</span><a href="#condiciones">Condiciones</a><span>·</span><a href="#aviso-legal">Aviso legal</a><span>·</span><a href="#equipo">Equipo</a></div>`;
+  `<div class="legal-links" role="navigation" aria-label="Información legal"><a href="#privacidad">Privacidad</a><span>·</span><a href="#condiciones">Condiciones</a><span>·</span><a href="#cookies">Cookies</a><span>·</span><a href="#aviso-legal">Aviso legal</a><span>·</span><a href="#equipo">Equipo</a></div>`;
 function onForm(id, fn) {
   const f = document.getElementById(id);
   f.addEventListener("submit", async (e) => {
@@ -428,24 +437,14 @@ function openState() {
   return null;
 }
 // El primer hueco libre de todo el equipo para el servicio principal.
+// El próximo hueco libre de la portada: una sola llamada, que además el CDN
+// guarda 30 s (antes eran tres, una por barbero).
 async function nextFreeSlot() {
   const s = svcById("corte") || catalog.services.find((x) => !x.consult);
   if (!s) return null;
-  const team = teamFor(s),
-    m0 = monthKey(salonDate());
-  for (const month of [m0, shiftMonth(m0, 1)]) {
-    const res = await Promise.all(team.map((p) => getAvail(s.id, p.id, month).then((days) => ({ p, days }), () => null)));
-    let best = null;
-    for (const r of res) {
-      if (!r) continue;
-      const hit = Object.entries(r.days)
-        .sort(([a], [b]) => (a < b ? -1 : 1))
-        .find(([, t]) => t.length);
-      if (hit && (!best || hit[0] + hit[1][0] < best.date + best.start)) best = { s, p: r.p, date: hit[0], start: hit[1][0] };
-    }
-    if (best) return best;
-  }
-  return null;
+  const r = await api("next?service=" + encodeURIComponent(s.id));
+  const p = r.provider && provById(r.provider);
+  return r.date && p ? { s, p, date: r.date, start: r.start } : null;
 }
 function homeHero() {
   const B = catalog.business,
@@ -550,13 +549,14 @@ function homeExtras() {
 <section class="home-block" aria-labelledby="location-title">
   <p class="eyebrow">Tu barbería en Vecindario</p>
   <h2 id="location-title">Nos vemos en <em class="serif">el estudio.</em></h2>
-  <div class="map-frame" id="map-frame">Cargando mapa…</div>
+  <div class="map-frame" id="map-frame"><button class="btn secondary map-load" type="button">Ver el mapa</button><small>Se carga desde Google Maps, que recibirá tu IP. <a href="#cookies">Cookies</a></small></div>
   <div class="visit card">
     <address><strong>${esc(B.street)}</strong><span>${esc(B.city)}</span></address>
     <div class="hours">${B.hoursText.map(([d, h]) => `<div><span>${esc(d)}</span><strong>${esc(h)}</strong></div>`).join("")}<span class="closed">${esc(B.closedText)}</span></div>
     <a class="btn wide" href="${esc(B.maps)}" ${ext}>${svg(ICONS.pin)} Cómo llegar</a>
   </div>
 </section>
+${galleryBlock()}
 <section class="home-block" aria-labelledby="about-title">
   <p class="eyebrow">Barbería en Gran Canaria</p>
   <h2 id="about-title">Imagen <em class="serif">y estilo.</em></h2>
@@ -603,24 +603,18 @@ ${trainingCard()}
 </footer>`;
 }
 function initMap() {
+  // El mapa de Google pone sus propias cookies, así que no se carga hasta que
+  // la persona lo pide (política de cookies, punto 4).
   const frame = $("#map-frame");
-  if (!frame) return;
-  const start = () => {
+  const btn = frame && frame.querySelector(".map-load");
+  if (!btn) return;
+  btn.addEventListener("click", () => {
     const f = document.createElement("iframe");
     f.title = L("Mapa de NOVA Studio", "NOVA Studio map");
     f.src = catalog.business.mapEmbed;
-    f.loading = "lazy";
     f.referrerPolicy = "no-referrer-when-downgrade";
     frame.replaceChildren(f);
-  };
-  if (!("IntersectionObserver" in window)) return start();
-  const io = new IntersectionObserver((en) => {
-    if (en.some((e) => e.isIntersecting)) {
-      io.disconnect();
-      start();
-    }
-  }, { rootMargin: "400px" });
-  io.observe(frame);
+  });
 }
 
 // ── Cita: tarjetas ─────────────────────────────────────────────────────────
@@ -660,78 +654,456 @@ function gcalLink(b) {
 }
 
 // ── Pantallas ──────────────────────────────────────────────────────────────
+// ── Páginas legales ────────────────────────────────────────────────────────
+// Privacidad, cookies, condiciones y aviso legal. La versión que vale es la
+// española; LEGAL_EN es una traducción de cortesía. Si cambia lo que hace la
+// app con los datos (un proveedor nuevo, otro correo automático, otra cosa
+// guardada en el móvil), hay que contarlo aquí y cambiar LEGAL_DATE.
+const LEGAL_DATE = ["12 de noviembre de 2026", "12 November 2026"];
+const lgMail = () => `<a href="mailto:${esc(catalog.business.email)}">${esc(catalog.business.email)}</a>`;
+const lgAddr = () => `${esc(catalog.business.street)}, ${esc(catalog.business.city)}`;
+const lgRows = (rows) =>
+  `<table class="legal-table"><tbody>${rows.map(([k, v]) => `<tr><th scope="row">${k}</th><td>${v}</td></tr>`).join("")}</tbody></table>`;
+const lgGrid = (head, rows) =>
+  `<div class="legal-scroll"><table class="legal-table grid"><thead><tr>${head.map((h) => `<th scope="col">${h}</th>`).join("")}</tr></thead><tbody>${rows
+    .filter(Boolean)
+    .map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`)
+    .join("")}</tbody></table></div>`;
+const lgDate = (en) => `<p class="legal-date">${en ? "Last updated · " + LEGAL_DATE[1] : "Última actualización · " + LEGAL_DATE[0]}</p>`;
+const lgWho = (en) => {
+  const B = catalog.business;
+  return lgRows(
+    en
+      ? [
+          ["Owner", esc(B.holder)],
+          ["Tax ID (NIF)", esc(B.nif)],
+          ["Address", lgAddr()],
+          ["Phone", esc(B.phone)],
+          ["Email", lgMail()],
+          ["Trade name", `${esc(B.name)} (barbershop) and NOVA Supply Clothing (clothing)`],
+        ]
+      : [
+          ["Titular", esc(B.holder)],
+          ["NIF", esc(B.nif)],
+          ["Domicilio", lgAddr()],
+          ["Teléfono", esc(B.phone)],
+          ["Correo", lgMail()],
+          ["Nombre comercial", `${esc(B.name)} (barbería) y NOVA Supply Clothing (ropa)`],
+        ],
+  );
+};
+
 const LEGAL = {
   privacidad: [
     "Política de privacidad",
-    () => `<p><b>Responsable.</b> ${esc(catalog.business.name)}, ${esc(catalog.business.street)}, ${esc(catalog.business.city)}. Contacto: <a href="mailto:${esc(catalog.business.email)}">${esc(catalog.business.email)}</a>.</p>
-    <p><b>Qué datos tratamos.</b> Los que nos das al reservar: nombre, correo y teléfono, el historial de tus citas (servicio, barbero, fecha y si viniste) y lo del Club NOVA: puntos, liga, medallas, premios canjeados, las compras de ropa de NOVA Supply que el equipo apunta a tu cuenta para sumarte puntos (fecha, importe y número de prendas), tu código de amigo, quién te invitó y, si la subes, tu foto de perfil. ${
-      catalog.card?.enabled
-        ? "Si dejas una tarjeta en garantía, sus datos los guarda Stripe Payments Europe; nosotros solo vemos la marca, los 4 últimos números y la caducidad, y si se ha cobrado alguna falta."
-        : "No guardamos datos de tarjeta: se paga en el local."
-    }</p>
-    <p><b>Para qué.</b> Para gestionar tus citas (crearlas, cambiarlas, cancelarlas y avisarte), darte acceso a tu cuenta con un código por correo y llevar tu Club NOVA. No te enviaremos publicidad sin tu permiso.</p>
-    <p><b>Formación.</b> Si te apuntas a la lista de la formación, guardamos lo que pones en el formulario (nombre, teléfono, correo e Instagram si los das, tu nivel y tus preferencias) solo para contactarte sobre los cursos. Lo ve únicamente el dueño del estudio y puedes pedir que lo borremos cuando quieras.</p>
-    <p><b>Con quién.</b> Solo con los proveedores necesarios para que la app funcione: el alojamiento y la base de datos, el servicio que envía los correos${catalog.card?.enabled ? " y Stripe, que guarda tu tarjeta y hace los cobros por faltas" : ""}. No vendemos tus datos.</p>
-    <p><b>Cuánto tiempo.</b> Mientras tengas cuenta o sigas viniendo y, después, lo que exija la ley.</p>
-    <p><b>Tus derechos.</b> Puedes pedir ver, corregir o borrar tus datos escribiendo a <a href="mailto:${esc(catalog.business.email)}">${esc(catalog.business.email)}</a>. Si no te respondemos bien, puedes reclamar ante la AEPD.</p>
-    <p><b>Cookies.</b> Solo una cookie técnica para mantener tu sesión iniciada (30 días). Nada de analítica ni publicidad. El mapa de Google puede poner las suyas al verlo.</p>`,
+    () => `${lgDate()}
+    <p>Aquí te contamos qué datos tuyos tratamos en esta app, para qué, con quién los compartimos y qué puedes hacer al respecto. Cumple con el Reglamento (UE) 2016/679 (RGPD), la Ley Orgánica 3/2018 (LOPDGDD) y la Ley 34/2002 (LSSI).</p>
+
+    <h3>1 · Quién trata tus datos</h3>
+    ${lgWho()}
+    <p>Por el tamaño y el tipo de actividad no estamos obligados a tener delegado de protección de datos. Para cualquier cosa sobre tus datos, escríbenos a ${lgMail()}.</p>
+
+    <h3>2 · Qué datos tratamos, para qué y durante cuánto tiempo</h3>
+    ${lgGrid(
+      ["Para qué", "Qué datos", "Base legal", "Cuánto tiempo"],
+      [
+        ["Crear tu cuenta y que entres en ella", "Nombre, correo, teléfono (opcional), foto de perfil (opcional) y la fecha de alta", "El contrato: lo necesitamos para darte el servicio (art. 6.1.b RGPD)", "Hasta que pidas borrar la cuenta o pasen 3 años sin citas ni uso"],
+        ["Gestionar tus citas", "Servicio, barbero, día y hora, cambios y cancelaciones, si viniste, lo que pagaste y cómo (efectivo, tarjeta o Bizum) y las citas periódicas si las pides", "El contrato (art. 6.1.b RGPD)", "Igual que la cuenta. Los cobros, 6 años"],
+        ["Avisarte de tus citas", "Tu correo y los datos de la cita: confirmación, cambios, recordatorio el día antes y unas horas antes, y el aviso de la lista de espera si te apuntas", "El contrato (art. 6.1.b RGPD)", "Lo que dura la cita. La lista de espera se borra al pasar ese día"],
+        cardOn() && ["Tarjeta en garantía y cobro de faltas", "La tarjeta la guarda Stripe, no nosotros. Nosotros solo vemos la marca, los 4 últimos números y la caducidad, además de las faltas, las cancelaciones tardías y lo que se haya cobrado o devuelto", "El contrato (art. 6.1.b RGPD) y nuestro interés legítimo en que no se pierdan huecos (art. 6.1.f)", "La tarjeta, hasta que la quites. Los cobros, 6 años"],
+        ["Club NOVA", "Puntos, liga, medallas, premios canjeados, las compras de ropa de NOVA Supply que el equipo apunta a tu cuenta (fecha, importe y prendas), tu código de amigo, quién te invitó y si has pulsado «Dejar mi reseña»", "El contrato: las condiciones del Club (art. 6.1.b RGPD)", "Mientras tengas cuenta"],
+        ["Ofrecerte «tu cita de siempre»", "A partir de tu historial calculamos tu día, hora, barbero y servicio habituales y cada cuánto vienes. Se calcula en el momento y no se guarda aparte", "Interés legítimo en facilitarte la reserva (art. 6.1.f RGPD)", "Mientras tengas cuenta"],
+        ["Correos comerciales nuestros: «¿cuándo vuelves?», «te echamos de menos» (a veces con una oferta) y la petición de reseña", "Nombre, correo, fecha de tu último corte y tu barbero", "Eres cliente y son servicios como los que ya usas (art. 21.2 LSSI), y nuestro interés legítimo (art. 6.1.f RGPD). Cada correo trae un enlace para darte de baja", "Hasta que te des de baja. Guardamos la baja para no volver a escribirte"],
+        ["Lista de interesados en la formación", "Lo que pones en el formulario: nombre, teléfono, correo, Instagram si lo das, nivel, preferencias y mensaje", "Tu consentimiento (art. 6.1.a RGPD)", "2 años desde el último contacto, o hasta que lo retires"],
+        ["Facturación y contabilidad", "Los cobros: fecha, importe, forma de pago y servicio o prenda", "Obligación legal (art. 6.1.c RGPD)", "6 años (Código de Comercio y normativa fiscal)"],
+        ["Copias de seguridad", "Una copia de los datos de la app que se manda cada semana al correo del titular", "Interés legítimo en no perder las citas (art. 6.1.f RGPD)", "1 año"],
+        ["Responderte si nos escribes", "Lo que nos cuentes por correo o WhatsApp", "Tu consentimiento o nuestro interés legítimo en atenderte", "1 año desde el último mensaje"],
+        ["Que la app funcione y esté segura", "Registros del servidor: dirección IP, navegador y páginas pedidas", "Interés legítimo en la seguridad (art. 6.1.f RGPD)", "Lo que los guarde el proveedor de alojamiento"],
+      ],
+    )}
+    <p><b>Sobre «tu cita de siempre» y «te echamos de menos».</b> Es un análisis sencillo de tu historial (cada cuánto vienes y cuándo te toca) que solo sirve para recordarte el corte y ofrecerte la hora que sueles coger. No tomamos decisiones automáticas que te afecten de forma importante. Cobrar una falta lo decide siempre una persona, nunca la app. Puedes oponerte a este análisis y a los correos comerciales cuando quieras.</p>
+    <p>No vendemos tus datos ni compramos listas. Todos los datos nos los das tú, salvo las compras de ropa y los cobros, que apunta el equipo cuando pagas en el estudio.</p>
+
+    <h3>3 · Quién del equipo ve tus datos</h3>
+    <p>${esc(catalog.business.holder)}, como titular, puede verlo todo. Cada barbero, que es trabajador del estudio, ve las citas y los datos de contacto de quienes atiende, y le llega un aviso con tu nombre, el servicio y la hora a su correo y al calendario de su móvil. La tableta de caja solo ve los cobros del día. Todo el equipo tiene deber de confidencialidad.</p>
+
+    <h3>4 · Con quién los compartimos</h3>
+    <p>Para funcionar nos apoyamos en estos proveedores. Tratan los datos por encargo nuestro y solo para lo que les pedimos:</p>
+    ${lgGrid(
+      ["Proveedor", "Para qué", "Dónde están los datos"],
+      [
+        ["Vercel Inc. (EE. UU.)", "Alojar la app y ejecutar el servidor", "Unión Europea y EE. UU."],
+        ["Upstash Inc.", "La base de datos: cuentas, citas, Club y cobros", "Reino Unido (Londres)"],
+        ["Resend Inc. (EE. UU.)", "Enviar los correos de la app desde la dirección de NOVA", "EE. UU."],
+        cardOn() && ["Stripe Payments Europe Ltd. (Irlanda)", "Guardar tu tarjeta y hacer los cobros por faltas. Stripe es responsable de cumplir sus propias obligaciones como entidad de pago", "Unión Europea y EE. UU."],
+        ["Google Ireland Ltd.", "Nuestro correo (Gmail), donde recibimos tus respuestas, los avisos y las copias de seguridad. El mapa, solo si pulsas «Ver el mapa». Y el calendario de Google si el barbero lo usa para ver su agenda", "Unión Europea y EE. UU."],
+        ["Apple Distribution International (Irlanda)", "El calendario de iCloud, si el barbero lo usa para ver su agenda", "Unión Europea y EE. UU."],
+        ["WhatsApp Ireland Ltd. (Meta)", "Hablar contigo cuando nos escribes o te escribimos por WhatsApp", "Unión Europea y EE. UU."],
+      ],
+    )}
+    <p>Si pulsas un enlace a Booksy, Google Reseñas, Instagram o WhatsApp, sales de la app y se aplica la política de ese sitio. También podemos tener que dar datos a la Administración cuando lo exija una ley: Hacienda, juzgados o fuerzas de seguridad.</p>
+    <p><b>Transferencias fuera de la Unión Europea.</b> El Reino Unido cuenta con una decisión de adecuación de la Comisión Europea: protege los datos de forma equivalente a la UE. Los envíos a EE. UU. se amparan en el Marco de Privacidad de Datos UE-EE. UU., en las cláusulas contractuales tipo de la Comisión Europea o en ambos. Puedes pedirnos copia de esas garantías.</p>
+
+    <h3>5 · Cuánto tiempo los guardamos</h3>
+    <p>Lo indicado en la tabla del punto 2. Si una cuenta pasa 3 años sin citas ni uso, la borramos, y con ella los puntos del Club. Lo que una ley nos obliga a conservar, como los cobros durante 6 años, se queda bloqueado: solo se usa si lo pide la Administración o un juez.</p>
+
+    <h3>6 · Tus derechos</h3>
+    <ul>
+      <li><b>Acceso:</b> saber qué datos tuyos tenemos.</li>
+      <li><b>Rectificación:</b> corregir lo que esté mal. Casi todo lo puedes cambiar tú en «Perfil».</li>
+      <li><b>Supresión:</b> que borremos tus datos, incluida la cuenta entera.</li>
+      <li><b>Oposición:</b> a lo que hacemos por interés legítimo, como el análisis de tu historial o los correos comerciales.</li>
+      <li><b>Limitación:</b> que conservemos los datos pero no los usemos.</li>
+      <li><b>Portabilidad:</b> recibir tus datos en un formato que se pueda leer con un ordenador.</li>
+      <li><b>Retirar tu consentimiento</b> cuando quieras, sin que afecte a lo hecho antes.</li>
+    </ul>
+    <p>Escríbenos a ${lgMail()} desde el correo de tu cuenta diciendo qué quieres. Es gratis y te contestamos en un mes como máximo. Para dejar de recibir correos comerciales no hace falta escribir: basta con el enlace «Darte de baja» que viene en cada uno.</p>
+    <p>Si crees que no te hemos atendido bien, puedes reclamar ante la Agencia Española de Protección de Datos (C/ Jorge Juan 6, 28001 Madrid, <a href="https://www.aepd.es" target="_blank" rel="noopener">www.aepd.es</a>). Te agradecemos que antes nos lo cuentes a nosotros.</p>
+
+    <h3>7 · Seguridad</h3>
+    <p>La app funciona siempre por HTTPS. Para entrar en tu cuenta te mandamos un código a tu correo. Cada persona del equipo entra con su propio PIN, que se guarda cifrado.${cardOn() ? " Los números de tu tarjeta van directamente de tu móvil a Stripe y nunca pasan por nuestro servidor." : ""} Las claves de los servicios están en el servidor, nunca en la app. Si hubiera una brecha de seguridad que pudiera afectarte, te avisaríamos y lo comunicaríamos a la AEPD como manda la ley.</p>
+
+    <h3>8 · Menores</h3>
+    <p>Para tener cuenta hay que tener al menos 14 años. Si quieres reservar para un menor de 14, hazlo desde tu cuenta: la cita queda a tu nombre y eres tú quien responde de ella. Si descubrimos una cuenta de un menor de 14 sin permiso de sus padres o tutores, la borramos.</p>
+
+    <h3>9 · Cookies</h3>
+    <p>Solo usamos lo necesario para que la app funcione: nada de analítica ni publicidad. Lo tienes con detalle en la <a href="#cookies">política de cookies</a>.</p>
+
+    <h3>10 · Cambios</h3>
+    <p>Si cambiamos esta política, actualizaremos la fecha de arriba. Si el cambio te afecta de verdad, por ejemplo si empezamos a usar tus datos para algo nuevo, te avisaremos por correo antes de aplicarlo.</p>`,
   ],
+
+  cookies: [
+    "Política de cookies",
+    () => `${lgDate()}
+    <h3>1 · Qué son</h3>
+    <p>Una cookie es un archivo pequeño que una web guarda en tu dispositivo. El artículo 22.2 de la LSSI obliga a pedirte permiso antes de usarlas, salvo las que son estrictamente necesarias para darte el servicio que pides. La misma regla vale para otras formas de guardar datos en el navegador, como el almacenamiento local.</p>
+
+    <h3>2 · Qué guarda esta app en tu dispositivo</h3>
+    <p>Solo lo necesario para que funcione y para recordar lo que tú eliges. Por eso no te mostramos ningún cartel de cookies: la ley no lo exige para estas.</p>
+    ${lgGrid(
+      ["Nombre", "Qué es", "Para qué", "Cuánto dura"],
+      [
+        ["nova_s", "Cookie propia", "Mantener tu sesión iniciada para que no tengas que volver a entrar", "1 año, y se renueva cada vez que abres la app. Se borra al cerrar sesión"],
+        ["nova_staff", "Cookie propia", "Mantener abierta la sesión del panel. Solo existe en los dispositivos del equipo", "1 año"],
+        ["nova_lang, nova_theme", "Almacenamiento local", "Recordar el idioma y la apariencia que eliges", "Hasta que los borres"],
+        ["nova_catalog", "Almacenamiento local", "Una copia de los servicios y precios para que la app abra rápido. No contiene datos tuyos", "Hasta que lo borres"],
+        ["nova_ref", "Almacenamiento local", "El código del amigo que te invitó, si entras por su enlace, para sumarle los puntos", "Hasta que te registres o lo borres"],
+        ["nova_seen_…", "Almacenamiento local", "Las medallas y ligas que ya te hemos celebrado, para no repetir la animación. El nombre incluye tu correo", "Hasta que lo borres"],
+        ["nova_train", "Almacenamiento local", "Tu nombre y la fecha, si te apuntaste a la formación, para mostrarte que ya estás en la lista", "Hasta que lo borres"],
+        ["nova_staff_who", "Almacenamiento local", "El último barbero elegido en la caja. Solo en dispositivos del equipo", "Hasta que lo borres"],
+        ["nova_draft, nova_next, nova_splash", "Almacenamiento de sesión", "La cita que estás reservando, a qué pantalla volver después de entrar y no repetir la animación de inicio", "Se borran al cerrar la pestaña"],
+        ["Caché de la app", "Service worker", "Guardar los archivos de la app (diseño, letras, iconos) para que abra rápido y también sin conexión. No contiene datos tuyos", "Hasta la siguiente versión de la app"],
+        cardOn() && ["__stripe_mid, __stripe_sid", "Cookies de Stripe", "Prevenir el fraude cuando añades una tarjeta. Solo aparecen en ese momento y son necesarias para el pago", "1 año y 30 minutos"],
+      ],
+    )}
+
+    <h3>3 · Lo que no usamos</h3>
+    <ul>
+      <li>Ni Google Analytics ni ninguna otra analítica.</li>
+      <li>Ni publicidad ni píxeles de redes sociales.</li>
+      <li>Nada que te siga por otras webs.</li>
+    </ul>
+    <p>Las tipografías están alojadas en nuestro propio servidor, así que tampoco se conecta nadie más para cargarlas.</p>
+
+    <h3>4 · El mapa y los enlaces externos</h3>
+    <p>El mapa de Google <b>no se carga hasta que pulsas «Ver el mapa»</b>. Si lo pulsas, tu navegador se conecta a Google, que recibe tu dirección IP y puede guardar sus propias cookies según <a href="https://policies.google.com/technologies/cookies" target="_blank" rel="noopener">su política</a>. Lo mismo pasa si sigues un enlace a Booksy, Instagram o WhatsApp: al salir de la app se aplican las cookies de esos sitios.</p>
+
+    <h3>5 · Cómo borrarlas</h3>
+    <p>Al cerrar sesión se borra la cookie de sesión. Para borrar todo lo demás, borra los datos de este sitio en tu navegador: <a href="https://support.google.com/chrome/answer/95647" target="_blank" rel="noopener">Chrome</a>, <a href="https://support.apple.com/es-es/105082" target="_blank" rel="noopener">Safari</a>, <a href="https://support.mozilla.org/es/kb/Borrar%20cookies" target="_blank" rel="noopener">Firefox</a> o <a href="https://support.microsoft.com/es-es/microsoft-edge" target="_blank" rel="noopener">Edge</a>. Si bloqueas las cookies de esta app, no podrás mantener la sesión iniciada.</p>
+
+    <h3>6 · Si algún día cambia</h3>
+    <p>Si algún día añadimos algo que no sea necesario, como analítica o publicidad, antes de activarlo aparecerá un aviso para pedirte permiso, con la opción de rechazar tan fácil como la de aceptar, y lo detallaremos aquí. Para dudas, escríbenos a ${lgMail()}. Lo relativo a tus datos está en la <a href="#privacidad">política de privacidad</a>.</p>`,
+  ],
+
   condiciones: [
-    "Condiciones de reserva",
-    () => `<p><b>1. Reservas.</b> Eliges servicio, barbero, día y hora entre los huecos libres. La cita queda confirmada al terminar y la ves en «Mis citas».</p>
-    <p><b>2. Precio y pago.</b> Los precios incluyen impuestos. Se paga en el local, en efectivo o con tarjeta.</p>
-    <p><b>3. Cambios y cancelaciones.</b> Puedes cambiar la cita desde la app hasta ${catalog.rules.cancelHours} horas antes, y cancelarla hasta la hora de la cita. Con menos de ${catalog.rules.cancelHours} horas, para cambiarla escríbenos por WhatsApp.</p>
-    <p><b>4. Puntualidad.</b> Si llegas tarde puede que haya que acortar el servicio para no retrasar al siguiente. Si faltas varias veces sin avisar, podremos limitar tus reservas online.</p>
+    "Condiciones de uso y reserva",
+    () => {
+      const R = catalog.rules;
+      return `${lgDate()}
+    <p>Estas condiciones regulan el uso de la app de ${esc(catalog.business.name)}, las reservas y el Club NOVA. Al crear tu cuenta o reservar las aceptas. Se rigen por el Real Decreto Legislativo 1/2007 (Ley General para la Defensa de los Consumidores y Usuarios) y por la Ley 34/2002 (LSSI).</p>
+
+    <h3>1 · Quién presta el servicio</h3>
+    ${lgWho()}
+
+    <h3>2 · Tu cuenta</h3>
+    <p>Para reservar necesitas una cuenta con tu nombre y un correo que sea tuyo, y tener al menos 14 años. Las citas de un menor de 14 las reserva su padre, madre o tutor desde su propia cuenta. Cada persona tiene una sola cuenta y es responsable de lo que se haga con ella. Si alguien usa la app para hacer reservas falsas o trampas en el Club, podemos cerrarle la cuenta.</p>
+
+    <h3>3 · Reservas</h3>
+    <ul>
+      <li>Eliges servicio, barbero (o «Sin preferencia»), día y hora entre los huecos libres. La cita queda confirmada al terminar, la ves en «Mis citas» y te llega un correo.</li>
+      <li>Se puede reservar con al menos ${esc(R.leadMinutes ?? 60)} minutos de antelación y hasta ${esc(R.daysAhead ?? 60)} días vista, con un máximo de ${esc(R.maxActive ?? 3)} citas pendientes a la vez.</li>
+      ${R.recurring ? `<li>Si eliges repetir la cita cada cierto tiempo, cada una de las citas cuenta como una reserva independiente, con las mismas normas de cambio y cancelación.</li>` : ""}
+      <li>Si un día está completo puedes apuntarte a la lista de espera. Te avisamos si se libera un hueco, pero eso no lo reserva: se lo queda quien lo coja antes.</li>
+      <li>Pulsar «Reservar» supone aceptar estas condiciones y la <a href="#privacidad">política de privacidad</a>.</li>
+    </ul>
+
+    <h3>4 · Precios y pago</h3>
+    <p>Los precios son los que ves en la app y ya incluyen el IGIC. Se paga en el estudio, después del servicio, en efectivo, con tarjeta o por Bizum. Si en el momento pides algo más (por ejemplo, un extra), se cobra según la tarifa del estudio y te lo decimos antes. Si por un error un precio estuviera mal en la app, te lo diremos antes de cobrarte.</p>
+
+    <h3>5 · Cambios y cancelaciones</h3>
+    <p>Puedes cambiar la cita desde la app hasta ${esc(R.cancelHours)} horas antes y cancelarla hasta la hora de la cita. Si faltan menos de ${esc(R.cancelHours)} horas, para cambiarla escríbenos por WhatsApp. Si no podemos atenderte (enfermedad, avería…), te avisaremos lo antes posible para darte otra hora o anularla, sin coste para ti.</p>
+
+    <h3>6 · Puntualidad</h3>
+    <p>Si llegas tarde puede que haya que acortar el servicio para no retrasar al siguiente cliente. Si el retraso no deja tiempo para hacerlo bien, quizá haya que darte otra hora.</p>
+
+    <h3>7 · ${cardOn() ? "Tarjeta en garantía y faltas" : "Faltas"}</h3>
     ${
-      catalog.card?.enabled
-        ? `<p><b>4 bis. Tarjeta en garantía y faltas.</b> Para reservar online dejas una tarjeta en garantía. Al guardarla no se cobra nada. Queda guardada en tu perfil (la custodia Stripe, nuestro proveedor de pagos) para tus próximas citas, y puedes cambiarla o quitarla cuando quieras desde tu perfil, salvo que tengas citas pendientes garantizadas con ella. <b>Si no vienes a la cita, o la cancelas con menos de ${catalog.rules.cancelHours} horas de antelación, autorizas a ${esc(catalog.business.name)} a cobrar en esa tarjeta ${pctText(catalog.rules.noShowFeePct)} del servicio si no vienes y ${pctText(catalog.rules.lateFeePct)} si cancelas tarde</b>, sin necesidad de que estés presente. No es automático: tu barbero revisa cada caso y, si hay un motivo justificado, no se cobra. Si tu banco pide confirmación o rechaza el cobro, te avisaremos y podrás pagarlo desde «Mis citas». Si crees que el cobro es un error, escríbenos y lo revisamos; si procede, te devolvemos el dinero.</p>`
-        : ""
+      cardOn()
+        ? `<p>Para reservar online dejas una tarjeta en garantía. Al guardarla no se cobra nada. La custodia Stripe, nuestro proveedor de pagos, y queda en tu perfil para tus próximas citas. Puedes cambiarla o quitarla cuando quieras, salvo que tengas citas pendientes garantizadas con ella.</p>
+    <p><b>Si no vienes a la cita, o la cancelas con menos de ${esc(R.cancelHours)} horas de antelación, autorizas a ${esc(catalog.business.holder)} (${esc(catalog.business.name)}) a cobrar en esa tarjeta ${pctText(R.noShowFeePct)} del servicio reservado si no vienes, y ${pctText(R.lateFeePct)} si cancelas tarde</b>, sin que tengas que estar presente. Nunca se cobra más que el precio del servicio reservado.</p>
+    <p>El cobro no es automático: tu barbero revisa cada caso y, si hay un motivo justificado, no se cobra. Si tu banco pide confirmación o rechaza el cargo, te avisamos y puedes pagarlo desde «Mis citas». Si crees que un cobro es un error, escríbenos y lo revisamos. Si procede, te devolvemos el dinero en la misma tarjeta.</p>`
+        : `<p>Si faltas varias veces sin avisar, podremos pedirte una garantía o limitar tus reservas online.</p>`
     }
-    <p><b>5. Club NOVA.</b> Es gratis. Los puntos, las ligas, los premios y los descuentos en NOVA Supply no tienen valor en dinero, no se pueden pasar a otra persona y pueden cambiar. Los puntos de la ropa los apunta el equipo al pagar en el estudio.</p>`,
+
+    <h3>8 · Club NOVA</h3>
+    <ul>
+      <li>Es gratis y forma parte de tu cuenta. Sumas puntos por los servicios y por la ropa de NOVA Supply que pagas en el estudio, según la tabla que ves en la app. Los puntos de la ropa los apunta el equipo al cobrarte.</li>
+      <li>Los puntos, las ligas, las medallas, los premios y los descuentos no tienen valor en dinero, no se pueden cambiar por dinero ni pasar a otra persona.</li>
+      <li>Los premios y ventajas pueden cambiar. Si cambian a peor o cerramos el Club, te avisaremos con al menos 30 días para que puedas canjear tus puntos.</li>
+      <li>Si borras la cuenta o pasan 3 años sin usarla, se pierden los puntos.</li>
+      <li>Si detectamos trampas (cuentas falsas para conseguir puntos por invitar, por ejemplo), anularemos los puntos conseguidos así.</li>
+    </ul>
+
+    <h3>9 · Reclamaciones</h3>
+    <p>Si algo no ha ido bien, escríbenos a ${lgMail()} o díselo al equipo: casi todo se arregla así. En el estudio tienes a tu disposición hojas oficiales de reclamación. Si no llegamos a un acuerdo, puedes acudir a la Dirección General de Consumo del Gobierno de Canarias, a la Junta Arbitral de Consumo o a los tribunales.</p>
+
+    <h3>10 · Ley aplicable</h3>
+    <p>Estas condiciones se rigen por la ley española. Si eres consumidor, cualquier conflicto se resolverá en los juzgados de tu domicilio. Si las cambiamos, actualizaremos la fecha de arriba. Los cambios no afectan a las citas que ya tengas reservadas.</p>`;
+    },
   ],
+
   "aviso-legal": [
     "Aviso legal",
-    () => `<p><b>Titular:</b> ${esc(catalog.business.name)}. <b>Domicilio:</b> ${esc(catalog.business.street)}, ${esc(catalog.business.city)}. <b>Email:</b> ${esc(catalog.business.email)}.</p>
-    <p>Esta app sirve para reservar servicios de barbería en ${esc(catalog.business.name)}, gestionar tus citas y participar en el Club NOVA. Los contenidos, el logotipo y las fotos son de su titular.</p>`,
+    () => `${lgDate()}
+    <p>En cumplimiento del artículo 10 de la Ley 34/2002 (LSSI), estos son los datos del titular de esta app.</p>
+
+    <h3>1 · Titular</h3>
+    ${lgWho()}
+    <p>Persona física (autónomo): no procede la inscripción en el Registro Mercantil.</p>
+
+    <h3>2 · Para qué es esta app</h3>
+    <p>Para reservar servicios de barbería en ${esc(catalog.business.name)}, gestionar tus citas, participar en el Club NOVA, ver los productos del estudio y apuntarte a la lista de la formación. Las reservas se rigen por las <a href="#condiciones">condiciones de uso y reserva</a>.</p>
+
+    <h3>3 · Uso</h3>
+    <p>Te comprometes a usar la app de buena fe y conforme a la ley. En particular, no puedes hacer reservas falsas, entrar en cuentas o zonas que no son tuyas, alterar la app o meter código dañino, ni hacer un uso automatizado que la sobrecargue. Podemos retirar el acceso a quien no cumpla estas normas.</p>
+
+    <h3>4 · Propiedad intelectual</h3>
+    <p>La marca NOVA, su emblema, las fotografías, los textos, el diseño y el código de esta app pertenecen a su titular o se usan con permiso de sus autores, y los protege la ley de propiedad intelectual e industrial. Puedes usar la app y compartir enlaces a ella, pero no reproducir ni explotar sus contenidos sin permiso por escrito.</p>
+
+    <h3>5 · Responsabilidad</h3>
+    <p>Cuidamos que la información (precios, horarios, huecos libres) sea correcta y esté al día, pero puede haber erratas o cortes por mantenimiento o por fallos de los proveedores. No respondemos del contenido de los sitios externos a los que enlazamos (Booksy, Instagram, WhatsApp, Google Maps, NOVA Supply).</p>
+
+    <h3>6 · Ley aplicable</h3>
+    <p>Se rige por la ley española. Si eres consumidor, son competentes los juzgados de tu domicilio.</p>`,
   ],
 };
 
-// Las mismas páginas legales, en inglés (la versión que vale es la española).
+// Traducción de cortesía. La versión que vale es la española.
+const lgEnNote = () => `<p><i>English translation for convenience. The Spanish version is the legally binding one.</i></p>`;
 const LEGAL_EN = {
   privacidad: [
     "Privacy policy",
-    () => `<p><i>English translation for convenience. The Spanish version is the legally binding one.</i></p>
-    <p><b>Controller.</b> ${esc(catalog.business.name)}, ${esc(catalog.business.street)}, ${esc(catalog.business.city)}. Contact: <a href="mailto:${esc(catalog.business.email)}">${esc(catalog.business.email)}</a>.</p>
-    <p><b>What data we process.</b> What you give us when booking: name, email and phone; your booking history (service, barber, date and whether you came); and your NOVA Club data: points, league, medals, redeemed rewards, the NOVA Supply clothing purchases the team adds to your account to award points (date, amount and number of items), your friend code, who invited you and, if you upload it, your profile photo. ${
-      catalog.card?.enabled
-        ? "If you leave a guarantee card, its details are stored by Stripe Payments Europe; we only see the brand, the last 4 digits and the expiry date, and whether any no-show fee has been charged."
-        : "We don't store card details: you pay at the shop."
-    }</p>
-    <p><b>Why.</b> To manage your bookings (create, change and cancel them, and remind you), to give you access to your account with a code by email, and to run your NOVA Club membership. We won't send you advertising without your permission.</p>
-    <p><b>Training.</b> If you join the training list, we keep what you enter in the form (name, phone, email and Instagram if given, your level and your preferences) only to contact you about the courses. Only the studio owner sees it, and you can ask us to delete it at any time.</p>
-    <p><b>Who we share it with.</b> Only the providers needed for the app to work: hosting and the database, and the email delivery service${catalog.card?.enabled ? ", plus Stripe, which stores your card and processes no-show charges" : ""}. We don't sell your data.</p>
-    <p><b>How long.</b> While you have an account or keep visiting us, and afterwards for as long as the law requires.</p>
-    <p><b>Your rights.</b> You can ask to see, correct or delete your data by writing to <a href="mailto:${esc(catalog.business.email)}">${esc(catalog.business.email)}</a>. If you're not satisfied with our reply, you can complain to the Spanish Data Protection Agency (AEPD).</p>
-    <p><b>Cookies.</b> Only one technical cookie to keep you logged in. No analytics or advertising. The Google map may set its own cookies when you view it.</p>`,
+    () => `${lgEnNote()}${lgDate(1)}
+    <p>This page explains what personal data this app processes, why, who we share it with and what you can do about it, under the GDPR (EU 2016/679), Spanish Organic Law 3/2018 (LOPDGDD) and Law 34/2002 (LSSI).</p>
+
+    <h3>1 · Who processes your data</h3>
+    ${lgWho(1)}
+    <p>We are not required to have a data protection officer. For anything about your data, write to ${lgMail()}.</p>
+
+    <h3>2 · What we process, why and for how long</h3>
+    ${lgGrid(
+      ["Purpose", "Data", "Legal basis", "How long"],
+      [
+        ["Your account and logging in", "Name, email, phone (optional), profile photo (optional), sign-up date", "Contract (art. 6.1.b GDPR)", "Until you ask us to delete it, or 3 years without bookings or use"],
+        ["Managing your bookings", "Service, barber, date and time, changes and cancellations, attendance, what you paid and how (cash, card, Bizum), recurring bookings if you set them", "Contract (art. 6.1.b GDPR)", "Same as the account. Payments: 6 years"],
+        ["Booking notices", "Your email and the booking details: confirmation, changes, reminders the day before and a few hours before, and waitlist alerts if you join one", "Contract (art. 6.1.b GDPR)", "For as long as the booking lasts. Waitlists are deleted once the day has passed"],
+        cardOn() && ["Guarantee card and no-show charges", "Your card is stored by Stripe, not by us. We only see the brand, the last 4 digits and the expiry date, plus your no-shows, late cancellations and any charges or refunds", "Contract (art. 6.1.b) and our legitimate interest in not losing slots (art. 6.1.f)", "The card: until you remove it. Charges: 6 years"],
+        ["NOVA Club", "Points, league, medals, redeemed rewards, the NOVA Supply clothing purchases the team adds to your account (date, amount, items), your friend code, who invited you and whether you tapped “Leave my review”", "Contract: the Club terms (art. 6.1.b GDPR)", "While you have an account"],
+        ["Offering “your usual booking”", "From your history we work out your usual day, time, barber and service, and how often you come. It is computed on the spot and not stored separately", "Legitimate interest in making booking easier (art. 6.1.f GDPR)", "While you have an account"],
+        ["Our own marketing emails: “when are you coming back?”, “we miss you” (sometimes with an offer) and review requests", "Name, email, date of your last cut and your barber", "You are a client and these are for similar services (art. 21.2 LSSI), plus our legitimate interest (art. 6.1.f GDPR). Every email has an unsubscribe link", "Until you unsubscribe. We keep the unsubscribe so we don't write to you again"],
+        ["Training interest list", "What you enter in the form: name, phone, email, Instagram if given, level, preferences and message", "Your consent (art. 6.1.a GDPR)", "2 years from the last contact, or until you withdraw consent"],
+        ["Invoicing and accounting", "Payments: date, amount, payment method and service or item", "Legal obligation (art. 6.1.c GDPR)", "6 years (Commercial Code and tax law)"],
+        ["Backups", "A copy of the app's data, emailed to the owner every week", "Legitimate interest in not losing bookings (art. 6.1.f GDPR)", "1 year"],
+        ["Replying when you write to us", "Whatever you tell us by email or WhatsApp", "Your consent or our legitimate interest", "1 year from the last message"],
+        ["Keeping the app running and secure", "Server logs: IP address, browser and pages requested", "Legitimate interest in security (art. 6.1.f GDPR)", "As kept by the hosting provider"],
+      ],
+    )}
+    <p><b>About “your usual booking” and “we miss you”.</b> It is a simple analysis of your history (how often you come and when you're due) that is only used to remind you and offer you your usual time. We make no automated decisions that significantly affect you. Charging a no-show is always decided by a person, never by the app. You can object to this analysis and to marketing emails at any time.</p>
+    <p>We don't sell your data or buy lists. All data comes from you, except clothing purchases and payments, which the team records when you pay at the studio.</p>
+
+    <h3>3 · Who in the team sees your data</h3>
+    <p>${esc(catalog.business.holder)}, as owner, can see everything. Each barber is an employee of the studio. They see the bookings and contact details of the clients they serve, and get a notice with your name, service and time in their email and phone calendar. The front-desk tablet only sees the day's payments. Everyone in the team is bound by confidentiality.</p>
+
+    <h3>4 · Who we share it with</h3>
+    <p>We rely on these providers, who process data on our behalf and only for what we ask of them:</p>
+    ${lgGrid(
+      ["Provider", "Purpose", "Where the data is"],
+      [
+        ["Vercel Inc. (USA)", "Hosting the app and running the server", "EU and USA"],
+        ["Upstash Inc.", "The database: accounts, bookings, Club and payments", "United Kingdom (London)"],
+        ["Resend Inc. (USA)", "Sending the app's emails from NOVA's address", "USA"],
+        cardOn() && ["Stripe Payments Europe Ltd. (Ireland)", "Storing your card and processing no-show charges. Stripe meets its own obligations as a payment institution", "EU and USA"],
+        ["Google Ireland Ltd.", "Our email (Gmail), where we receive your replies, notices and backups. The map, only if you tap “Show map”. Google Calendar, if a barber uses it to view their schedule", "EU and USA"],
+        ["Apple Distribution International (Ireland)", "iCloud Calendar, if a barber uses it to view their schedule", "EU and USA"],
+        ["WhatsApp Ireland Ltd. (Meta)", "Talking to you when you message us or we message you on WhatsApp", "EU and USA"],
+      ],
+    )}
+    <p>If you follow a link to Booksy, Google Reviews, Instagram or WhatsApp, you leave the app and that site's policy applies. We may also have to disclose data to public authorities when the law requires it: tax office, courts or police.</p>
+    <p><b>Transfers outside the EU.</b> The United Kingdom has an adequacy decision from the European Commission, so it protects data to an EU-equivalent standard. Transfers to the USA rely on the EU-US Data Privacy Framework, the Commission's standard contractual clauses, or both. You can ask us for a copy of these safeguards.</p>
+
+    <h3>5 · How long we keep it</h3>
+    <p>As shown in the table in section 2. Accounts with no bookings or use for 3 years are deleted, along with their Club points. Anything the law requires us to keep, such as payments for 6 years, stays blocked and is only used if a public authority or a court asks for it.</p>
+
+    <h3>6 · Your rights</h3>
+    <ul>
+      <li><b>Access:</b> find out what data we hold about you.</li>
+      <li><b>Rectification:</b> correct what is wrong. You can change most of it yourself in “Profile”.</li>
+      <li><b>Erasure:</b> have your data deleted, including your whole account.</li>
+      <li><b>Objection:</b> to anything we do on the basis of legitimate interest, such as the history analysis or marketing emails.</li>
+      <li><b>Restriction:</b> have us keep your data without using it.</li>
+      <li><b>Portability:</b> receive your data in a machine-readable format.</li>
+      <li><b>Withdraw consent</b> at any time, without affecting what was done before.</li>
+    </ul>
+    <p>Write to ${lgMail()} from your account's email address saying what you want. It's free and we reply within one month. To stop marketing emails you don't need to write: just use the “Unsubscribe” link in any of them.</p>
+    <p>If you think we haven't handled your request properly, you can complain to the Spanish Data Protection Agency (C/ Jorge Juan 6, 28001 Madrid, <a href="https://www.aepd.es" target="_blank" rel="noopener">www.aepd.es</a>). We'd appreciate it if you told us first.</p>
+
+    <h3>7 · Security</h3>
+    <p>The app always runs over HTTPS. To log in, we send a code to your email. Each team member logs in with their own PIN, which is stored encrypted.${cardOn() ? " Your card number goes straight from your phone to Stripe and never passes through our server." : ""} Service keys live on the server, never in the app. If a security breach could affect you, we would tell you and report it to the AEPD as the law requires.</p>
+
+    <h3>8 · Minors</h3>
+    <p>You must be at least 14 to have an account. To book for a child under 14, use your own account: the booking is in your name and you are responsible for it. If we find an account belonging to someone under 14 without their parents' or guardians' permission, we delete it.</p>
+
+    <h3>9 · Cookies</h3>
+    <p>We only use what the app needs to work: no analytics and no advertising. The details are in the <a href="#cookies">cookie policy</a>.</p>
+
+    <h3>10 · Changes</h3>
+    <p>If we change this policy, we'll update the date at the top. If a change really affects you, for example if we start using your data for something new, we'll email you before it applies.</p>`,
   ],
+
+  cookies: [
+    "Cookie policy",
+    () => `${lgEnNote()}${lgDate(1)}
+    <h3>1 · What they are</h3>
+    <p>A cookie is a small file a website stores on your device. Article 22.2 of the Spanish LSSI requires your permission before using them, except for those strictly necessary to provide the service you ask for. The same applies to other browser storage, such as local storage.</p>
+
+    <h3>2 · What this app stores on your device</h3>
+    <p>Only what it needs to work and to remember your choices. That's why there is no cookie banner: the law doesn't require one for these.</p>
+    ${lgGrid(
+      ["Name", "Type", "Purpose", "Duration"],
+      [
+        ["nova_s", "First-party cookie", "Keeps you logged in so you don't have to log in again", "1 year, renewed each time you open the app. Deleted when you log out"],
+        ["nova_staff", "First-party cookie", "Keeps the staff panel session open. Only on team devices", "1 year"],
+        ["nova_lang, nova_theme", "Local storage", "Remembers the language and look you choose", "Until you clear it"],
+        ["nova_catalog", "Local storage", "A copy of services and prices so the app opens quickly. Contains no personal data", "Until you clear it"],
+        ["nova_ref", "Local storage", "The code of the friend who invited you, if you came through their link, so they get their points", "Until you sign up or clear it"],
+        ["nova_seen_…", "Local storage", "Which medals and leagues we've already celebrated with you, so the animation doesn't repeat. The name includes your email", "Until you clear it"],
+        ["nova_train", "Local storage", "Your name and the date, if you joined the training list, to show you're already on it", "Until you clear it"],
+        ["nova_staff_who", "Local storage", "The last barber chosen at the front desk. Only on team devices", "Until you clear it"],
+        ["nova_draft, nova_next, nova_splash", "Session storage", "The booking you're making, where to return after logging in, and not repeating the intro animation", "Deleted when you close the tab"],
+        ["App cache", "Service worker", "Stores the app's files (design, fonts, icons) so it opens quickly and works offline. Contains no personal data", "Until the next app version"],
+        cardOn() && ["__stripe_mid, __stripe_sid", "Stripe cookies", "Fraud prevention when you add a card. Only set at that moment and necessary for the payment", "1 year and 30 minutes"],
+      ],
+    )}
+
+    <h3>3 · What we don't use</h3>
+    <ul>
+      <li>No Google Analytics or any other analytics.</li>
+      <li>No advertising or social media pixels.</li>
+      <li>Nothing that tracks you across other websites.</li>
+    </ul>
+    <p>Fonts are hosted on our own server, so loading them doesn't connect you to anyone else either.</p>
+
+    <h3>4 · The map and external links</h3>
+    <p>The Google map <b>does not load until you tap “Show map”</b>. If you do, your browser connects to Google, which receives your IP address and may set its own cookies under <a href="https://policies.google.com/technologies/cookies" target="_blank" rel="noopener">its policy</a>. The same goes for links to Booksy, Instagram or WhatsApp: once you leave the app, those sites' cookies apply.</p>
+
+    <h3>5 · How to delete them</h3>
+    <p>Logging out deletes the session cookie. To delete everything else, clear this site's data in your browser: <a href="https://support.google.com/chrome/answer/95647" target="_blank" rel="noopener">Chrome</a>, <a href="https://support.apple.com/en-us/105082" target="_blank" rel="noopener">Safari</a>, <a href="https://support.mozilla.org/en-US/kb/clear-cookies-and-site-data-firefox" target="_blank" rel="noopener">Firefox</a> or <a href="https://support.microsoft.com/en-us/microsoft-edge" target="_blank" rel="noopener">Edge</a>. If you block this app's cookies, you won't be able to stay logged in.</p>
+
+    <h3>6 · If this changes</h3>
+    <p>If we ever add something that isn't necessary, such as analytics or advertising, a notice asking for your permission will appear before it is switched on, with an option to refuse that is as easy as accepting, and we'll list it here. Questions: ${lgMail()}. Anything about your personal data is in the <a href="#privacidad">privacy policy</a>.</p>`,
+  ],
+
   condiciones: [
-    "Booking terms",
-    () => `<p><i>English translation for convenience. The Spanish version is the legally binding one.</i></p>
-    <p><b>1. Bookings.</b> You choose a service, barber, day and time from the free slots. The booking is confirmed when you finish, and you can see it in "My bookings".</p>
-    <p><b>2. Price and payment.</b> Prices include taxes. You pay at the shop, in cash or by card.</p>
-    <p><b>3. Changes and cancellations.</b> You can change your booking in the app up to ${catalog.rules.cancelHours} hours before, and cancel it up to the time of the appointment. With less than ${catalog.rules.cancelHours} hours to go, message us on WhatsApp to change it.</p>
-    <p><b>4. Punctuality.</b> If you arrive late, the service may have to be shortened so the next client isn't delayed. If you miss several appointments without notice, we may limit your online bookings.</p>
+    "Terms of use and booking",
+    () => {
+      const R = catalog.rules;
+      return `${lgEnNote()}${lgDate(1)}
+    <p>These terms govern the use of the ${esc(catalog.business.name)} app, bookings and the NOVA Club. By creating an account or booking you accept them. They are governed by Spanish Royal Legislative Decree 1/2007 (consumer protection) and Law 34/2002 (LSSI).</p>
+
+    <h3>1 · Who provides the service</h3>
+    ${lgWho(1)}
+
+    <h3>2 · Your account</h3>
+    <p>To book you need an account with your name and an email address of your own, and you must be at least 14. Bookings for under-14s are made by a parent or guardian from their own account. One account per person, and you are responsible for what is done with it. We may close the account of anyone who makes fake bookings or cheats in the Club.</p>
+
+    <h3>3 · Bookings</h3>
+    <ul>
+      <li>You choose a service, a barber (or “No preference”), a day and a time from the free slots. The booking is confirmed when you finish: you'll see it in “My bookings” and get an email.</li>
+      <li>You can book at least ${esc(R.leadMinutes ?? 60)} minutes ahead and up to ${esc(R.daysAhead ?? 60)} days in advance, with at most ${esc(R.maxActive ?? 3)} upcoming bookings at a time.</li>
+      ${R.recurring ? `<li>If you choose to repeat a booking regularly, each booking counts separately and follows the same change and cancellation rules.</li>` : ""}
+      <li>If a day is full you can join the waitlist. We'll tell you if a slot opens up, but that doesn't reserve it: it goes to whoever books it first.</li>
+      <li>Tapping “Book” means you accept these terms and the <a href="#privacidad">privacy policy</a>.</li>
+    </ul>
+
+    <h3>4 · Prices and payment</h3>
+    <p>Prices are as shown in the app and already include IGIC (Canary Islands tax). You pay at the studio after the service, in cash, by card or by Bizum. If you ask for something more on the day (an extra, for example), it is charged at the studio's rates and we tell you first. If a price in the app is wrong by mistake, we'll tell you before charging.</p>
+
+    <h3>5 · Changes and cancellations</h3>
+    <p>You can change your booking in the app up to ${esc(R.cancelHours)} hours before, and cancel it up to the time of the appointment. With less than ${esc(R.cancelHours)} hours to go, message us on WhatsApp to change it. If we can't see you (illness, a breakdown…), we'll let you know as soon as possible to offer another time or cancel, at no cost to you.</p>
+
+    <h3>6 · Punctuality</h3>
+    <p>If you arrive late, the service may have to be shortened so the next client isn't delayed. If there isn't enough time left to do it properly, we may need to give you another time.</p>
+
+    <h3>7 · ${cardOn() ? "Guarantee card and no-shows" : "No-shows"}</h3>
     ${
-      catalog.card?.enabled
-        ? `<p><b>4a. Guarantee card and no-shows.</b> To book online you leave a guarantee card. Nothing is charged when you save it. It stays on your profile (held by Stripe, our payment provider) for your next bookings, and you can change or remove it from your profile at any time, unless you have upcoming bookings guaranteed with it. <b>If you don't come to your appointment, or cancel it less than ${catalog.rules.cancelHours} hours in advance, you authorise ${esc(catalog.business.name)} to charge that card ${pctText(catalog.rules.noShowFeePct)} of the service if you don't show up and ${pctText(catalog.rules.lateFeePct)} if you cancel late</b>, without you needing to be present. It isn't automatic: your barber reviews each case and, if there's a good reason, nothing is charged. If your bank asks for confirmation or declines the charge, we'll let you know and you can pay it from "My bookings". If you think a charge is a mistake, write to us and we'll review it; where appropriate, we'll refund you.</p>`
-        : ""
+      cardOn()
+        ? `<p>To book online you leave a guarantee card. Nothing is charged when you save it. It is held by Stripe, our payment provider, and stays on your profile for your next bookings. You can change or remove it at any time, unless you have upcoming bookings guaranteed with it.</p>
+    <p><b>If you don't come to your appointment, or cancel less than ${esc(R.cancelHours)} hours in advance, you authorise ${esc(catalog.business.holder)} (${esc(catalog.business.name)}) to charge that card ${pctText(R.noShowFeePct)} of the booked service if you don't show up, and ${pctText(R.lateFeePct)} if you cancel late</b>, without you needing to be present. We never charge more than the price of the booked service.</p>
+    <p>The charge isn't automatic: your barber reviews each case and, if there's a good reason, nothing is charged. If your bank asks for confirmation or declines the charge, we'll let you know and you can pay it from “My bookings”. If you think a charge is a mistake, write to us and we'll review it. Where appropriate, we'll refund it to the same card.</p>`
+        : `<p>If you miss several appointments without notice, we may ask for a guarantee or limit your online bookings.</p>`
     }
-    <p><b>5. NOVA Club.</b> It's free. Points, leagues, rewards and NOVA Supply discounts have no cash value, can't be transferred to another person and may change. Points for clothing are added by the team when you pay at the studio.</p>`,
+
+    <h3>8 · NOVA Club</h3>
+    <ul>
+      <li>It's free and part of your account. You earn points for services and for NOVA Supply clothing paid for at the studio, as shown in the app. Points for clothing are added by the team when you pay.</li>
+      <li>Points, leagues, medals, rewards and discounts have no cash value, can't be exchanged for money and can't be transferred to anyone else.</li>
+      <li>Rewards and perks may change. If they get worse or we close the Club, we'll give you at least 30 days' notice so you can redeem your points.</li>
+      <li>If you delete your account or don't use it for 3 years, your points are lost.</li>
+      <li>If we detect cheating (for example, fake accounts to earn referral points), we'll cancel the points earned that way.</li>
+    </ul>
+
+    <h3>9 · Complaints</h3>
+    <p>If something went wrong, write to ${lgMail()} or tell the team: almost everything gets sorted that way. Official complaint forms are available at the studio. If we can't reach an agreement, you can go to the Canary Islands Consumer Affairs office (Dirección General de Consumo), the Consumer Arbitration Board, or the courts.</p>
+
+    <h3>10 · Governing law</h3>
+    <p>These terms are governed by Spanish law. If you are a consumer, any dispute will be heard by the courts where you live. If we change these terms, we'll update the date at the top. Changes don't affect bookings you already have.</p>`;
+    },
   ],
+
   "aviso-legal": [
     "Legal notice",
-    () => `<p><b>Owner:</b> ${esc(catalog.business.name)}. <b>Address:</b> ${esc(catalog.business.street)}, ${esc(catalog.business.city)}. <b>Email:</b> ${esc(catalog.business.email)}.</p>
-    <p>This app is for booking barber services at ${esc(catalog.business.name)}, managing your bookings and taking part in the NOVA Club. The content, logo and photos belong to their owner.</p>`,
+    () => `${lgEnNote()}${lgDate(1)}
+    <p>As required by article 10 of Spanish Law 34/2002 (LSSI), these are the details of the owner of this app.</p>
+
+    <h3>1 · Owner</h3>
+    ${lgWho(1)}
+    <p>Sole trader: registration in the Commercial Register does not apply.</p>
+
+    <h3>2 · What this app is for</h3>
+    <p>Booking barber services at ${esc(catalog.business.name)}, managing your bookings, taking part in the NOVA Club, browsing the studio's products and joining the training list. Bookings are governed by the <a href="#condiciones">terms of use and booking</a>.</p>
+
+    <h3>3 · Use</h3>
+    <p>You agree to use the app in good faith and lawfully. In particular, you may not make fake bookings, access accounts or areas that aren't yours, tamper with the app or insert malicious code, or use it in an automated way that overloads it. We may remove access for anyone who breaks these rules.</p>
+
+    <h3>4 · Intellectual property</h3>
+    <p>The NOVA brand, its emblem, the photographs, texts, design and code of this app belong to their owner or are used with the authors' permission, and are protected by intellectual and industrial property law. You may use the app and share links to it, but you may not reproduce or exploit its content without written permission.</p>
+
+    <h3>5 · Liability</h3>
+    <p>We take care that information (prices, opening hours, free slots) is correct and up to date, but there may be errors, or outages due to maintenance or provider failures. We are not responsible for the content of external sites we link to (Booksy, Instagram, WhatsApp, Google Maps, NOVA Supply).</p>
+
+    <h3>6 · Governing law</h3>
+    <p>Spanish law applies. If you are a consumer, the courts where you live have jurisdiction.</p>`,
   ],
 };
 
@@ -869,7 +1241,8 @@ const pages = {
     const { booking: b } = await api("bookings/" + id);
     draft = { service: b.service.id, provider: b.provider.id, moving: b.id };
     if (!calMonth) calMonth = monthKey(salonDate());
-    await calendar({ backTo: `booking/${b.id}`, backLabel: "Volver a la cita" });
+    const panel = staff && staffMove === b.id;
+    await calendar({ backTo: panel ? "equipo" : `booking/${b.id}`, backLabel: panel ? "Volver a la agenda" : "Volver a la cita" });
   },
 
   async details() {
@@ -1108,8 +1481,16 @@ const pages = {
         (r.upcoming[0] ? nextApptCard(r.upcoming[0]) : "") +
         (r.upcoming.length > 1 ? `<div class="appts">${r.upcoming.slice(1).map((b) => bookingCard(b, r.now)).join("")}</div>` : "") +
         (!r.upcoming.length ? `<a class="appt-empty" href="#home"><strong>No tienes citas pendientes</strong><span>Reserva tu próximo corte en un minuto ›</span></a>` : "") +
-        (r.past.length ? `<p class="section-label">Historial</p><div class="appts">${r.past.map((b) => bookingCard(b, r.now)).join("")}</div>` : ""),
+        // Historial: las 5 últimas a la vista y el resto a un toque (no hace falta bajar por un año de citas).
+        (r.past.length
+          ? `<p class="section-label">Historial</p><div class="appts">${r.past.slice(0, 5).map((b) => bookingCard(b, r.now)).join("")}</div>` +
+            (r.past.length > 5
+              ? `<div class="appts" id="past-more" hidden>${r.past.slice(5).map((b) => bookingCard(b, r.now)).join("")}</div><button type="button" class="btn wide secondary" id="past-btn" style="margin-top:10px">${L(`Ver las ${r.past.length - 5} anteriores`, `Show ${r.past.length - 5} earlier`)}</button>`
+              : "")
+          : ""),
     );
+    const more = $("#past-btn");
+    if (more) more.onclick = () => (($("#past-more").hidden = false), more.remove());
   },
 
   async booking([id]) {
@@ -1413,7 +1794,7 @@ const pages = {
     if (!staff) return staffLogin();
     try {
       if (staff.caja) return await staffCobros();
-      await ({ cobrar: staffCobros, caja: staffCaja, progreso: staffProgress, faltas: staffFaltas, formacion: staffTraining, productos: staffProducts, ajustes: staffTeam, web: staffWeb, clientes: staffClients, ropa: staffRopa }[args[0]] || staffAgenda)();
+      await ({ mas: staffMore, cobrar: staffCobros, caja: staffCaja, progreso: staffProgress, faltas: staffFaltas, formacion: staffTraining, productos: staffProducts, ajustes: staffTeam, web: staffWeb, servicios: staffServices, clientes: staffClients, ropa: staffRopa }[args[0]] || staffAgenda)();
     } catch (e) {
       if (e.status !== 401) throw e;
       staff = null;
@@ -1574,10 +1955,16 @@ async function calendar({ backTo, backLabel }) {
     try {
       await api(`bookings/${draft.moving}/move`, { date: draft.date, start: draft.start });
       availCache.clear();
-      const id = draft.moving;
+      const id = draft.moving,
+        day = draft.date;
       draft = {};
       saveDraft();
       toast("Cita cambiada.");
+      if (staff && staffMove === id) {
+        staffMove = "";
+        staffDay = day;
+        return go("equipo");
+      }
       go("booking/" + id);
     } catch (err) {
       e.currentTarget.disabled = false;
@@ -1884,6 +2271,29 @@ function rewardRow(r, balance) {
   }</div>${can ? `<button type="button" class="rw-btn" data-redeem="${esc(r.id)}">Canjear<small>${nf(r.cost)} pts</small></button>` : `<span class="rw-cost">${nf(r.cost)}<small>pts</small></span>`}</div>`;
 }
 // Recorta la foto en cuadrado y la deja en ~20 KB.
+// Cualquier foto (aunque venga cruda de un iPhone) sale de aquí en .webp de
+// 200 KB como mucho, para que la web cargue al instante. Safari no sabe hacer
+// webp con <canvas>: entonces sale en .jpg, con el mismo límite.
+const LIGHT_MAX = 200 * 1024;
+function encodeLight(canvas) {
+  let c = canvas;
+  for (let round = 0; round < 6; round++) {
+    for (const type of ["image/webp", "image/jpeg"]) {
+      for (const q of [0.82, 0.72, 0.6, 0.5, 0.4]) {
+        const d = c.toDataURL(type, q);
+        if (!d.startsWith("data:" + type)) break; // este navegador no sabe ese formato
+        if (((d.length - d.indexOf(",") - 1) * 3) / 4 <= LIGHT_MAX) return d;
+      }
+    }
+    // Aún pesa demasiado: se encoge un 20 % y se vuelve a probar.
+    const n = document.createElement("canvas");
+    n.width = Math.round(c.width * 0.8);
+    n.height = Math.round(c.height * 0.8);
+    n.getContext("2d").drawImage(c, 0, 0, n.width, n.height);
+    c = n;
+  }
+  throw Error("big");
+}
 async function shrinkImage(file, size) {
   const url = URL.createObjectURL(file);
   try {
@@ -1894,7 +2304,7 @@ async function shrinkImage(file, size) {
       c = document.createElement("canvas");
     c.width = c.height = size;
     c.getContext("2d").drawImage(img, (img.naturalWidth - s) / 2, (img.naturalHeight - s) / 2, s, s, 0, 0, size, size);
-    return c.toDataURL("image/jpeg", 0.82);
+    return encodeLight(c);
   } finally {
     URL.revokeObjectURL(url);
   }
@@ -1952,17 +2362,76 @@ function staffLogin() {
   });
 }
 
+// Menú del panel. Arriba, solo lo de todos los días: Agenda, Cobrar y Caja.
+// Lo demás va en «Más», agrupado por temas y con una línea que explica cada
+// apartado (antes eran 12 pestañas que ocupaban media pantalla).
+const staffMoreGroups = () =>
+  [
+    [
+      "Tu negocio",
+      [
+        ["progreso", "Progreso", "Ingresos, ocupación y horas flojas", ICONS.bolt],
+        staff.owner && ["clientes", "Clientes", "A quién le toca volver y quién se ha perdido", ICONS.users],
+        ["faltas", "Faltas", "Quien no vino o canceló tarde, y si se cobra", ICONS.clock],
+      ],
+    ],
+    staff.owner && [
+      "Lo que ofreces",
+      [
+        ["servicios", "Servicios", "Precios, duración y quién hace cada uno", ICONS.scissors],
+        ["productos", "Productos", "Lo que se vende en el mostrador", ICONS.jar],
+        ["ropa", "Ropa", "Prendas, tallas y unidades de " + (catalog.shop?.name || "la tienda"), ICONS.shirt],
+        ["formacion", "Formación", "Interesados en los cursos", ICONS.megaphone],
+      ],
+    ],
+    staff.owner && [
+      "Configuración",
+      [
+        ["ajustes", "Equipo y normas", "Horarios, claves, comisiones, cancelaciones y correos", ICONS.lock],
+        ["web", "Web", "Aviso, contacto, fotos y color de la web", ICONS.camera],
+      ],
+    ],
+  ]
+    .filter(Boolean)
+    .map(([title, items]) => [title, items.filter(Boolean)]);
 function staffTop(tab) {
   if (staff.caja)
     return `<div class="staff-top"><span class="who-face" aria-hidden="true">${svg(ICONS.till)}</span><div><p class="eyebrow">NOVA Studio</p><h1>Caja</h1></div></div>`;
+  const main = [
+    ["agenda", "#equipo", "Agenda"],
+    ["cobrar", "#equipo/cobrar", "Cobrar"],
+    ["caja", "#equipo/caja", staff.owner ? "Caja" : "Mi caja"],
+    ["mas", "#equipo/mas", "Más"],
+  ];
+  // Dentro de un apartado de «Más», la pestaña «Más» queda marcada y debajo se dice dónde estás.
+  const inside = main.some(([k]) => k === tab) ? null : staffMoreGroups().flatMap(([, items]) => items).find(([k]) => k === tab);
+  const on = inside ? "mas" : tab;
   return (
     `<div class="staff-top">${face(provById(staff.id), "who-face")}<div><p class="eyebrow">${staff.owner ? "Propietario" : "Panel de barbero"}</p><h1>Hola, ${esc(first(staff.name))}</h1></div></div>` +
-    `<div class="tabs" role="navigation" aria-label="Panel"><a href="#equipo" class="${tab === "agenda" ? "active" : ""}" ${tab === "agenda" ? 'aria-current="page"' : ""}>Agenda</a><a href="#equipo/cobrar" class="${tab === "cobrar" ? "active" : ""}" ${tab === "cobrar" ? 'aria-current="page"' : ""}>Cobrar</a><a href="#equipo/caja" class="${tab === "caja" ? "active" : ""}" ${tab === "caja" ? 'aria-current="page"' : ""}>${staff.owner ? "Caja y comisiones" : "Mi caja"}</a><a href="#equipo/progreso" class="${tab === "progreso" ? "active" : ""}" ${tab === "progreso" ? 'aria-current="page"' : ""}>Progreso</a><a href="#equipo/faltas" class="${tab === "faltas" ? "active" : ""}" ${tab === "faltas" ? 'aria-current="page"' : ""}>Faltas</a>${
-      staff.owner
-        ? `<a href="#equipo/formacion" class="${tab === "formacion" ? "active" : ""}" ${tab === "formacion" ? 'aria-current="page"' : ""}>Formación</a><a href="#equipo/productos" class="${tab === "productos" ? "active" : ""}" ${tab === "productos" ? 'aria-current="page"' : ""}>Productos</a><a href="#equipo/ajustes" class="${tab === "ajustes" ? "active" : ""}" ${tab === "ajustes" ? 'aria-current="page"' : ""}>Equipo y normas</a><a href="#equipo/web" class="${tab === "web" ? "active" : ""}" ${tab === "web" ? 'aria-current="page"' : ""}>Web</a><a href="#equipo/clientes" class="${tab === "clientes" ? "active" : ""}" ${tab === "clientes" ? 'aria-current="page"' : ""}>Clientes</a><a href="#equipo/ropa" class="${tab === "ropa" ? "active" : ""}" ${tab === "ropa" ? 'aria-current="page"' : ""}>Ropa</a>`
-        : ""
-    }</div>`
+    `<div class="tabs" role="navigation" aria-label="Panel">${main.map(([k, href, label]) => `<a href="${href}" class="${k === on ? "active" : ""}" ${k === on ? 'aria-current="page"' : ""}>${label}</a>`).join("")}</div>` +
+    (inside ? `<a class="more-back" href="#equipo/mas"><span aria-hidden="true">←</span> Más <i aria-hidden="true">/</i> <b>${esc(inside[1])}</b></a>` : "")
   );
+}
+// «Más»: el resto del panel, por temas.
+async function staffMore() {
+  show(
+    staffTop("mas") +
+      staffMoreGroups()
+        .map(
+          ([title, items]) =>
+            `<p class="section-label">${esc(title)}</p><div class="more-list">${items
+              .map(([k, name, desc, icon]) => `<a class="more-item" href="#equipo/${k}"><span class="more-ic" aria-hidden="true">${svg(icon)}</span><span><strong>${esc(name)}</strong><small>${esc(desc)}</small></span><b aria-hidden="true">›</b></a>`)
+              .join("")}</div>`,
+        )
+        .join("") +
+      `<button type="button" class="btn wide secondary" style="margin-top:28px" id="staff-out">Salir del panel</button>`,
+  );
+  $("#staff-out").onclick = async () => {
+    await api("staff/logout", {});
+    staff = null;
+    nav();
+    go("home");
+  };
 }
 
 async function staffAgenda() {
@@ -1986,26 +2455,58 @@ async function staffAgenda() {
   // y sin importes.
   const providers = [...r.providers].sort((a, b) => (b.id === staff.id) - (a.id === staff.id));
   const shown = staff.owner || staffAll ? providers : providers.filter((p) => p.id === staff.id);
+  // Hoy se marca la cita en curso y la siguiente, y lo que ya pasó se atenúa.
+  const isToday = r.date === r.now.slice(0, 10),
+    nowM = hm(r.now.slice(11));
+  const whenOf = (b, next) => (!isToday || b.status !== "confirmed" ? "" : hm(b.end) <= nowM ? "past" : hm(b.start) <= nowM ? "now" : b === next ? "next" : "");
+  const tagOf = (b, w) => (w === "now" ? ` <em class="ag-tag">Ahora</em>` : w === "next" ? ` <em class="ag-tag soft">${hm(b.start) - nowM <= 90 ? `En ${hm(b.start) - nowM} min` : "Siguiente"}</em>` : "");
+  // Huecos libres de media hora o más dentro del horario: se ven de un vistazo
+  // y con un toque se apunta una cita justo ahí.
+  const gapsOf = (p, list) => {
+    if (!canManage(p.id) || p.off || r.date < r.now.slice(0, 10)) return [];
+    const busy = list
+      .filter((b) => b.status === "confirmed")
+      .map((b) => [hm(b.start), hm(b.end)])
+      .sort((a, b) => a[0] - b[0]);
+    const out = [];
+    for (const [a, z] of p.hours) {
+      let t = Math.max(hm(a), isToday ? Math.ceil(nowM / 15) * 15 : 0);
+      for (const [x, y] of busy) {
+        if (y <= t) continue;
+        if (x >= hm(z)) break;
+        if (x - t >= 30) out.push([t, x]);
+        t = Math.max(t, y);
+      }
+      if (hm(z) - t >= 30) out.push([t, hm(z)]);
+    }
+    return out;
+  };
   const cols = shown
     .map((p) => {
       const list = r.bookings.filter((b) => b.provider.id === p.id);
       const live = list.filter((b) => b.status === "confirmed" && b.kind === "booking");
       const total = live.reduce((a, b) => a + (b.service.price || 0), 0);
       const mine = canManage(p.id);
-      return `<section class="ag-col${mine ? "" : " ag-other"}"><div class="ag-head"><h2>${p.id === staff.id ? "Tu agenda" : esc(p.name)}</h2><span>${p.hours.length ? p.hours.map((h) => h.join("–")).join(" · ") : "No trabaja"} · ${live.length} ${live.length === 1 ? "cita" : "citas"}${mine ? " · " + euro(total) : ""}</span></div>
-        ${
-          list.length
-            ? list
-                .map(
-                  (b) => `<button type="button" class="ag-item ${b.kind === "block" ? "block" : ""} ${b.status === "canceled" ? "canceled" : ""} ${b.attendance}" data-id="${esc(b.id)}">
+      const next = live.find((b) => hm(b.start) > nowM);
+      const rows = [
+        ...list.map((b) => {
+          const w = b.kind === "booking" ? whenOf(b, next) : whenOf(b) === "past" ? "past" : "";
+          return {
+            t: hm(b.start),
+            html: `<button type="button" class="ag-item ${b.kind === "block" ? "block" : ""} ${b.status === "canceled" ? "canceled" : ""} ${b.attendance} ${w}" data-id="${esc(b.id)}">
                     <time>${esc(b.start)}<small>${esc(b.end)}</small></time>
-                    <div><strong>${b.kind === "block" ? "⛔ " + esc(b.service.name) : esc(b.name)}${b.strikes ? ` <em class="strike" title="Ha faltado ${b.strikes} ${b.strikes === 1 ? "vez" : "veces"}">⚠ ${b.strikes}</em>` : ""}</strong><span>${b.kind === "block" ? "Bloqueado" : esc(b.service.name) + (b.phone ? " · " + esc(b.phone) : "")}</span></div>
+                    <div><strong>${b.kind === "block" ? "⛔ " + esc(b.service.name) : esc(b.name)}${b.strikes ? ` <em class="strike" title="Ha faltado ${b.strikes} ${b.strikes === 1 ? "vez" : "veces"}">⚠ ${b.strikes}</em>` : ""}${tagOf(b, w)}</strong><span>${b.kind === "block" ? "Bloqueado" : esc(b.service.name) + (b.phone ? " · " + esc(b.phone) : "")}</span></div>
                     <span>${b.status === "canceled" ? (b.late ? "Cancelada tarde" : "Cancelada") : b.pay ? "✓ Cobrado" : b.attendance === "done" ? "✓ Vino" : b.attendance === "absent" ? "✗ No vino" : b.by === "staff" ? "Equipo" : "App"}</span>
                   </button>`,
-                )
-                .join("")
-            : `<p class="ag-free">Sin citas este día.</p>`
-        }</section>`;
+          };
+        }),
+        ...gapsOf(p, list).map(([a, z]) => ({
+          t: a,
+          html: `<button type="button" class="ag-gap" data-p="${esc(p.id)}" data-h="${addMin("00:00", a)}"><span aria-hidden="true">＋</span><b>${addMin("00:00", a)} – ${addMin("00:00", z)}</b> libre</button>`,
+        })),
+      ].sort((a, b) => a.t - b.t);
+      return `<section class="ag-col${mine ? "" : " ag-other"}"><div class="ag-head"><h2>${p.id === staff.id ? "Tu agenda" : esc(p.name)}</h2><span>${p.off ? `De vacaciones${p.off.note ? " · " + esc(p.off.note) : ""}` : p.hours.length ? p.hours.map((h) => h.join("–")).join(" · ") : "No trabaja"} · ${live.length} ${live.length === 1 ? "cita" : "citas"}${mine ? " · " + euro(total) : ""}</span></div>
+        ${rows.length ? rows.map((x) => x.html).join("") : `<p class="ag-free">Sin citas este día.</p>`}</section>`;
     })
     .join("");
   show(
@@ -2013,14 +2514,23 @@ async function staffAgenda() {
       (r.alerts || []).map((a) => `<p class="warning">${esc(a)}</p>`).join("") +
       `<p class="ag-day">${esc(longDay(staffDay))}</p>` +
       `<div class="day-strip" id="strip">${strip}</div>` +
-      `<div class="staff-bar"><button type="button" class="btn" id="new-bk">+ Cita</button><button type="button" class="btn secondary" id="new-block">Bloquear hora</button></div>` +
+      `<div class="staff-bar"><button type="button" class="btn" id="new-bk">+ Cita</button><button type="button" class="btn secondary" id="new-block">Bloquear hora</button><button type="button" class="btn secondary" id="new-off">Vacaciones</button></div>` +
       canjes +
       cols +
       (staff.owner ? "" : `<button type="button" class="btn wide secondary" style="margin-top:14px" id="see-all">${staffAll ? "Ver solo mi agenda" : "Ver la agenda de todo el salón"}</button>`) +
       `<button type="button" class="btn wide secondary" style="margin-top:28px" id="staff-set">${svg(ICONS.cal)} Avisos y calendario</button>` +
       `<button type="button" class="btn wide secondary" style="margin-top:10px" id="staff-out">Salir del panel</button>`,
   );
-  $("#strip .active")?.scrollIntoView({ inline: "center", block: "nearest" });
+  if (!agendaQuiet) $("#strip .active")?.scrollIntoView({ inline: "center", block: "nearest" });
+  agendaQuiet = false;
+  clearTimeout(agendaTimer);
+  agendaTimer = setTimeout(function tick() {
+    if (!staff || location.hash !== "#equipo") return; // ya no está en la agenda
+    if (document.hidden || $(".sheet-back")) return void (agendaTimer = setTimeout(tick, 15000)); // con una ficha abierta, espera
+    agendaQuiet = true;
+    render();
+  }, 60000);
+  $$(".ag-gap").forEach((g) => (g.onclick = () => staffNew(false, r, { provider: g.dataset.p, start: g.dataset.h })));
   $$(".day-chip").forEach((b) => (b.onclick = () => ((staffDay = b.dataset.day), render())));
   $$(".ag-item[data-id]").forEach((el) => (el.onclick = () => staffSheet(r.bookings.find((b) => b.id === el.dataset.id))));
   $$("[data-rd]").forEach(
@@ -2037,8 +2547,9 @@ async function staffAgenda() {
         }
       }),
   );
-  $("#new-bk").onclick = () => staffNew(false);
-  $("#new-block").onclick = () => staffNew(true);
+  $("#new-bk").onclick = () => staffNew(false, r);
+  $("#new-block").onclick = () => staffNew(true, r);
+  $("#new-off").onclick = () => offSheet();
   $("#staff-set").onclick = () => staffSettings();
   const all = $("#see-all");
   if (all) all.onclick = () => ((staffAll = !staffAll), render());
@@ -2718,6 +3229,7 @@ function staffSheet(b) {
                 staffCharge(b) +
                 (b.email && b.attendance !== "absent" ? `<button type="button" class="btn wide secondary sp-staff-btn" id="sh-shop">${svg(ICONS.bag)} Se lleva ropa de ${esc(catalog.shop.name)}</button>` : "") +
                 (b.phone ? `<div class="form-actions"><a class="btn secondary" href="tel:${esc(b.phone.replace(/\s/g, ""))}">Llamar</a><a class="btn wa-btn" target="_blank" rel="noopener" href="https://wa.me/${esc(b.phone.replace(/\D/g, ""))}">WhatsApp</a></div>` : "")) +
+            (block || b.attendance === "done" || b.pay ? "" : `<button type="button" class="btn wide secondary" style="margin-top:12px" id="sh-move">Cambiar de día u hora</button>`) +
             `<button type="button" class="btn wide danger" style="margin-top:12px" id="sh-cancel">${block ? "Quitar bloqueo" : "Cancelar cita"}</button>`),
   );
   sh.el.querySelectorAll("[data-att]").forEach(
@@ -2740,6 +3252,8 @@ function staffSheet(b) {
   if (cobrar) cobrar.onclick = () => (sh.close(), (cobroPre = b.id), (cobroDay = b.date), go("equipo/cobrar"));
   const shop = sh.el.querySelector("#sh-shop");
   if (shop) shop.onclick = () => (sh.close(), staffShop(b.email));
+  const mv = sh.el.querySelector("#sh-move");
+  if (mv) mv.onclick = () => (sh.close(), (staffMove = b.id), (calMonth = b.date.slice(0, 7)), (selectedDate = b.date), (dayPicked = true), go("move/" + b.id));
   const c = sh.el.querySelector("#sh-cancel");
   if (c)
     c.onclick = async () => {
@@ -3146,31 +3660,129 @@ async function staffFaltas() {
   $$(".falta[data-id]").forEach((el) => (el.onclick = () => staffSheet(r.list.find((b) => b.id === el.dataset.id))));
 }
 
-function staffNew(block) {
+// Clientes que ya han venido (socios y apuntados por teléfono), para no volver
+// a escribir nombre, teléfono y correo. Se piden una vez por sesión del panel.
+let contactsP = null;
+const staffContacts = () => (contactsP ||= api("staff/contacts").then((r) => r.contacts || [], () => ((contactsP = null), [])));
+const plain = (x) => String(x || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+// Nueva cita o bloqueo desde la agenda. `day` es lo que ya se ve en pantalla
+// (horario y citas de ese día): con eso se proponen las horas libres del
+// barbero elegido y se marca la primera, en vez de buscarla en una lista larga.
+function staffNew(block, day, preset = {}) {
   const opts = (list, label) => list.map((x) => `<option value="${esc(x.id)}" ${x.id === staff.id ? "selected" : ""}>${esc(label(x))}</option>`).join("");
-  const timeOpts = (sel) => {
-    let o = "";
-    for (let t = 8 * 60; t <= 22 * 60; t += 15) o += `<option ${addMin("00:00", t) === sel ? "selected" : ""}>${addMin("00:00", t)}</option>`;
-    return o;
-  };
   // Un barbero solo apunta en su agenda, y solo los servicios que hace.
   const services = catalog.services.filter((s) => !s.consult && (staff.owner || !s.providers?.length || s.providers.includes(staff.id)));
+  const today = staffDay === isoDay(salonDate()),
+    nowMin = salonDate().getHours() * 60 + salonDate().getMinutes();
+  const busyOf = (pid) => (day?.bookings || []).filter((b) => b.provider.id === pid && b.status === "confirmed").map((b) => [hm(b.start), hm(b.end)]);
+  const isFree = (busy, t, dur) => !busy.some(([a, z]) => t < z && t + dur > a);
+  // Horas del horario del barbero (cada 15 min) en las que cabe el servicio.
+  const freeStarts = (pid, dur) => {
+    const busy = busyOf(pid),
+      out = [];
+    for (const [a, z] of day?.providers?.find((p) => p.id === pid)?.hours || [])
+      for (let t = hm(a); t + dur <= hm(z); t += 15) if ((!today || t >= nowMin - 10) && isFree(busy, t, dur)) out.push(addMin("00:00", t));
+    return out;
+  };
   const sh = sheet(
     `<h2>${block ? "Bloquear hora" : "Nueva cita"}</h2><p class="muted">${esc(longDay(staffDay))}${staff.owner ? "" : " · en tu agenda"}</p>
-    <form id="sn">
-      ${staff.owner ? `<label>Barbero</label><select name="provider">${opts(catalog.providers, (p) => p.name)}</select>` : `<input type="hidden" name="provider" value="${esc(staff.id)}">`}
-      ${block ? "" : `<label>Servicio</label><select name="service">${opts(services, (s) => `${s.name} · ${s.duration} min`)}</select>`}
-      <div class="form-actions" style="margin-top:0"><div><label>Desde</label><select name="start">${timeOpts("10:00")}</select></div>${block ? `<div><label>Hasta</label><select name="end">${timeOpts("11:00")}</select></div>` : ""}</div>
+    <form id="sn" autocomplete="off">
+      ${staff.owner ? `<label for="sn-prov">Barbero</label><select id="sn-prov" name="provider">${opts(catalog.providers, (p) => p.name)}</select>` : `<input type="hidden" name="provider" value="${esc(staff.id)}">`}
+      ${block ? "" : `<label for="sn-svc">Servicio</label><select id="sn-svc" name="service">${opts(services, (s) => `${s.name} · ${s.duration} min`)}</select>`}
+      <label>${block ? "Desde" : "Hora"}</label>
+      <div class="sn-free" id="sn-free"></div>
+      <div class="form-actions" style="margin-top:8px"><div><label class="sr-only" for="sn-start">Hora de inicio</label><select id="sn-start" name="start"></select></div>${block ? `<div><label class="sr-only" for="sn-end">Hasta</label><select id="sn-end" name="end"></select></div>` : ""}</div>
       ${
         block
-          ? `<label>Motivo (opcional)</label><input name="note" maxlength="60" placeholder="Comida, médico…">`
-          : `<label>Nombre del cliente</label><input name="name" required maxlength="120"><label>Teléfono</label><input name="phone" type="tel" maxlength="30"><label>Correo (opcional)</label><input name="email" type="email">
-             <label>Repetir</label><div class="form-actions" style="margin-top:0"><select name="every"><option value="">No</option><option value="1">Cada semana</option><option value="2">Cada 2 semanas</option><option value="3">Cada 3 semanas</option><option value="4">Cada 4 semanas</option></select><select name="times">${[2, 3, 4, 5, 6, 8, 10, 12].map((n) => `<option value="${n}" ${n === 4 ? "selected" : ""}>${n} citas</option>`).join("")}</select></div>`
+          ? `<label for="sn-note">Motivo (opcional)</label><input id="sn-note" name="note" maxlength="60" placeholder="Comida, médico…">`
+          : `<label for="sn-name">Nombre del cliente</label><input id="sn-name" name="name" required maxlength="120" placeholder="Escribe y elige si ya ha venido"><div class="sn-sug" id="sn-sug" hidden></div>
+             <label for="sn-phone">Teléfono</label><input id="sn-phone" name="phone" type="tel" maxlength="30"><label for="sn-email">Correo <small class="opt">(opcional: le suma puntos del Club)</small></label><input id="sn-email" name="email" type="email">
+             <label for="sn-every">Repetir</label><div class="form-actions" style="margin-top:0"><select id="sn-every" name="every"><option value="">No</option><option value="1">Cada semana</option><option value="2">Cada 2 semanas</option><option value="3">Cada 3 semanas</option><option value="4">Cada 4 semanas</option></select><select name="times" aria-label="Cuántas veces">${[2, 3, 4, 5, 6, 8, 10, 12].map((n) => `<option value="${n}" ${n === 4 ? "selected" : ""}>${n} citas</option>`).join("")}</select></div>`
       }
       <button class="btn wide" style="margin-top:18px" type="submit">${block ? "Bloquear" : "Apuntar cita"}</button>
     </form>`,
   );
-  sh.el.querySelector("#sn").addEventListener("submit", async (e) => {
+  const q = (x) => sh.el.querySelector(x),
+    f = q("#sn"),
+    startSel = q("#sn-start"),
+    endSel = q("#sn-end"),
+    freeBox = q("#sn-free");
+  // Pinta las horas: arriba las libres más cercanas a un toque; en la lista,
+  // todas (de 8:00 a 22:00) con las ocupadas marcadas y sin poder elegirse.
+  const paint = () => {
+    const pid = f.provider.value,
+      dur = block ? 15 : services.find((s) => s.id === f.service.value)?.duration || 30,
+      busy = busyOf(pid),
+      free = freeStarts(pid, dur),
+      keep = startSel.value;
+    let o = "";
+    for (let t = 8 * 60; t <= 22 * 60 - 15; t += 15) {
+      const h = addMin("00:00", t),
+        ok = isFree(busy, t, dur);
+      o += `<option value="${h}" ${ok ? "" : "disabled"}>${h}${ok ? "" : " · ocupado"}</option>`;
+    }
+    startSel.innerHTML = o;
+    const pick = (keep && isFree(busy, hm(keep), dur) && keep) || free[0] || [...startSel.options].find((x) => !x.disabled)?.value;
+    if (pick) startSel.value = pick;
+    freeBox.innerHTML = free.length
+      ? free
+          .slice(0, 8)
+          .map((h) => `<button type="button" class="sn-chip${h === startSel.value ? " on" : ""}" data-h="${h}">${h}</button>`)
+          .join("") + (free.length > 8 ? `<span class="sn-more">+${free.length - 8} más en la lista</span>` : "")
+      : `<span class="sn-more">${day?.providers?.find((p) => p.id === pid)?.hours?.length ? "Sin huecos en su horario: elige la hora en la lista." : "Ese día no trabaja: elige la hora en la lista si aun así quieres apuntarla."}</span>`;
+    freeBox.querySelectorAll(".sn-chip").forEach((b) => (b.onclick = () => ((startSel.value = b.dataset.h), mark())));
+    if (endSel) paintEnd();
+  };
+  const mark = () => {
+    freeBox.querySelectorAll(".sn-chip").forEach((b) => b.classList.toggle("on", b.dataset.h === startSel.value));
+    if (endSel) paintEnd();
+  };
+  // Bloqueo: el fin por defecto es una hora después del inicio.
+  const paintEnd = () => {
+    const from = hm(startSel.value || "10:00"),
+      keep = endSel.value;
+    let o = "";
+    for (let t = from + 15; t <= 22 * 60; t += 15) o += `<option>${addMin("00:00", t)}</option>`;
+    endSel.innerHTML = o;
+    endSel.value = keep && hm(keep) > from ? keep : addMin("00:00", Math.min(from + 60, 22 * 60));
+  };
+  if (preset.provider && f.provider.tagName === "SELECT") f.provider.value = preset.provider;
+  paint();
+  if (preset.start && [...startSel.options].some((o) => o.value === preset.start && !o.disabled)) (startSel.value = preset.start), mark();
+  startSel.onchange = mark;
+  if (f.provider.tagName === "SELECT") f.provider.onchange = paint;
+  if (f.service) f.service.onchange = paint;
+
+  // Autocompletar: al escribir el nombre (o el teléfono) salen los clientes que
+  // coinciden; al tocar uno se rellenan nombre, teléfono y correo.
+  const nameIn = q("#sn-name"),
+    sug = q("#sn-sug");
+  if (nameIn) {
+    const fill = (c) => {
+      nameIn.value = c.n;
+      f.phone.value = c.p || "";
+      f.email.value = c.e || "";
+      sug.hidden = true;
+    };
+    const suggest = async (src) => {
+      const text = plain(src.value).trim(),
+        digits = src.value.replace(/\D/g, "");
+      if (text.length < 2 && digits.length < 3) return void (sug.hidden = true);
+      const list = (await staffContacts()).filter((c) => (src === nameIn ? plain(c.n).includes(text) : digits.length >= 3 && String(c.p).replace(/\D/g, "").includes(digits))).slice(0, 5);
+      if (document.activeElement !== src || !list.length) return void (sug.hidden = true);
+      sug.innerHTML = list.map((c, i) => `<button type="button" data-i="${i}"><strong>${esc(c.n)}</strong><span>${esc([c.p, c.e].filter(Boolean).join(" · ") || "Sin teléfono")}</span></button>`).join("");
+      sug.hidden = false;
+      // pointerdown (y no click) para que llegue antes de que el campo pierda el foco
+      sug.querySelectorAll("button").forEach((b) => b.addEventListener("pointerdown", (e) => (e.preventDefault(), fill(list[+b.dataset.i]))));
+    };
+    staffContacts(); // se van pidiendo mientras se elige la hora
+    nameIn.oninput = () => suggest(nameIn);
+    f.phone.oninput = () => !nameIn.value && suggest(f.phone);
+    nameIn.onblur = f.phone.onblur = () => setTimeout(() => (sug.hidden = true), 150);
+  }
+
+  f.addEventListener("submit", async (e) => {
     e.preventDefault();
     const d = Object.fromEntries(new FormData(e.target));
     const btn = e.target.querySelector("[type=submit]");
@@ -3178,6 +3790,7 @@ function staffNew(block) {
     try {
       const r = await api("staff/book", { ...d, date: staffDay, block, repeat: d.every ? { every: Number(d.every), times: Number(d.times) } : null });
       availCache.clear();
+      contactsP = null;
       sh.close();
       toast(block ? "Hora bloqueada." : r.series ? `${r.series.made} citas apuntadas${r.series.skipped.length ? ` (ocupado el ${r.series.skipped.map(shortDate).join(", ")})` : ""}.` : "Cita apuntada.");
       render();
@@ -3576,6 +4189,199 @@ function bindBackup() {
   };
 }
 
+// ── Aviso temporal, logo y galería (lo que Airam cambia en «Web») ──────────
+function siteChrome() {
+  const n = catalog?.site?.notice;
+  let bar = $("#site-notice");
+  if (n && !document.body.dataset.page?.startsWith("equipo")) {
+    if (!bar) {
+      bar = document.createElement("div");
+      bar.id = "site-notice";
+      bar.setAttribute("role", "status");
+      $("#app").before(bar);
+    }
+    bar.className = "site-notice " + n.tone;
+    bar.textContent = n.text;
+  } else bar?.remove();
+  const logo = catalog?.site?.photos?.logo;
+  const img = $(".hdr-logo img");
+  if (img) {
+    const want = logo ? `/api/site/logo/photo?v=${encodeURIComponent(logo)}` : "/assets/logo.png";
+    if (img.getAttribute("src") !== want) {
+      img.onerror = () => ((img.onerror = null), img.setAttribute("src", "/assets/logo.png"));
+      img.setAttribute("src", want);
+    }
+  }
+}
+function galleryBlock() {
+  const g = catalog?.site?.gallery || [];
+  if (!g.length) return "";
+  return `<section class="home-block" aria-labelledby="gal-title">
+    <p class="eyebrow">Trabajos recientes</p>
+    <h2 id="gal-title">Recién salidos <em class="serif">de la silla.</em></h2>
+    <div class="gal-grid">${g.map((id) => `<figure><img src="${esc(pic(id))}" alt="Corte reciente hecho en el estudio" loading="lazy"></figure>`).join("")}</div>
+  </section>`;
+}
+
+// ── Servicios (solo el dueño): crear, cambiar, ordenar y activar/desactivar ──
+const SVC_ICON_OPTS = [["scissors", "Tijeras"], ["beard", "Barba"], ["star", "Estrella"], ["moon", "Luna"], ["crown", "Corona"], ["drop", "Gota"], ["gem", "Diamante"], ["bolt", "Rayo"]];
+async function staffServices() {
+  if (!staff.owner) return show(staffTop("servicios") + `<p class="ag-free">Esto lo lleva el dueño.</p>`);
+  const r = await api("staff/services");
+  show(
+    staffTop("servicios") +
+      `<p class="muted" style="margin-top:0">Lo que ven los clientes al reservar. Desactiva uno para quitarlo de la web sin borrarlo; las citas que ya tengan se quedan como estaban.</p>
+      <div class="svc-admin">${r.services
+        .map(
+          (x, i) => `<div class="ag-item sv-row${x.active === false ? " off" : ""}">
+            <button type="button" class="sv-main" data-sv="${esc(x.id)}"><span class="svc-ic">${svcIcon(x.icon)}</span><span><strong>${esc(x.name)}</strong><small>${x.consult ? "Por WhatsApp" : `${x.duration} min`} · ${x.price != null ? euro(x.price) : "Consultar"}${x.providers?.length ? " · solo " + esc(x.providers.map((id) => first(r.team.find((p) => p.id === id)?.name || id)).join(", ")) : ""}</small></span></button>
+            <span class="sv-side"><label class="switch" title="Activo"><input type="checkbox" data-act="${esc(x.id)}" ${x.active === false ? "" : "checked"}><i></i></label>
+            <span class="sv-move"><button type="button" data-up="${esc(x.id)}" ${i === 0 ? "disabled" : ""} aria-label="Subir">↑</button><button type="button" data-down="${esc(x.id)}" ${i === r.services.length - 1 ? "disabled" : ""} aria-label="Bajar">↓</button></span></span>
+          </div>`,
+        )
+        .join("")}</div>
+      <button type="button" class="btn wide" style="margin-top:12px" id="sv-new">+ Añadir servicio</button>`,
+  );
+  const reload = async () => {
+    (catalog = null), (catalogBust = true);
+    await loadCatalog();
+    render();
+  };
+  const save = async (x, extra) => {
+    try {
+      await api("staff/services", { ...x, ...extra });
+      reload();
+    } catch (e) {
+      toast(e.message);
+      render();
+    }
+  };
+  $$("[data-act]").forEach((c) => (c.onchange = () => save(r.services.find((x) => x.id === c.dataset.act), { active: c.checked })));
+  $$("[data-up]").forEach((b) => (b.onclick = () => save(r.services.find((x) => x.id === b.dataset.up), { move: "up" })));
+  $$("[data-down]").forEach((b) => (b.onclick = () => save(r.services.find((x) => x.id === b.dataset.down), { move: "down" })));
+  $$("[data-sv]").forEach((b) => (b.onclick = () => serviceSheet(r.services.find((x) => x.id === b.dataset.sv), r.team, reload)));
+  $("#sv-new").onclick = () => serviceSheet(null, r.team, reload);
+}
+function serviceSheet(x, team, reload) {
+  const durs = [];
+  for (let m = 15; m <= 240; m += 15) durs.push(m);
+  const sh = sheet(
+    `<p class="eyebrow">Servicio</p><h2>${x ? esc(x.name) : "Nuevo servicio"}</h2>
+    <form id="sv-form">
+      <label for="sv-n" style="margin-top:0">Nombre</label><input id="sv-n" name="name" required maxlength="50" value="${esc(x?.name || "")}" placeholder="Corte y barba">
+      <label for="sv-d">Descripción corta <small id="sv-cnt">(${(x?.desc || "").length}/80)</small></label><textarea id="sv-d" name="desc" rows="2" maxlength="80">${esc((x?.desc || "").slice(0, 80))}</textarea>
+      <div class="form-row2"><div><label for="sv-t">Duración</label><select id="sv-t" name="duration">${durs.map((m) => `<option value="${m}" ${(x?.duration || 30) === m ? "selected" : ""}>${m} min</option>`).join("")}</select></div>
+      <div><label for="sv-p">Precio (€)</label><input id="sv-p" name="price" inputmode="decimal" value="${x?.price != null ? Number(x.price).toFixed(2).replace(".", ",").replace(",00", "") : ""}"></div></div>
+      <label for="sv-i">Icono</label><select id="sv-i" name="icon">${SVC_ICON_OPTS.map(([k, l]) => `<option value="${k}" ${(x?.icon || "scissors") === k ? "selected" : ""}>${l}</option>`).join("")}</select>
+      <label>¿Quién lo hace? <small>(sin marcar = todo el equipo)</small></label>
+      <div class="tchips">${team.map((p) => `<label class="tchip"><input type="checkbox" name="providers" value="${esc(p.id)}" ${x?.providers?.includes(p.id) ? "checked" : ""}><span>${esc(first(p.name))}</span></label>`).join("")}</div>
+      <label class="check"><input type="checkbox" name="consult" ${x?.consult ? "checked" : ""}><span>No se reserva en la app: se habla por WhatsApp (sale en «Fuera de carta»)</span></label>
+      <label class="check" style="margin-top:10px"><input type="checkbox" name="active" ${x?.active === false ? "" : "checked"}><span>Activo (se ve en la web)</span></label>
+      <button class="btn wide" style="margin-top:16px" type="submit">Guardar</button>
+      ${x ? `<button type="button" class="btn wide danger" style="margin-top:10px" id="sv-del">Borrar servicio</button>` : ""}
+    </form>`,
+  );
+  const f = sh.el.querySelector("#sv-form");
+  f.desc.oninput = () => (sh.el.querySelector("#sv-cnt").textContent = `(${f.desc.value.length}/80)`);
+  f.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const d = new FormData(f);
+    try {
+      await api("staff/services", { id: x?.id, name: d.get("name"), desc: d.get("desc"), duration: d.get("duration"), price: d.get("price"), icon: d.get("icon"), providers: d.getAll("providers"), consult: d.get("consult") === "on", active: d.get("active") === "on" });
+      sh.close();
+      toast("Servicio guardado. Ya se ve en la web.");
+      reload();
+    } catch (err) {
+      toast(err.message);
+    }
+  });
+  const del = sh.el.querySelector("#sv-del");
+  if (del)
+    del.onclick = async () => {
+      if (del.dataset.sure !== "1") {
+        del.dataset.sure = "1";
+        del.textContent = "Pulsa otra vez (mejor desactívalo si lo vas a volver a usar)";
+        return;
+      }
+      try {
+        await api("staff/services", { id: x.id, delete: true });
+        sh.close();
+        toast("Servicio borrado.");
+        reload();
+      } catch (err) {
+        toast(err.message);
+      }
+    };
+}
+
+// ── Vacaciones y días libres ───────────────────────────────────────────────
+// El barbero no sale para reservar esos días. El dueño lo pone para cualquiera.
+async function offSheet() {
+  let team = catalog.providers;
+  const who = staff.owner ? team : team.filter((p) => p.id === staff.id);
+  const today = isoDay(salonDate ? salonDate() : new Date());
+  const sh = sheet(
+    `<p class="eyebrow">Vacaciones y días libres</p><h2>Bloquear días</h2>
+    <p class="muted" style="margin-top:0">Esos días no saldrá para reservar. Para unas horas sueltas, usa «Bloquear hora» en la agenda.</p>
+    <form id="off-form">
+      ${staff.owner ? `<label for="off-p" style="margin-top:0">Barbero</label><select id="off-p" name="provider">${who.map((p) => `<option value="${esc(p.id)}" ${p.id === staff.id ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select>` : `<input type="hidden" name="provider" value="${esc(staff.id)}">`}
+      <div class="form-row2 even"><div><label for="off-f">Desde</label><input id="off-f" name="from" type="date" required min="${today}" value="${today}"></div><div><label for="off-t">Hasta (incluido)</label><input id="off-t" name="to" type="date" required min="${today}" value="${today}"></div></div>
+      <label for="off-n">Motivo <small>(opcional)</small></label><input id="off-n" name="note" maxlength="60" placeholder="Vacaciones, formación…">
+      <button class="btn wide" style="margin-top:16px" type="submit">Bloquear esos días</button>
+    </form>
+    <div id="off-list"></div>`,
+  );
+  const f = sh.el.querySelector("#off-form");
+  const list = async () => {
+    const pid = f.provider.value;
+    const t = staff.owner ? (await api("staff/team")).team : null;
+    const p = (t || team).find((x) => x.id === pid);
+    const off = (p?.off || []).filter((r) => r.to >= today);
+    sh.el.querySelector("#off-list").innerHTML = off.length
+      ? `<p class="section-label">Ya bloqueado</p>${off.map((r) => `<div class="ag-item off-row"><div><strong>${esc(shortDate(r.from))}${r.to !== r.from ? " – " + esc(shortDate(r.to)) : ""}</strong><span>${esc(r.note || "Días libres")}</span></div><button type="button" class="tr-del" data-unoff="${esc(r.from)}|${esc(r.to)}">Quitar</button></div>`).join("")}`
+      : "";
+    sh.el.querySelectorAll("[data-unoff]").forEach(
+      (b) =>
+        (b.onclick = async () => {
+          const [from, to] = b.dataset.unoff.split("|");
+          try {
+            await api("staff/off", { provider: pid, from, to, delete: true });
+            toast("Días desbloqueados.");
+            (catalog = null), (catalogBust = true);
+            await loadCatalog();
+            availCache.clear();
+            team = catalog.providers;
+            list();
+          } catch (e) {
+            toast(e.message);
+          }
+        }),
+    );
+  };
+  if (f.provider.tagName === "SELECT") f.provider.onchange = list;
+  f.from.onchange = () => {
+    if (f.to.value < f.from.value) f.to.value = f.from.value;
+    f.to.min = f.from.value;
+  };
+  list().catch(() => {});
+  f.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const d = new FormData(f);
+    try {
+      const r = await api("staff/off", { provider: d.get("provider"), from: d.get("from"), to: d.get("to"), note: d.get("note") });
+      availCache.clear();
+      (catalog = null), (catalogBust = true);
+      await loadCatalog();
+      team = catalog.providers;
+      toast(r.clash.length ? `Bloqueado. Ojo: hay ${r.clash.length} ${r.clash.length === 1 ? "cita" : "citas"} esos días; muévelas o cancélalas desde la agenda.` : "Días bloqueados.");
+      list();
+      render();
+    } catch (err) {
+      toast(err.message);
+    }
+  });
+}
+
 // ── Fotos de la web y reseñas (solo el dueño) ──────────────────────────────
 // Cada foto de la web tiene un hueco. Si Airam sube otra desde su panel
 // (pestaña «Web»), sale la suya; si no, la original.
@@ -3593,19 +4399,12 @@ async function shrinkFit(file, max) {
     const img = new Image();
     img.src = url;
     await img.decode();
-    let k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
-    for (let i = 0; i < 6; i++) {
-      const c = document.createElement("canvas");
-      c.width = Math.round(img.naturalWidth * k);
-      c.height = Math.round(img.naturalHeight * k);
-      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-      for (const q of [0.82, 0.72, 0.62]) {
-        const d = c.toDataURL("image/jpeg", q);
-        if (d.length < 850000) return d;
-      }
-      k *= 0.8;
-    }
-    throw Error("big");
+    const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.naturalWidth * k);
+    c.height = Math.round(img.naturalHeight * k);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    return encodeLight(c);
   } finally {
     URL.revokeObjectURL(url);
   }
@@ -3617,7 +4416,25 @@ async function staffWeb() {
     when = R.at ? new Date(R.at).toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
   show(
     staffTop("web") +
-      `<p class="section-label">Tema de la web</p>
+      `<p class="section-label">Aviso temporal</p>
+      <form id="nt" class="card norms">
+        <label class="check" style="margin-top:0"><input type="checkbox" name="on" ${r.notice.on ? "checked" : ""}><span>Enseñar un aviso arriba de la web</span></label>
+        <label for="nt-t">Texto <small>(máx. 160)</small></label><textarea id="nt-t" name="text" rows="2" maxlength="160" placeholder="Ej.: Del 24 al 31 de diciembre abrimos de 9:00 a 14:00.">${esc(r.notice.text || "")}</textarea>
+        <div class="form-row2"><div><label for="nt-u">Se quita solo el <small>(opcional)</small></label><input id="nt-u" name="until" type="date" value="${esc(r.notice.until || "")}"></div>
+        <div><label for="nt-c">Color</label><select id="nt-c" name="tone"><option value="info" ${r.notice.tone !== "alerta" ? "selected" : ""}>Normal</option><option value="alerta" ${r.notice.tone === "alerta" ? "selected" : ""}>Llamativo</option></select></div></div>
+        <button class="btn wide" style="margin-top:14px" type="submit">Guardar aviso</button>
+      </form>
+      <p class="section-label">Contacto</p>
+      <form id="ct" class="card norms">
+        <label for="ct-s" style="margin-top:0">Dirección</label><input id="ct-s" name="street" maxlength="80" value="${esc(r.contact.street)}">
+        <label for="ct-c">Localidad</label><input id="ct-c" name="city" maxlength="80" value="${esc(r.contact.city)}">
+        <label for="ct-m">Enlace de Google Maps</label><input id="ct-m" name="maps" inputmode="url" value="${esc(r.contact.maps)}" placeholder="https://maps.app.goo.gl/…">
+        <label for="ct-w">WhatsApp <small>(con prefijo)</small></label><input id="ct-w" name="whatsapp" inputmode="tel" value="${esc(r.contact.whatsapp)}">
+        <label for="ct-i">Instagram <small>(usuario o enlace)</small></label><input id="ct-i" name="instagram" value="${esc(r.contact.instagram)}">
+        <p class="muted" style="font-size:12px;margin:10px 0 0">El mapa de la portada se saca de la dirección.</p>
+        <button class="btn wide" style="margin-top:14px" type="submit">Guardar contacto</button>
+      </form>
+      <p class="section-label">Tema de la web</p>
       <div class="theme-pick">${[
         ["plata", "Plata", "Gris y negro, con el logo plateado en la portada."],
         ["rosa", "Rosa", "El rosa del logo, con la portada rosa de antes."],
@@ -3639,7 +4456,8 @@ async function staffWeb() {
       <div class="web-grid">${r.slots
         .map((x) => {
           const mine = !!r.photos[x.id];
-          return `<button type="button" class="web-slot" data-slot="${esc(x.id)}"><span class="ws-pic${x.id === "hero-wide" ? " wide" : ""}"><img src="${mine ? `/api/site/${x.id}/photo?v=${esc(r.photos[x.id])}` : esc(x.def)}" alt="" loading="lazy">${mine ? `<em>Tuya</em>` : ""}</span><strong>${esc(x.label)}</strong><small>${esc(x.where)}</small></button>`;
+          const src = mine ? `/api/site/${x.id}/photo?v=${esc(r.photos[x.id])}` : x.def;
+          return `<button type="button" class="web-slot" data-slot="${esc(x.id)}"><span class="ws-pic${x.id === "hero-wide" ? " wide" : ""}${x.logo ? " logo" : ""}">${src ? `<img src="${esc(src)}" alt="" loading="lazy">` : `<span class="ws-add">${svg(ICONS.camera)}Añadir</span>`}${mine && x.def ? `<em>Tuya</em>` : ""}</span><strong>${esc(x.label)}</strong><small>${esc(x.where)}</small></button>`;
         })
         .join("")}</div>`,
   );
@@ -3648,6 +4466,16 @@ async function staffWeb() {
     await loadCatalog();
     render();
   };
+  onForm("nt", async (d) => {
+    await api("staff/site", { notice: { on: d.on === "on", text: d.text, until: d.until, tone: d.tone } });
+    toast(d.on === "on" ? "Aviso puesto. Ya lo ven los clientes." : "Aviso guardado (apagado).");
+    reload();
+  });
+  onForm("ct", async (d) => {
+    await api("staff/site", { contact: d });
+    toast("Contacto guardado.");
+    reload();
+  });
   $$("[data-theme-set]").forEach(
     (el) =>
       (el.onclick = async () => {
@@ -3904,7 +4732,7 @@ async function shrinkPortrait(file) {
     c.width = W;
     c.height = H;
     c.getContext("2d").drawImage(img, (img.naturalWidth - sw) / 2, (img.naturalHeight - sh) / 3, sw, sh, 0, 0, W, H);
-    return c.toDataURL("image/jpeg", 0.8);
+    return encodeLight(c);
   } finally {
     URL.revokeObjectURL(url);
   }
@@ -4614,6 +5442,7 @@ async function render() {
       app.classList.add("enter");
     }
     document.body.dataset.page = page;
+    siteChrome();
     motion();
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", page === "home" ? "#0a090c" : "#f5f4f1");
     lastPage = page;
@@ -4636,7 +5465,7 @@ async function render() {
 }
 
 // Rutas «bonitas» que llevan a una pantalla (por si se comparten).
-const entry = { "/acceder": "login", "/mis-citas": "bookings", "/perfil": "profile", "/equipo": "equipo", "/reservar": "home", "/formacion": "formacion", "/productos": "productos" }[location.pathname.replace(/\/$/, "")];
+const entry = { "/acceder": "login", "/mis-citas": "bookings", "/perfil": "profile", "/equipo": "equipo", "/reservar": "home", "/formacion": "formacion", "/productos": "productos", "/privacidad": "privacidad", "/cookies": "cookies", "/condiciones": "condiciones", "/aviso-legal": "aviso-legal" }[location.pathname.replace(/\/$/, "")];
 if (entry && !location.hash) history.replaceState(null, "", "/#" + entry);
 
 // Intro con el logo: solo la primera vez en cada visita y como mínimo un instante, para que se vea.
@@ -4670,5 +5499,5 @@ $("#lang-btn").addEventListener("click", () => {
   render();
 });
 window.addEventListener("hashchange", render);
-refreshMe().then(render);
+Promise.all([refreshMe(), loadCatalog().catch(() => {})]).then(render);
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});

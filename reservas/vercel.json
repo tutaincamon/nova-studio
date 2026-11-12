@@ -2,13 +2,14 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "buildCommand": null,
+  "regions": ["lhr1"],
   "rewrites": [
     {
       "source": "/api/:path*",
       "destination": "/api/handler?route=:path*"
     },
     {
-      "source": "/(acceder|mis-citas|perfil|equipo|reservar|formacion|productos)",
+      "source": "/(acceder|mis-citas|perfil|equipo|reservar|formacion|productos|privacidad|cookies|condiciones|aviso-legal)",
       "destination": "/index.html"
     }
   ],

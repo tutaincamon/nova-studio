@@ -19,6 +19,10 @@ const SALON = {
 export const BUSINESS = {
   name: "NOVA Studio",
   short: "NOVA",
+  // Titular legal (aviso legal, privacidad, condiciones). Es el mismo que el de NOVA Supply.
+  holder: "Airam Jesús Matas Marrero",
+  nif: "54172828P",
+  phone: "658 356 428",
   tagline: "Barbería en Vecindario",
   tz: "Atlantic/Canary",
   street: "Av. del Atlántico, 317",
@@ -103,7 +107,7 @@ export const SERVICES = [
 export const PROVIDERS = [
   { id: "airam", name: "Airam Marrero", role: "Barbero · Fundador", image: "/assets/airam.jpg", hours: SALON, owner: true },
   { id: "ehedey", name: "Ehedey", role: "Barbero", image: "/assets/ehedey.jpg", hours: SALON },
-  { id: "noa", name: "Noa", role: "Barbero", image: "/assets/noa.jpg", hours: SALON },
+  { id: "noa", name: "Noah", role: "Barbero", image: "/assets/noa.jpg", hours: SALON },
 ];
 
 // Comisión (en %) que el dueño cobra de cada servicio que hacen los demás.
