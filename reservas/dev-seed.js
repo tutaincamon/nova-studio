@@ -62,7 +62,7 @@ async function paid(b, method) {
 export async function seed() {
   const today = nowLocal().date;
   const email = "demo@nova.test";
-  await cmd("SET", "seq:member", 41);
+  await cmd("SET", "seq:member", 70);
   // Con tarjeta de prueba guardada (modo prueba de Stripe, sin cobros reales).
   const testCard = (last4) => ({ stripe: "cus_fake_demo_" + last4, card: { pm: "pm_fake_demo_" + last4, brand: "visa", last4, exp: "12/30", saved: addDays(today, -60) + " 10:00" } });
   await setJSON("user:" + email, { email, name: "Alex Demo", phone: "+34 611 222 333", no: 42, created: addDays(today, -400) + " 10:00", ref: "ALEX123", ...testCard("4242") });
@@ -86,7 +86,7 @@ export async function seed() {
 
   // Dos amigos invitados: uno ya vino (suma), otro aún no.
   for (const [fe, fname, came] of [["marta@nova.test", "Marta Ruiz", true], ["pablo@nova.test", "Pablo Díaz", false]]) {
-    await setJSON("user:" + fe, { email: fe, name: fname, phone: "", no: 50, created: addDays(today, -40) + " 10:00", referredBy: email, ref: fname.split(" ")[0].toUpperCase() + "777" });
+    await setJSON("user:" + fe, { email: fe, name: fname, phone: "", no: came ? 50 : 51, created: addDays(today, -40) + " 10:00", referredBy: email, ref: fname.split(" ")[0].toUpperCase() + "777" });
     await cmd("SADD", "refs:" + email, fe);
     if (came) await save(booking(fe, fname, addDays(today, -20), "12:30"));
   }
@@ -127,8 +127,10 @@ export async function seed() {
   }
   // Esos clientes, con tarjeta de prueba: la de c1 la rechaza el banco al cobrar
   // una falta y la de c2 pide confirmación. c5 no dejó tarjeta.
-  for (let i = 0; i < clients.length - 1; i++)
+  for (let i = 0; i < clients.length - 1; i++) {
     await setJSON(`user:c${i}@nova.test`, { email: `c${i}@nova.test`, name: clients[i], phone: "+34 600 000 000", no: 60 + i, created: addDays(today, -90) + " 10:00", ref: "CLI" + i + "00", ...testCard(i === 1 ? "0002" : i === 2 ? "3155" : "4242") });
+    await cmd("SET", "refcode:CLI" + i + "00", `c${i}@nova.test`);
+  }
   // Alex no vino hace dos días a una cita con Noa (sin cobrar todavía).
   let miss = addDays(today, -2);
   while ([0, 1].includes(new Date(miss + "T12:00:00Z").getUTCDay())) miss = addDays(miss, -1);
@@ -152,6 +154,37 @@ export async function seed() {
     ["SET", "rd:" + rd.id, JSON.stringify(rd)],
     ["SADD", "urd:" + email, rd.id],
     ["SADD", "rdpending", rd.id],
+  ]);
+
+  // Ranking: los socios que «han entrado en la app» (verified) salen en él.
+  // Cada uno con cortes cobrados este mes y antes; Carlos es amigo de Alex
+  // (añadido con su código) y Marta, la amiga que Alex invitó.
+  const verified = addDays(today, -30) + " 10:00";
+  await setJSON("user:" + email, { ...(JSON.parse(await cmd("GET", "user:" + email))), verified });
+  const month = today.slice(0, 8);
+  const rankers = [
+    ["c0@nova.test", 3, 6],
+    ["c1@nova.test", 1, 9],
+    ["c2@nova.test", 2, 2],
+    ["c3@nova.test", 0, 4],
+    ["c4@nova.test", 1, 1],
+  ];
+  let day = Number(today.slice(8, 10));
+  for (const [ce, now, before] of rankers) {
+    const u = JSON.parse(await cmd("GET", "user:" + ce));
+    await setJSON("user:" + ce, { ...u, verified });
+    for (let i = 0; i < now + before; i++) {
+      const date = i < now ? month + String(Math.max(1, day - 1 - i)).padStart(2, "0") : addDays(today, -40 - i * 25);
+      const b = booking(ce, u.name, date, "11:30", i % 2 ? "corte-barba" : "corte", {}, "ehedey");
+      await paid(b, "tarjeta");
+      await save(b);
+    }
+  }
+  const marta = JSON.parse(await cmd("GET", "user:marta@nova.test"));
+  await setJSON("user:marta@nova.test", { ...marta, verified });
+  await pipe([
+    ["SADD", "fr:" + email, "c0@nova.test"],
+    ["SADD", "fr:c0@nova.test", email],
   ]);
   console.log("  Datos de prueba: entra con demo@nova.test");
 }

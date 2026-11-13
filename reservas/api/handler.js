@@ -8,11 +8,16 @@ import * as Card from "./_lib/stripe.js";
 import * as Sup from "./_lib/supply.js";
 
 const ON_VERCEL = !!process.env.VERCEL;
-// Mientras se prueba, se entra solo con el correo. Para producción hay que
-// poner LOGIN_CON_CODIGO=1 (y RESEND_API_KEY): entonces se manda un código de
-// 6 cifras al correo y sin él no se entra. Sin código, cualquiera que sepa un
-// correo puede ver las citas de esa persona.
-const LOGIN_CON_CODIGO = process.env.LOGIN_CON_CODIGO === "1";
+// Para entrar (y para darse de alta) siempre hace falta el código de 6 cifras
+// que se manda al correo: así cada cuenta es de verdad de quien la usa. En
+// Vercel eso necesita RESEND_API_KEY (+ MAIL_FROM con un dominio verificado);
+// en el ordenador el código sale por la consola.
+// Por qué medios se puede recibir el código. El teléfono está preparado en la
+// API (auth/request acepta `phone`) pero apagado hasta elegir cómo mandar SMS
+// o WhatsApp: el día que se encienda, la cuenta de teléfono se guardaría con la
+// clave `tel:+34…` en lugar del correo, y habría que revisar lo que manda
+// correos a `u.email` (recordatorios, avisos) y lo que lo enseña en el panel.
+const authChannels = () => ({ email: mailReady() || !ON_VERCEL, phone: false });
 const SESSION = "nova_s",
   STAFF = "nova_staff",
   MONTH = 30 * 86400,
@@ -167,19 +172,18 @@ async function ensureUser(email, name, phone, extra = {}) {
 // De la tarjeta solo se enseña la marca, los 4 últimos números y la caducidad.
 const publicCard = (c) => (c ? { brand: c.brand, last4: c.last4, exp: c.exp } : null);
 const publicUser = (u) =>
-  u && { email: u.email, name: u.name, phone: u.phone, no: u.no, photo: u.photo || "", ref: u.ref || "", since: u.created, card: publicCard(u.card) };
-
-// Alta de un cliente nuevo desde el móvil: crea la cuenta (con el amigo que le
-// invitó, si viene con código) y le deja la sesión abierta.
-async function registerNew(req, res, { email, name, phone, ref }) {
-  const code = String(ref || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
-  const referrer = code ? await cmd("GET", "refcode:" + code) : null;
-  const by = referrer && referrer !== email ? referrer : null;
-  const u = await ensureUser(email, name, phone, by ? { referredBy: by } : {});
-  if (by) await cmd("SADD", "refs:" + by, email);
-  await startSession(req, res, email);
-  return u;
-}
+  u && {
+    email: u.email,
+    name: u.name,
+    phone: u.phone,
+    no: u.no,
+    photo: u.photo || "",
+    ref: u.ref || "",
+    since: u.created,
+    card: publicCard(u.card),
+    rank: !u.rankHidden,
+    rankName: u.name ? rankName(u.name) : "",
+  };
 
 // ── Club: puntos, liga y medallas ──────────────────────────────────────────
 const PHOTO = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
@@ -271,7 +275,18 @@ async function clubOf(u) {
     counted.length * POINTS.perFriend +
     medalBonus;
   const spent = redemptions.filter((r) => r.status !== "canceled").reduce((a, r) => a + r.reward.cost, 0);
-  return { metrics, medals, friends, earned, spent, balance: earned - spent, redemptions, moves: moves.slice(0, 40) };
+  // Para el ranking «Este mes»: lo ganado cada mes en la silla, en la tienda y
+  // con amigos (sin la bienvenida ni el bonus de medallas, que no tienen mes).
+  const months = {};
+  for (const [day, pts] of [
+    ...done.map((b) => [b.date, pointsOf(b)]),
+    ...purchases.map((p) => [p.date || p.created, p.points]),
+    ...counted.map((f) => [f.date, POINTS.perFriend]),
+  ]) {
+    const k = String(day || "").slice(0, 7);
+    if (/^\d{4}-\d{2}$/.test(k)) months[k] = (months[k] || 0) + (Number(pts) || 0);
+  }
+  return { metrics, medals, friends, earned, spent, balance: earned - spent, redemptions, moves: moves.slice(0, 40), months };
 }
 // Puntos de una cita cobrada: lo que se pagó en caja × puntos por euro.
 function pointsOf(b) {
@@ -282,6 +297,170 @@ async function bookingsByIds2(prefix, ids) {
   if (!ids.length) return [];
   const raw = await cmd("MGET", ...ids.map((id) => prefix + id));
   return raw.filter(Boolean).map((x) => JSON.parse(x));
+}
+
+// ── Ranking del Club ────────────────────────────────────────────────────────
+// Ordena a los socios por puntos GANADOS (canjear premios no te hace bajar),
+// de siempre o de este mes, entre todos o solo entre amigos.
+//  · lb:all y lb:m:<AAAA-MM>  listas ordenadas correo → puntos (solo quien sale en el general)
+//  · lb:u                     ficha corta de cada socio del ranking: nombre que se enseña, Nº, puntos…
+//  · lb:ver                   sube con cada cambio: el móvil pregunta cada pocos segundos si ha cambiado
+//  · fr:<correo>              amigos añadidos con su código (en los dos sentidos); frx:<correo>, quitados
+// Sale en el ranking quien tiene nombre, ha entrado en la app (código o sesión)
+// y no es del equipo. Las cuentas que crea el equipo al apuntar una cita no
+// salen hasta que su dueño entra. En el general se enseña nombre e inicial.
+const RANK_TOP = 50;
+const RANK_V = 1; // subir si cambia cómo se calcula: el ranking se rehace solo
+const rankCfg = () => sha(JSON.stringify([RANK_V, POINTS, MEDALS.map((m) => [m.id, m.metric, m.goal, m.bonus])])).slice(0, 12);
+const thisMonth = () => T.nowLocal().date.slice(0, 7);
+// «carlos pérez garcía» → «Carlos P.»
+function rankName(name) {
+  const w = clean(name, 60).split(" ").filter(Boolean);
+  if (!w.length) return "";
+  const cap = (s) => s.charAt(0).toLocaleUpperCase("es") + s.slice(1);
+  return (cap(w[0]).slice(0, 18) + (w[1] ? " " + w[1].charAt(0).toLocaleUpperCase("es") + "." : "")).trim();
+}
+async function teamEmails() {
+  const cfgs = TEAM.length ? await cmd("MGET", ...TEAM.map((p) => "staffcfg:" + p.id)) : [];
+  return new Set(TEAM.flatMap((p, i) => [p.email, cfgs[i] && JSON.parse(cfgs[i]).email]).filter(Boolean).map((e) => e.toLowerCase()));
+}
+// Vuelve a calcular a un socio y, si algo ha cambiado, lo apunta y avisa a los
+// móviles que miran el ranking (lb:ver). Devuelve su cuenta.
+async function syncRank(email, team) {
+  const month = thisMonth();
+  const [raw, seen, old] = await pipe([
+    ["GET", "user:" + email],
+    ["GET", "seen:" + email],
+    ["HGET", "lb:u", email],
+  ]);
+  const u = raw ? JSON.parse(raw) : null;
+  team ||= await teamEmails();
+  if (!u || !u.name || !(u.verified || seen) || team.has(email)) {
+    if (old) await rankDrop(email);
+    return u;
+  }
+  const c = await clubOf(u);
+  const e = {
+    id: rankEntry(old)?.id || crypto.randomBytes(5).toString("hex"), // lo que ve el móvil en vez del correo
+    n: rankName(u.name),
+    no: u.no || 0,
+    a: c.earned,
+    mk: month,
+    mp: c.months[month] || 0,
+    c: dayOf(u.created),
+    ...(c.metrics.year ? { y: 1 } : {}),
+    ...(u.rankHidden ? { h: 1 } : {}),
+  };
+  const s = JSON.stringify(e);
+  if (s === old) return u;
+  const ops = [
+    ["HSET", "lb:u", email, s],
+    ["INCR", "lb:ver"],
+  ];
+  if (e.h) ops.push(["ZREM", "lb:all", email], ["ZREM", "lb:m:" + month, email]);
+  else
+    ops.push(
+      ["ZADD", "lb:all", e.a, email],
+      e.mp > 0 ? ["ZADD", "lb:m:" + month, e.mp, email] : ["ZREM", "lb:m:" + month, email],
+      ["EXPIRE", "lb:m:" + month, 400 * 86400],
+    );
+  await pipe(ops);
+  return u;
+}
+async function rankDrop(email) {
+  const now = T.nowLocal().date;
+  const months = Array.from({ length: 13 }, (_, i) => T.addDays(now.slice(0, 7) + "-15", -30 * i).slice(0, 7));
+  await pipe([["HDEL", "lb:u", email], ["ZREM", "lb:all", email], ...[...new Set(months)].map((m) => ["ZREM", "lb:m:" + m, email]), ["INCR", "lb:ver"]]);
+}
+// Tras algo que cambia puntos (un cobro, una compra, «Vino»…): se recalcula al
+// socio y a quien le invitó (sus puntos por amigo dependen de esa primera cita).
+// Si falla, se apunta y lo arregla la pasada de cada hora; nunca rompe lo demás.
+async function rankTouch(...emails) {
+  for (const email of new Set(emails.filter(Boolean))) {
+    try {
+      const u = await syncRank(email);
+      if (u?.referredBy) await syncRank(u.referredBy);
+    } catch (e) {
+      console.error("ranking", e);
+      await cmd("SADD", "lb:dirty", email).catch(() => {});
+    }
+  }
+}
+// Rehace el ranking entero (la primera vez, o si cambian los puntos del Club),
+// por tandas: sigue donde lo dejó hasta acabar.
+async function rankRebuild(budgetMs) {
+  if ((await cmd("SET", "lock:lbrb", "1", "NX", "EX", 120)) !== "OK") return { busy: true };
+  try {
+    const emails = (await allEmails()).sort(),
+      team = await teamEmails(),
+      t0 = Date.now();
+    let i = Number(await cmd("GET", "lb:rb")) || 0;
+    for (; i < emails.length && Date.now() - t0 < budgetMs; i++)
+      await syncRank(emails[i], team).catch((e) => console.error("ranking", emails[i], e));
+    if (i < emails.length) {
+      await cmd("SET", "lb:rb", String(i), "EX", 7 * 86400);
+      return { done: false, at: i, of: emails.length };
+    }
+    await pipe([
+      ["SET", "lb:cfg", rankCfg()],
+      ["DEL", "lb:rb"],
+      ["INCR", "lb:ver"],
+    ]);
+    return { done: true, of: emails.length };
+  } finally {
+    await cmd("DEL", "lock:lbrb");
+  }
+}
+// La pasada de cada hora: acaba de rehacer si hace falta, arregla lo que falló
+// y, una vez al día, da la medalla del año a quien cumple un año en el Club.
+async function rankMaintain(now) {
+  const out = {};
+  // Tandas cortas: la pasada hace más cosas y la función no debe pasarse de tiempo; lo que falte, a la siguiente.
+  if ((await cmd("GET", "lb:cfg")) !== rankCfg()) out.rebuild = await rankRebuild(8000);
+  const dirty = await cmd("SPOP", "lb:dirty", 50);
+  if (dirty?.length) await rankTouch(...dirty);
+  if ((await cmd("SET", "lbday:" + now.date, "1", "NX", "EX", 2 * 86400)) === "OK") {
+    const line = T.addDays(now.date, -365);
+    const due = Object.entries(hgetall(await cmd("HGETALL", "lb:u")))
+      .filter(([, raw]) => {
+        const e = JSON.parse(raw);
+        return !e.y && e.c && e.c <= line;
+      })
+      .map(([email]) => email);
+    for (const email of due.slice(0, 200)) await rankTouch(email);
+    out.year = due.length;
+  }
+  return out;
+}
+// Amigos: los añadidos con su código y los de las invitaciones (a quien
+// invitaste y quien te invitó), menos los que has quitado.
+async function friendsOf(u) {
+  const [fr, refs, gone] = await pipe([
+    ["SMEMBERS", "fr:" + u.email],
+    ["SMEMBERS", "refs:" + u.email],
+    ["SMEMBERS", "frx:" + u.email],
+  ]);
+  const out = new Set([...fr, ...refs, u.referredBy].filter((e) => e && e !== u.email));
+  for (const e of gone) out.delete(e);
+  return [...out];
+}
+const rankEntry = (raw) => {
+  try {
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+// Puesto con empates: 1, 2, 2, 4…
+function withRanks(rows) {
+  let prev = null,
+    r = 0;
+  rows.forEach((x, i) => {
+    if (x.p !== prev) r = i + 1;
+    prev = x.p;
+    x.r = r;
+  });
+  return rows;
 }
 
 // ── Fotos de la web y reseñas (editables por el dueño) ────────────────────
@@ -698,15 +877,14 @@ async function bookNow(req, res, body) {
     fixed = anyone ? null : provider(body.provider);
   if (!anyone && (!fixed || fixed.active === false || !canDo(s, fixed))) fail(400, "Ese barbero no hace este servicio.");
   if (!T.isDate(body.date) || !T.isTime(body.start)) fail(400, "Elige día y hora.");
+  // Para reservar hay que haber entrado con el código: la cita queda a nombre de
+  // una cuenta comprobada, y se usan su nombre y su teléfono (si lo tiene).
   const user = await currentUser(req);
-  const email = user ? user.email : normEmail(body.email);
-  // Con la sesión iniciada no hace falta mandar nada: se usan los datos del perfil.
-  // El teléfono es opcional (se pide después, para completar el perfil).
-  const name = clean(body.name) || clean(user?.name),
-    phone = clean(body.phone, 30) || clean(user?.phone, 30);
+  if (!user) fail(401, "Entra con tu correo para reservar. Te mandamos un código.");
+  const email = user.email,
+    name = clean(user.name),
+    phone = clean(user.phone, 30);
   if (!name) fail(400, "Falta tu nombre.");
-  if (!EMAIL.test(email)) fail(400, "Revisa tu correo.");
-  if (phone && !PHONE.test(phone)) fail(400, "Revisa tu teléfono.");
   if (body.terms !== true) fail(400, "Tienes que aceptar las condiciones.");
   // Con Stripe activado, toda cita online queda garantizada con una tarjeta.
   if (Card.cardEnabled() && !user?.card) fail(402, "Añade una tarjeta para garantizar la cita.", { card: true });
@@ -750,18 +928,6 @@ async function bookNow(req, res, body) {
     let series = null;
     if (body.repeat && NORMS.recurring) series = await makeSeries(b, s, p, body.repeat, NORMS.recurringMax, { email, name, phone, by: "client", ...(b.guarantee ? { guarantee: b.guarantee } : {}) });
 
-    // Cuenta: si el correo es nuevo, se crea y se queda dentro en este móvil.
-    // Si ya existía, la cita se guarda igual pero para verla hay que entrar con código.
-    let session = !!user,
-      existing = false,
-      fresh = null;
-    if (user) await ensureUser(email, name, phone);
-    else if (await getJSON("user:" + email)) existing = true;
-    else {
-      await registerNew(req, res, { email, name, phone, ref: body.ref }); // ¿viene invitado? lo apunta
-      session = true;
-      fresh = email;
-    }
     await cmd("HDEL", "wl:" + b.date, email); // ya tiene hora ese día: fuera de la lista de espera
 
     await Promise.all([
@@ -774,7 +940,7 @@ async function bookNow(req, res, body) {
       ),
       notifySalon(b, "Nueva cita"),
     ]);
-    return { out: { id: b.id, session, existing, series, provider: { id: b.provider.id, name: b.provider.name } }, session: fresh };
+    return { out: { id: b.id, series, provider: { id: b.provider.id, name: b.provider.name } } };
   } finally {
     await cmd("DEL", "booking:" + email);
   }
@@ -996,6 +1162,12 @@ async function cronTick(req) {
   const changeLink = (b) =>
     host ? `<a href="https://${host}/#booking/${b.id}">Cámbiala o cancélala desde la app</a>` : "Cámbiala o cancélala desde la app";
   try {
+    // El ranking del Club: acabar de rehacerlo, arreglar fallos y medallas del año.
+    try {
+      out.ranking = await rankMaintain(now);
+    } catch (e) {
+      out.ranking = { error: String(e.message || e) };
+    }
     // Sin correo no se manda nada, pero lo que no envía nada se hace igual:
     // borrar las cuentas que pasaron 3 años sin uso (lo promete la política).
     if (!mailReady()) {
@@ -1247,9 +1419,16 @@ async function eraseAccount(a, now) {
     });
   }
   if (u.ref && (await cmd("GET", "refcode:" + u.ref)) === email) ops.push(["DEL", "refcode:" + u.ref]);
-  for (const k of ["user:", "ubk:", "ush:", "urd:", "refs:", "seen:", "purgewarn:", "winback:", "nomkt:", "reviewed:", "revmail:", "backmail:"]) ops.push(["DEL", k + email]);
+  // Fuera de las listas de amigos de los demás y del ranking.
+  const [fr, frx] = await pipe([
+    ["SMEMBERS", "fr:" + email],
+    ["SMEMBERS", "frx:" + email],
+  ]);
+  for (const f of new Set([...fr, ...frx])) ops.push(["SREM", "fr:" + f, email], ["SREM", "frx:" + f, email]);
+  for (const k of ["user:", "ubk:", "ush:", "urd:", "refs:", "seen:", "purgewarn:", "winback:", "nomkt:", "reviewed:", "revmail:", "backmail:", "fr:", "frx:"]) ops.push(["DEL", k + email]);
   ops.push(["SREM", "users", email], ["DEL", "contacts:list"]);
   await pipe(ops);
+  await rankDrop(email);
   if (u.card?.pm) await Card.removeCard(u.card.pm).catch(() => {});
 }
 
@@ -1258,8 +1437,7 @@ async function purgeInactive(now, host) {
   const res = { warned: 0, erased: 0, kept: 0 };
   const list = await staleAccounts(now);
   if (!list.length) return res;
-  const cfgs = await cmd("MGET", ...TEAM.map((p) => "staffcfg:" + p.id));
-  const team = new Set(TEAM.flatMap((p, i) => [p.email, cfgs[i] && JSON.parse(cfgs[i]).email]).filter(Boolean).map((e) => e.toLowerCase()));
+  const team = await teamEmails();
   const deadline = T.addDays(now.date, -PURGE_DAYS);
   for (const a of list) {
     if (a.active || a.owes || team.has(a.u.email)) {
@@ -1418,7 +1596,8 @@ async function unsubToken(email) {
 // (sin puntos) y ya no se le vuelve a pedir reseña.
 const reviewToken = async (email) => (await unsubToken("rev:" + email));
 async function markReviewed(email) {
-  if (email && EMAIL.test(email)) await cmd("SET", "reviewed:" + email, T.nowLocal().stamp, "NX");
+  if (!email || !EMAIL.test(email)) return;
+  if ((await cmd("SET", "reviewed:" + email, T.nowLocal().stamp, "NX")) === "OK") await rankTouch(email); // bonus de la medalla
 }
 const goReview = () =>
   NORMS.reviewUrl
@@ -1449,7 +1628,8 @@ async function winbackMail(c, host) {
 // Todo lo que hay en la base de esta app, en un JSON que se puede guardar y
 // volver a cargar. Se dejan fuera sesiones, códigos y cerrojos (caducan solos
 // y no hacen falta). Las fotos van en un archivo aparte porque pesan mucho.
-const SKIP = /^(sess:|staffsess:|rl:|code:|lock:|chargelock:|rdlock:|secret:|idem:|booking:|soon:|reminded:|revask:|wlsent:|cronday:|contacts:)/;
+// El ranking (lb:*) tampoco: se rehace solo a partir de las citas y compras.
+const SKIP = /^(sess:|staffsess:|rl:|code:|lock:|chargelock:|rdlock:|secret:|idem:|booking:|soon:|reminded:|revask:|wlsent:|cronday:|contacts:|lb:|lbday:)/;
 const PHOTOKEY = /^(siteimg:|prodimg:|teamimg:)/;
 async function backup(part) {
   const keys = (await scanKeys("*")).filter((k) => !SKIP.test(k) && (part === "photos" ? PHOTOKEY.test(k) : !PHOTOKEY.test(k)));
@@ -1465,6 +1645,7 @@ async function clubPurchase(u, amount, items, by) {
     ["SET", "sh:" + p.id, JSON.stringify(p)],
     ["SADD", "ush:" + u.email, p.id],
   ]);
+  await rankTouch(u.email);
   return p;
 }
 
@@ -1550,7 +1731,7 @@ const routes = {
       const found = team.find((p, i) => (p.email && p.email === u.email) || (cfgs[i] && JSON.parse(cfgs[i]).email === u.email));
       if (found) staffHint = { id: found.id, name: found.name };
     }
-    return { user: publicUser(u), staff: st, staffHint, mail: mailReady(), loginCode: LOGIN_CON_CODIGO };
+    return { user: publicUser(u), staff: st, staffHint, mail: mailReady(), auth: authChannels() };
   },
 
   "GET referral/:code": async ({ params }) => {
@@ -1626,10 +1807,7 @@ const routes = {
     const idem = /^[A-Za-z0-9_-]{16,64}$/.test(String(body.key || "")) ? "idem:" + body.key : null;
     if (idem) {
       const prev = await getJSON(idem);
-      if (prev?.out) {
-        if (prev.session) await startSession(req, res, prev.session);
-        return prev.out;
-      }
+      if (prev?.out) return prev.out;
       if (prev || (await cmd("SET", idem, "{}", "NX", "EX", 60)) !== "OK") fail(409, "Tu reserva se está guardando…", { pending: true });
     }
     try {
@@ -1734,6 +1912,7 @@ const routes = {
       ...(late ? { late: true, hoursLeft: Math.max(0, Math.round(T.minutesUntil(b.date, b.start) / 6) / 10) } : {}),
     };
     await unplace(b, done);
+    if (b.pay) await rankTouch(b.email); // una cita cobrada que se anula deja de sumar
     // «Cancelar también las siguientes» de una cita que se repite.
     let more = 0;
     const freed = new Set([b.date]);
@@ -1779,12 +1958,134 @@ const routes = {
     return { user: publicUser(u), ...(await clubOf(u)) };
   },
 
+  // El ranking. El móvil lo pide cada pocos segundos con la versión que tiene
+  // (`v`): si nada ha cambiado se contesta con una sola lectura y sin datos.
+  // scope = global | friends · period = month | all
+  "GET ranking": async ({ req, q }) => {
+    const [ver, cfg] = await cmd("MGET", "lb:ver", "lb:cfg");
+    const ready = cfg === rankCfg();
+    if (ready && q.get("v") && q.get("v") === String(ver || 0)) return { same: true };
+    const u = await currentUser(req);
+    if (!u) fail(401, "Entra para ver el ranking.");
+    let building = false;
+    if (!ready) building = !(await rankRebuild(2500)).done;
+    const scope = q.get("scope") === "friends" ? "friends" : "global",
+      period = q.get("period") === "all" ? "all" : "month",
+      month = thisMonth(),
+      ptsOf = (e) => (period === "all" ? e.a : e.mk === month ? e.mp : 0);
+    const mine = rankEntry(await cmd("HGET", "lb:u", u.email));
+    const out = { v: String((await cmd("GET", "lb:ver")) || 0), scope, period, month, building, hidden: !!u.rankHidden, listed: !!mine, code: u.ref || "" };
+    if (scope === "friends") {
+      const friends = await friendsOf(u);
+      const all = [u.email, ...friends];
+      const raws = await cmd("HMGET", "lb:u", ...all);
+      const rows = all
+        .map((email, i) => {
+          const e = rankEntry(raws[i]);
+          return e && { k: e.id, n: e.n, p: ptsOf(e), a: e.a, ...(email === u.email ? { me: 1 } : {}) };
+        })
+        .filter(Boolean)
+        .sort((x, y) => y.p - x.p || (x.me ? -1 : y.me ? 1 : x.n.localeCompare(y.n)));
+      withRanks(rows);
+      const i = rows.findIndex((x) => x.me);
+      // A quién tienes justo delante (el primero con más puntos que tú).
+      const ahead = i > 0 ? [...rows.slice(0, i)].reverse().find((x) => x.p > rows[i].p) : null;
+      return { ...out, rows, total: rows.length, friends: friends.length, me: i >= 0 ? { r: rows[i].r, p: rows[i].p, ahead: ahead && { n: ahead.n, gap: ahead.p - rows[i].p } } : null };
+    }
+    const key = period === "all" ? "lb:all" : "lb:m:" + month;
+    // `mini`: solo tu puesto (la tarjeta de «Puntos y premios»), sin la lista.
+    const mini = q.get("mini") === "1";
+    const [listed, total, myScore] = await pipe([
+      mini ? ["ZCARD", key] : ["ZREVRANGE", key, 0, RANK_TOP - 1, "WITHSCORES"],
+      ["ZCARD", key],
+      ["ZSCORE", key, u.email],
+    ]);
+    const top = mini ? [] : listed;
+    const emails = [];
+    for (let i = 0; i < top.length; i += 2) emails.push([top[i], Number(top[i + 1])]);
+    const raws = emails.length ? await cmd("HMGET", "lb:u", ...emails.map(([e]) => e)) : [];
+    const rows = withRanks(
+      emails
+        .map(([email, p], i) => {
+          const e = rankEntry(raws[i]);
+          return e && { k: e.id, n: e.n, p, a: e.a, ...(email === u.email ? { me: 1 } : {}) };
+        })
+        .filter(Boolean),
+    );
+    let me = null;
+    if (myScore !== null && myScore !== undefined) {
+      const p = Number(myScore);
+      const [above, next] = await pipe([
+        ["ZCOUNT", key, "(" + p, "+inf"],
+        ["ZRANGEBYSCORE", key, "(" + p, "+inf", "WITHSCORES", "LIMIT", 0, 1],
+      ]);
+      const aheadE = next?.length ? rankEntry(await cmd("HGET", "lb:u", next[0])) : null;
+      me = { r: Number(above) + 1, p, ahead: aheadE && { n: aheadE.n, gap: Number(next[1]) - p } };
+      // Si estás fuera de la lista, tu fila va al final, con tu puesto.
+      if (!rows.some((x) => x.me) && mine) rows.push({ k: mine.id, n: mine.n, p, a: mine.a, me: 1, r: me.r, out: 1 });
+    }
+    return { ...out, rows, total: Number(total) || 0, me };
+  },
+
+  // Añadir un amigo con su código del Club (el mismo de invitar). Queda en los
+  // dos sentidos: los dos os veis en «Amigos».
+  "POST ranking/friends": async ({ req, body }) => {
+    const u = await currentUser(req);
+    if (!u) fail(401, "Entra en tu cuenta.");
+    await limit("fradd:" + u.email, 20, 3600);
+    const code = String(body.code || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
+    const other = code.length >= 4 ? await cmd("GET", "refcode:" + code) : null;
+    if (!other) fail(404, "Ese código no existe. Revísalo.");
+    if (other === u.email) fail(400, "Ese es tu propio código.");
+    if ((await friendsOf(u)).length >= 200) fail(400, "Ya tienes 200 amigos en el ranking, que es el máximo.");
+    const f = await getJSON("user:" + other);
+    if (!f) fail(404, "Ese código no existe. Revísalo.");
+    await pipe([
+      ["SADD", "fr:" + u.email, other],
+      ["SADD", "fr:" + other, u.email],
+      ["SREM", "frx:" + u.email, other],
+      ["SREM", "frx:" + other, u.email],
+      ["INCR", "lb:ver"],
+    ]);
+    return { ok: true, name: rankName(f.name) || "Tu amigo" };
+  },
+
+  // Quitar a un amigo (por el identificador del ranking, que es lo que ve el móvil).
+  "POST ranking/friends/remove": async ({ req, body }) => {
+    const u = await currentUser(req);
+    if (!u) fail(401, "Entra en tu cuenta.");
+    const id = String(body.id || "");
+    const friends = await friendsOf(u);
+    const raws = friends.length ? await cmd("HMGET", "lb:u", ...friends) : [];
+    const other = id && friends.find((_, i) => rankEntry(raws[i])?.id === id);
+    if (!other) fail(404, "No encontramos a ese amigo.");
+    await pipe([
+      ["SREM", "fr:" + u.email, other],
+      ["SREM", "fr:" + other, u.email],
+      ["SADD", "frx:" + u.email, other],
+      ["SADD", "frx:" + other, u.email],
+      ["INCR", "lb:ver"],
+    ]);
+    return { ok: true };
+  },
+
+  // Salir (o volver a salir) en el ranking general. Los amigos te siguen viendo.
+  "POST profile/rank": async ({ req, body }) => {
+    const u = await currentUser(req);
+    if (!u) fail(401, "Entra en tu cuenta.");
+    const { rankHidden, ...rest } = u;
+    await setJSON("user:" + u.email, body.show === false ? { ...rest, rankHidden: true } : rest);
+    await rankTouch(u.email);
+    return { ok: true, rank: body.show !== false };
+  },
+
   "POST profile/photo": async ({ req, body }) => {
     const u = await currentUser(req);
     if (!u) fail(401, "Entra en tu cuenta.");
     const data = String(body.photo || "");
     if (data && (!PHOTO.test(data) || data.length > 250000)) fail(400, "Esa foto no vale. Prueba con otra.");
     await setJSON("user:" + u.email, { ...u, photo: data });
+    await rankTouch(u.email); // la medalla de perfil completo
     return { ok: true };
   },
 
@@ -1826,26 +2127,18 @@ const routes = {
     if (!name) fail(400, "Falta tu nombre.");
     if (phone && !PHONE.test(phone)) fail(400, "Revisa tu teléfono.");
     await setJSON("user:" + u.email, { ...u, name, phone });
+    await rankTouch(u.email); // el nombre del ranking y la medalla de perfil completo
     return { ok: true };
   },
 
   // ── Tarjeta en garantía ─────────────────────────────────────────────────
-  // Paso 1: prepara el formulario de Stripe. Un cliente nuevo se da de alta
-  // aquí mismo (con sus datos de la reserva) para que la tarjeta quede en su perfil.
-  "POST card/setup": async ({ req, res, body }) => {
+  // Paso 1: prepara el formulario de Stripe. Se guarda en el perfil de la
+  // cuenta (para reservar ya hay que haber entrado con el código).
+  "POST card/setup": async ({ req }) => {
     if (!Card.cardEnabled()) fail(400, "Ahora mismo no hace falta tarjeta.");
     await limit("cardsetup:" + ip(req), 10, 3600);
     let u = await currentUser(req);
-    if (!u) {
-      const email = normEmail(body.email),
-        name = clean(body.name),
-        phone = clean(body.phone, 30);
-      if (!name) fail(400, "Falta tu nombre.");
-      if (!EMAIL.test(email)) fail(400, "Revisa tu correo.");
-      if (phone && !PHONE.test(phone)) fail(400, "Revisa tu teléfono.");
-      if (await getJSON("user:" + email)) fail(409, "Ya tienes cuenta con este correo. Entra con él y sigue con tu reserva.");
-      u = await registerNew(req, res, { email, name, phone, ref: body.ref });
-    }
+    if (!u) fail(401, "Entra en tu cuenta.");
     if (!u.stripe) {
       u = { ...u, stripe: await Card.ensureCustomer(u) };
       await setJSON("user:" + u.email, u);
@@ -1913,16 +2206,17 @@ const routes = {
     return { status: charge.status };
   },
 
-  "POST auth/request": async ({ req, res, body }) => {
+  // Entrar o darse de alta, que es lo mismo: se pone el correo, llega un código
+  // de 6 cifras y con él se entra. La cuenta se crea al acertar el código, nunca
+  // antes: así no hay cuentas con correos de otros. (El teléfono, ver authChannels.)
+  "POST auth/request": async ({ req, body }) => {
+    if (body.phone !== undefined && body.email === undefined) {
+      if (!authChannels().phone) fail(400, "Por ahora solo se puede entrar con el correo.");
+    }
     const email = normEmail(body.email);
     if (!EMAIL.test(email)) fail(400, "Revisa tu correo.");
     await limit("auth:" + email, 5, 900);
     await limit("authip:" + ip(req), 20, 900);
-    if (!LOGIN_CON_CODIGO) {
-      await ensureUser(email);
-      await startSession(req, res, email);
-      return { direct: true };
-    }
     const code = String(crypto.randomInt(0, 1e6)).padStart(6, "0"),
       challenge = token();
     await setJSON("code:" + challenge, { email, h: sha(code + challenge), tries: 0 }, "EX", 600);
@@ -1930,8 +2224,7 @@ const routes = {
       if (!(await codeMail(email, code))) fail(502, "No hemos podido enviar el correo. Prueba otra vez en un rato.");
       return { challenge };
     }
-    if (ON_VERCEL)
-      fail(503, "Ahora mismo no podemos enviar el código por correo. Escríbenos por WhatsApp y te ayudamos.");
+    if (ON_VERCEL) fail(503, "Ahora mismo no podemos enviar el código por correo. Escríbenos por WhatsApp y te ayudamos.");
     console.log(`\n  Código de acceso para ${email}: ${code}\n`);
     return { challenge, dev: true };
   },
@@ -1949,9 +2242,43 @@ const routes = {
       fail(400, "Ese código no es correcto.");
     }
     await cmd("DEL", key);
-    await ensureUser(c.email);
+    const fresh = !(await getJSON("user:" + c.email));
+    let u = await ensureUser(c.email);
+    if (!u.verified) {
+      u = { ...u, verified: T.nowLocal().stamp };
+      await setJSON("user:" + u.email, u);
+    }
     await startSession(req, res, c.email);
-    return { ok: true };
+    await rankTouch(c.email);
+    // Falta el nombre (cuenta nueva o de antes): la app lo pide en el paso siguiente.
+    return { ok: true, fresh, needName: !u.name };
+  },
+
+  // Último paso del alta: el nombre (el que sale en el ranking) y, si la cuenta
+  // es nueva, el código del amigo que te invitó.
+  "POST auth/name": async ({ req, body }) => {
+    let u = await currentUser(req);
+    if (!u) fail(401, "Entra en tu cuenta.");
+    const name = clean(body.name, 60);
+    if (name.length < 2) fail(400, "Falta tu nombre.");
+    const code = String(body.ref || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
+    let by = null;
+    if (code && !u.referredBy) {
+      const referrer = await cmd("GET", "refcode:" + code);
+      if (!referrer) fail(400, "Ese código de amigo no existe. Revísalo o bórralo.");
+      // Solo cuenta como invitación en una cuenta recién hecha (sin citas aún).
+      if (referrer !== u.email && !(await cmd("SMEMBERS", "ubk:" + u.email)).length) by = referrer;
+    }
+    const first = !u.name;
+    u = { ...u, name, ...(by ? { referredBy: by } : {}) };
+    // La cuenta se creó sin nombre (código NOVA123): ahora que lo hay, uno con su nombre (CARLOS482).
+    const oldRef = first && /^NOVA/.test(u.ref || "") ? u.ref : "";
+    if (oldRef) u.ref = await makeRefCode(u.email, name);
+    await setJSON("user:" + u.email, u);
+    if (oldRef && (await cmd("GET", "refcode:" + oldRef)) === u.email) await cmd("DEL", "refcode:" + oldRef);
+    await pipe([...(by ? [["SADD", "refs:" + by, u.email]] : []), ["DEL", "contacts:list"]]);
+    await rankTouch(u.email, by);
+    return { user: publicUser(u) };
   },
 
   "POST auth/logout": async ({ req, res }) => {
@@ -2166,11 +2493,13 @@ const routes = {
     if (v.prenda) await Sup.subirStock(v.prenda, v.talla, v.cantidad || 1);
     if (v.club) {
       const sp = await getJSON("sh:" + v.club);
-      if (sp)
+      if (sp) {
         await pipe([
           ["DEL", "sh:" + sp.id],
           ["SREM", "ush:" + sp.email, sp.id],
         ]);
+        await rankTouch(sp.email);
+      }
     }
     return { ok: true };
   },
@@ -2208,6 +2537,7 @@ const routes = {
       ["SET", "sh:" + p.id, JSON.stringify(p)],
       ["SADD", "ush:" + u.email, p.id],
     ]);
+    await rankTouch(u.email);
     return { purchase: p };
   },
 
@@ -2221,6 +2551,7 @@ const routes = {
       ["DEL", "sh:" + p.id],
       ["SREM", "ush:" + p.email, p.id],
     ]);
+    await rankTouch(p.email);
     return { ok: true };
   },
 
@@ -2250,6 +2581,7 @@ const routes = {
     if (b.charge && ["succeeded", "requires_action"].includes(b.charge.status) && body.attendance !== "absent")
       fail(400, "Ya se le ha cobrado la falta. Si fue un error, el dueño puede devolver el dinero.");
     await setJSON("bk:" + b.id, { ...b, attendance: body.attendance });
+    await rankTouch(b.email); // «Vino» da los puntos de amigo a quien le invitó; «No vino» quita la medalla sin faltas
     return { ok: true };
   },
 
@@ -3121,6 +3453,7 @@ const routes = {
       }
     }
     for (let i = 0; i < ops.length; i += 300) await pipe(ops.slice(i, i + 300));
+    await cmd("DEL", "lb:cfg", "lb:rb"); // el ranking se rehace con los datos recuperados
     return { ok: true, written: b.data.length };
   },
 
@@ -3502,6 +3835,7 @@ async function linkPay(x, bookingId) {
   if (b.attendance === "absent") fail(400, "Esa cita está marcada como «No vino». Cámbialo antes en la agenda.");
   if (b.pay && b.pay.id !== x.id) fail(409, "Esa cita ya está cobrada.");
   await setJSON("bk:" + b.id, { ...b, attendance: "done", pay: { id: x.id, amount: x.amount, method: x.method } });
+  await rankTouch(b.email); // los puntos llegan al cobrar: el ranking se mueve en el momento
 }
 async function unlinkPay(x) {
   if (!x.booking) return;
@@ -3509,6 +3843,7 @@ async function unlinkPay(x) {
   if (b?.pay?.id !== x.id) return;
   const { pay, ...rest } = b;
   await setJSON("bk:" + b.id, rest);
+  await rankTouch(b.email);
 }
 // Quién puede tocar un cobro: el dueño, el barbero del cobro, quien lo apuntó
 // o la caja (solo los de hoy, para corregir un error al momento).

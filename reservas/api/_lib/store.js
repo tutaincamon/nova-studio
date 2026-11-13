@@ -86,17 +86,92 @@ function local([cmd, ...a]) {
       mem.set(k, e);
       return n;
     }
+    case "SCARD":
+      return alive(k)?.v instanceof Set ? alive(k).v.size : 0;
+    case "SPOP": {
+      const e = alive(k),
+        many = a[1] !== undefined;
+      if (!(e?.v instanceof Set)) return many ? [] : null;
+      const out = [...e.v].slice(0, many ? Number(a[1]) : 1);
+      out.forEach((x) => e.v.delete(x));
+      return many ? out : (out[0] ?? null);
+    }
     case "HSET":
     case "HDEL":
+    case "HGET":
+    case "HMGET":
     case "HGETALL": {
       const e = alive(k) || { v: new Map(), exp: 0 };
       if (!(e.v instanceof Map)) e.v = new Map();
       if (cmd === "HGETALL") return [...e.v].flat();
+      if (cmd === "HGET") return e.v.get(String(a[1])) ?? null;
+      if (cmd === "HMGET") return a.slice(1).map((f) => e.v.get(String(f)) ?? null);
       let n = 0;
       if (cmd === "HSET") for (let i = 1; i < a.length; i += 2) (e.v.set(String(a[i]), String(a[i + 1])), n++);
       else for (const f of a.slice(1)) n += e.v.delete(String(f)) ? 1 : 0;
       mem.set(k, e);
       return n;
+    }
+    // Listas ordenadas (el ranking del Club). Como Upstash, las notas salen como texto.
+    case "ZADD":
+    case "ZREM":
+    case "ZSCORE":
+    case "ZCARD":
+    case "ZCOUNT":
+    case "ZREVRANGE":
+    case "ZRANGEBYSCORE": {
+      const e = alive(k) || { v: new Map(), exp: 0 };
+      if (!(e.v instanceof Map)) e.v = new Map();
+      const z = e.v;
+      const bound = (s, lo) => {
+        s = String(s);
+        const open = s.startsWith("("),
+          x = s.replace("(", "");
+        const n = x === "+inf" ? Infinity : x === "-inf" ? -Infinity : Number(x);
+        return (v) => (lo ? (open ? v > n : v >= n) : open ? v < n : v <= n);
+      };
+      const sorted = () => [...z].sort((p, q) => p[1] - q[1] || (p[0] < q[0] ? -1 : 1));
+      switch (cmd) {
+        case "ZADD": {
+          let n = 0;
+          for (let i = 1; i < a.length; i += 2) {
+            if (!z.has(String(a[i + 1]))) n++;
+            z.set(String(a[i + 1]), Number(a[i]));
+          }
+          mem.set(k, e);
+          return n;
+        }
+        case "ZREM": {
+          let n = 0;
+          for (const m of a.slice(1)) n += z.delete(String(m)) ? 1 : 0;
+          return n;
+        }
+        case "ZSCORE":
+          return z.has(String(a[1])) ? String(z.get(String(a[1]))) : null;
+        case "ZCARD":
+          return z.size;
+        case "ZCOUNT": {
+          const lo = bound(a[1], true),
+            hi = bound(a[2], false);
+          return [...z.values()].filter((v) => lo(v) && hi(v)).length;
+        }
+        case "ZREVRANGE": {
+          const list = sorted().reverse(),
+            end = Number(a[2]) < 0 ? list.length + Number(a[2]) : Number(a[2]);
+          const part = list.slice(Number(a[1]), end + 1);
+          return a.map(String).includes("WITHSCORES") ? part.flatMap(([m, v]) => [m, String(v)]) : part.map(([m]) => m);
+        }
+        case "ZRANGEBYSCORE": {
+          const lo = bound(a[1], true),
+            hi = bound(a[2], false),
+            opts = a.slice(3).map(String),
+            li = opts.indexOf("LIMIT");
+          let part = sorted().filter(([, v]) => lo(v) && hi(v));
+          if (li >= 0) part = part.slice(Number(opts[li + 1]), Number(opts[li + 1]) + Number(opts[li + 2]));
+          return opts.includes("WITHSCORES") ? part.flatMap(([m, v]) => [m, String(v)]) : part.map(([m]) => m);
+        }
+      }
+      return null;
     }
     default:
       throw Error("Comando no soportado en memoria: " + cmd);

@@ -61,6 +61,7 @@ const ICONS = {
   cal: '<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/>',
   gift: '<rect x="3" y="8" width="18" height="5" rx="1"/><path d="M5 13v7a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-7M12 8v13M12 8S10.5 3 8 3a2.5 2.5 0 0 0 0 5M12 8s1.5-5 4-5a2.5 2.5 0 0 1 0 5"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/>',
+  trophy: '<path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M16 5.5h3V7a3 3 0 0 1-3 3M8 5.5H5V7a3 3 0 0 0 3 3M12 13v4M8.5 21h7M9.5 21v-2.2c0-.9.7-1.8 2.5-1.8s2.5.9 2.5 1.8V21"/>',
   agenda: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 10h6M9 14h6M9 18h3"/>',
   scissors: '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/>',
   beard: '<path d="M5 4v5a7 7 0 0 0 14 0V4"/><path d="M8.5 13c1-.8 2.2-1.2 3.5-1.2s2.5.4 3.5 1.2M9 17.5c.9.6 1.9.9 3 .9s2.1-.3 3-.9"/>',
@@ -136,10 +137,8 @@ let staffHint = null; // la cuenta es de alguien del equipo que aún no ha puest
 let catalog = null,
   user = null,
   staff = false,
-  mailOn = true,
-  loginCode = false,
+  authCh = { email: true, phone: false }, // por dónde puede llegar el código para entrar
   draft = load("nova_draft") || {},
-  challenge = null,
   calMonth = "",
   selectedDate = "",
   dayPicked = false,
@@ -251,8 +250,7 @@ async function refreshMe() {
     user = r.user;
     staff = r.staff;
     staffHint = r.staffHint || null;
-    mailOn = r.mail;
-    loginCode = r.loginCode;
+    authCh = r.auth || authCh;
     if (staff || staffHint) (window.requestIdleCallback || setTimeout)(() => loadPanel().catch(() => {}));
   } catch {}
 }
@@ -367,6 +365,7 @@ function nav() {
     item("home", "Inicio", svg(ICONS.home)) +
     item("bookings", "Mis citas", svg(ICONS.cal)) +
     item("rewards", "Puntos y premios", svg(ICONS.gift)) +
+    item("ranking", "Ranking", svg(ICONS.trophy)) +
     item("profile", "Perfil", me) +
     (staff || staffHint ? item("equipo", staff ? "Agenda" : "Tu panel", svg(ICONS.agenda)) : "");
 }
@@ -814,11 +813,12 @@ const LEGAL = {
     ${lgGrid(
       ["Para qué", "Qué datos", "Base legal", "Cuánto tiempo"],
       [
-        ["Crear tu cuenta y que entres en ella", "Nombre, correo, teléfono (opcional), foto de perfil (opcional) y la fecha de alta", "El contrato: lo necesitamos para darte el servicio (art. 6.1.b RGPD)", "Hasta que pidas borrar la cuenta o pasen 3 años sin citas ni uso"],
+        ["Crear tu cuenta y que entres en ella", "Nombre, correo, teléfono (opcional), foto de perfil (opcional), la fecha de alta y el código de 6 cifras que te mandamos para entrar (caduca a los 10 minutos)", "El contrato: lo necesitamos para darte el servicio (art. 6.1.b RGPD)", "Hasta que pidas borrar la cuenta o pasen 3 años sin citas ni uso"],
         ["Gestionar tus citas", "Servicio, barbero, día y hora, cambios y cancelaciones, si viniste, lo que pagaste y cómo (efectivo, tarjeta o Bizum) y las citas periódicas si las pides", "El contrato (art. 6.1.b RGPD)", "Igual que la cuenta. Los cobros, 6 años"],
         ["Avisarte de tus citas", "Tu correo y los datos de la cita: confirmación, cambios, recordatorio el día antes y unas horas antes, y el aviso de la lista de espera si te apuntas", "El contrato (art. 6.1.b RGPD)", "Lo que dura la cita. La lista de espera se borra al pasar ese día"],
         cardOn() && ["Tarjeta en garantía y cobro de faltas", "La tarjeta la guarda Stripe, no nosotros. Nosotros solo vemos la marca, los 4 últimos números y la caducidad, además de las faltas, las cancelaciones tardías y lo que se haya cobrado o devuelto", "El contrato (art. 6.1.b RGPD) y nuestro interés legítimo en que no se pierdan huecos (art. 6.1.f)", "La tarjeta, hasta que la quites. Los cobros, 6 años"],
-        ["Club NOVA", "Puntos, liga, medallas, premios canjeados, las compras de ropa de NOVA Supply que el equipo apunta a tu cuenta (fecha, importe y prendas), tu código de amigo, quién te invitó y si has pulsado «Dejar mi reseña»", "El contrato: las condiciones del Club (art. 6.1.b RGPD)", "Mientras tengas cuenta"],
+        ["Club NOVA", "Puntos, liga, medallas, premios canjeados, las compras de ropa de NOVA Supply que el equipo apunta a tu cuenta (fecha, importe y prendas), tu código de amigo, quién te invitó, los amigos que añades al ranking y si has pulsado «Dejar mi reseña»", "El contrato: las condiciones del Club (art. 6.1.b RGPD)", "Mientras tengas cuenta"],
+        ["Ranking del Club", "Tu nombre con la inicial del apellido, tu liga y tus puntos ganados (del mes y de siempre). Los ven los demás socios que han entrado en la app. Tus amigos te ven siempre; en el ranking de todo el Club puedes dejar de salir desde tu perfil cuando quieras", "El contrato: las condiciones del Club (art. 6.1.b RGPD)", "Mientras tengas cuenta"],
         ["Ofrecerte «tu cita de siempre»", "A partir de tu historial calculamos tu día, hora, barbero y servicio habituales y cada cuánto vienes. Se calcula en el momento y no se guarda aparte", "Interés legítimo en facilitarte la reserva (art. 6.1.f RGPD)", "Mientras tengas cuenta"],
         ["Correos comerciales nuestros: «¿cuándo vuelves?», «te echamos de menos» (a veces con una oferta) y la petición de reseña", "Nombre, correo, fecha de tu último corte y tu barbero", "Eres cliente y son servicios como los que ya usas (art. 21.2 LSSI), y nuestro interés legítimo (art. 6.1.f RGPD). Cada correo trae un enlace para darte de baja", "Hasta que te des de baja. Guardamos la baja para no volver a escribirte"],
         ["Lista de interesados en la formación", "Lo que pones en el formulario: nombre, teléfono, correo, Instagram si lo das, nivel, preferencias y mensaje", "Tu consentimiento (art. 6.1.a RGPD)", "2 años desde el último contacto, o hasta que lo retires"],
@@ -968,6 +968,7 @@ const LEGAL = {
     <ul>
       <li>Es gratis y forma parte de tu cuenta. Sumas puntos por los servicios y por la ropa de NOVA Supply que pagas en el estudio, según la tabla que ves en la app. Los puntos llegan cuando el equipo te cobra, no al reservar.</li>
       <li>Los puntos, las ligas, las medallas, los premios y los descuentos no tienen valor en dinero, no se pueden cambiar por dinero ni pasar a otra persona.</li>
+      <li>El ranking ordena a los socios por los puntos que han ganado, este mes y desde siempre (canjear premios no resta). En él sale tu nombre con la inicial del apellido, tu liga y tus puntos. Puedes dejar de salir en el ranking de todo el Club desde tu perfil; tus amigos te siguen viendo. El ranking no da premios por sí solo.</li>
       <li>Los premios y ventajas pueden cambiar. Si cambian a peor o cerramos el Club, te avisaremos con al menos 30 días para que puedas canjear tus puntos.</li>
       <li>Si borras la cuenta o pasan 3 años sin usarla, se pierden los puntos.</li>
       <li>Si detectamos trampas (cuentas falsas para conseguir puntos por invitar, por ejemplo), anularemos los puntos conseguidos así.</li>
@@ -1023,11 +1024,12 @@ const LEGAL_EN = {
     ${lgGrid(
       ["Purpose", "Data", "Legal basis", "How long"],
       [
-        ["Your account and logging in", "Name, email, phone (optional), profile photo (optional), sign-up date", "Contract (art. 6.1.b GDPR)", "Until you ask us to delete it, or 3 years without bookings or use"],
+        ["Your account and logging in", "Name, email, phone (optional), profile photo (optional), sign-up date and the 6-digit code we send you to log in (it expires after 10 minutes)", "Contract (art. 6.1.b GDPR)", "Until you ask us to delete it, or 3 years without bookings or use"],
         ["Managing your bookings", "Service, barber, date and time, changes and cancellations, attendance, what you paid and how (cash, card, Bizum), recurring bookings if you set them", "Contract (art. 6.1.b GDPR)", "Same as the account. Payments: 6 years"],
         ["Booking notices", "Your email and the booking details: confirmation, changes, reminders the day before and a few hours before, and waitlist alerts if you join one", "Contract (art. 6.1.b GDPR)", "For as long as the booking lasts. Waitlists are deleted once the day has passed"],
         cardOn() && ["Guarantee card and no-show charges", "Your card is stored by Stripe, not by us. We only see the brand, the last 4 digits and the expiry date, plus your no-shows, late cancellations and any charges or refunds", "Contract (art. 6.1.b) and our legitimate interest in not losing slots (art. 6.1.f)", "The card: until you remove it. Charges: 6 years"],
-        ["NOVA Club", "Points, league, medals, redeemed rewards, the NOVA Supply clothing purchases the team adds to your account (date, amount, items), your friend code, who invited you and whether you tapped “Leave my review”", "Contract: the Club terms (art. 6.1.b GDPR)", "While you have an account"],
+        ["NOVA Club", "Points, league, medals, redeemed rewards, the NOVA Supply clothing purchases the team adds to your account (date, amount, items), your friend code, who invited you, the friends you add to the ranking and whether you tapped “Leave my review”", "Contract: the Club terms (art. 6.1.b GDPR)", "While you have an account"],
+        ["Club ranking", "Your first name with your surname initial, your league and the points you've earned (this month and all time). Other members who have logged in to the app can see them. Your friends always see you; you can stop appearing in the whole-Club ranking from your profile at any time", "Contract: the Club terms (art. 6.1.b GDPR)", "While you have an account"],
         ["Offering “your usual booking”", "From your history we work out your usual day, time, barber and service, and how often you come. It is computed on the spot and not stored separately", "Legitimate interest in making booking easier (art. 6.1.f GDPR)", "While you have an account"],
         ["Our own marketing emails: “when are you coming back?”, “we miss you” (sometimes with an offer) and review requests", "Name, email, date of your last cut and your barber", "You are a client and these are for similar services (art. 21.2 LSSI), plus our legitimate interest (art. 6.1.f GDPR). Every email has an unsubscribe link", "Until you unsubscribe. We keep the unsubscribe so we don't write to you again"],
         ["Training interest list", "What you enter in the form: name, phone, email, Instagram if given, level, preferences and message", "Your consent (art. 6.1.a GDPR)", "2 years from the last contact, or until you withdraw consent"],
@@ -1177,6 +1179,7 @@ const LEGAL_EN = {
     <ul>
       <li>It's free and part of your account. You earn points for services and for NOVA Supply clothing paid for at the studio, as shown in the app. Points arrive when the team charges you, not when you book.</li>
       <li>Points, leagues, medals, rewards and discounts have no cash value, can't be exchanged for money and can't be transferred to anyone else.</li>
+      <li>The ranking orders members by the points they've earned, this month and all time (redeeming rewards doesn't subtract). It shows your first name with your surname initial, your league and your points. You can stop appearing in the whole-Club ranking from your profile; your friends still see you. The ranking doesn't give prizes on its own.</li>
       <li>Rewards and perks may change. If they get worse or we close the Club, we'll give you at least 30 days' notice so you can redeem your points.</li>
       <li>If you delete your account or don't use it for 3 years, your points are lost.</li>
       <li>If we detect cheating (for example, fake accounts to earn referral points), we'll cancel the points earned that way.</li>
@@ -1358,47 +1361,44 @@ const pages = {
     if (!draft.start || !draft.date) return go("home");
     const s = svcById(draft.service),
       p = provById(draft.provider);
-    const cc = [
-      ["🇪🇸", "+34"],
-      ["🇬🇧", "+44"],
-      ["🇩🇪", "+49"],
-      ["🇫🇷", "+33"],
-      ["🇮🇹", "+39"],
-      ["🇵🇹", "+351"],
-      ["🇳🇱", "+31"],
-      ["🇺🇸", "+1"],
-      ["🇻🇪", "+58"],
-      ["🇨🇴", "+57"],
-      ["🇦🇷", "+54"],
-    ];
-    // Con la sesión iniciada y el nombre en el perfil no se pregunta nada.
-    const quick = !!(user && user.name);
-    const saved = String(draft.phone || user?.phone || "");
-    const m = saved.match(/^(\+\d{1,3})\s*(.*)$/);
-    const savedCc = m && cc.some(([, c]) => c === m[1]) ? m[1] : "+34",
-      savedNum = m ? m[2] : saved;
+    const summary = `<div class="pick-summary">${face(p)}<div><strong>${esc(tx(s.name))} · ${euro(s.price)}</strong><span>${esc(p.name)} · ${esc(longDay(draft.date))} · ${esc(draft.start)}</span></div></div>`;
+    // Sin cuenta (o sin nombre): se entra aquí mismo con el correo y el código,
+    // y al acabar se vuelve a esta pantalla, ya para confirmar con un toque.
+    if (!user || !user.name) {
+      show(
+        back(`time/${draft.provider}`, "Cambiar hora") +
+          (user
+            ? heading(L("Un último paso", "One last step"), L("Dinos tu nombre y confirmas tu cita.", "Tell us your name and confirm your booking."))
+            : heading(L("¿Quién reserva?", "Who's booking?"), L("Pon tu correo y te mandamos un código. Así la cita queda a tu nombre.", "Enter your email and we'll send you a code. That way the booking is in your name."))) +
+          summary +
+          `<div id="auth" class="auth-box"></div>` +
+          (user
+            ? ""
+            : `<div class="club-card"><span class="club-tag">CLUB</span><h2>${L("Entras en el Club al reservar", "You join the Club when you book")}</h2><p>${L("Con tu correo, sin contraseñas.", "With your email, no passwords.")}</p><ul class="club-perks"><li>${L(`${catalog.points.welcome} puntos de regalo al entrar`, `${catalog.points.welcome} welcome points when you join`)}</li><li>${L(`${catalog.points.perEuro} puntos por cada euro, en la silla y en ${esc(catalog.shop.name)}`, `${catalog.points.perEuro} points per euro, in the chair and at ${esc(catalog.shop.name)}`)}</li><li>${L("Un ranking con todo el Club y con tus amigos", "A ranking with the whole Club and with your friends")}</li></ul></div>`),
+      );
+      authFlow($("#auth"), {
+        step: user ? "name" : "",
+        onDone: () => render(),
+        // Con el código ya puesto, la pantalla pasa a ser «un último paso».
+        onStep: () => {
+          $(".auth-box + .club-card")?.remove();
+          const h = $(".heading h1"),
+            sub = $(".heading .sub");
+          if (h) h.textContent = L("Un último paso", "One last step");
+          if (sub) sub.textContent = L("Dinos tu nombre y confirmas tu cita.", "Tell us your name and confirm your booking.");
+        },
+      });
+      return;
+    }
     show(
       back(`time/${draft.provider}`, "Cambiar hora") +
-        (quick ? heading("Confirma tu cita", "Un toque y listo.") : heading("Tus datos", "Solo lo necesario para guardar tu cita.")) +
-        `<div class="pick-summary">${face(p)}<div><strong>${esc(tx(s.name))} · ${euro(s.price)}</strong><span>${esc(p.name)} · ${esc(longDay(draft.date))} · ${esc(draft.start)}</span></div></div>` +
+        heading("Confirma tu cita", "Un toque y listo.") +
+        summary +
         `<form id="details" novalidate>
-          ${
-            quick
-              ? `<div class="quick-who">${user.photo ? `<img src="${esc(user.photo)}" alt="">` : `<b>${initial(user.name)}</b>`}<div><strong>${esc(user.name)}</strong><span>${esc(user.email)}${user.phone ? " · " + esc(user.phone) : ""}</span></div><a href="#profile">Cambiar</a></div>`
-              : `${user?.name ? "" : `<label for="f-name">Nombre</label><input id="f-name" name="name" required maxlength="120" autocomplete="name" value="${esc(draft.name || "")}">`}
-          ${user ? "" : `<label for="f-email">Correo</label><input id="f-email" name="email" type="email" required autocomplete="email" value="${esc(draft.email || "")}">`}
-          <label for="f-phone">Teléfono <small class="opt">(opcional, por si hay algún cambio)</small></label>
-          <div class="phone-field"><select name="cc" aria-label="Prefijo del país">${cc.map(([f, c]) => `<option value="${c}" ${c === savedCc ? "selected" : ""}>${f} ${c}</option>`).join("")}</select><input id="f-phone" name="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel-national" placeholder="600 000 000" value="${esc(savedNum)}"></div>`
-          }
-          ${
-            user
-              ? `<div class="club-joined"><span class="club-check">✓</span><div><strong>Eres del Club NOVA</strong><span>${L(`Cuando pagues esta cita en el estudio, sumas ${svcPoints(s)} puntos.`, `Once you pay for this booking at the studio, you earn ${svcPoints(s)} points.`)}</span></div></div>`
-              : `<div class="club-card"><span class="club-tag">CLUB</span><h2>Entras en el Club al reservar</h2><p>Con estos mismos datos. Sin contraseñas.</p><ul class="club-perks"><li>${L(`${catalog.points.welcome} puntos de regalo al entrar`, `${catalog.points.welcome} welcome points when you join`)}</li><li>${L(`${catalog.points.perEuro} puntos por cada euro, en la silla y en ${esc(catalog.shop.name)}`, `${catalog.points.perEuro} points per euro, in the chair and at ${esc(catalog.shop.name)}`)}</li><li>${L(`De ${esc(catalog.leagues[0].name)} a ${esc(topLeague().name)}: ligas con premios y descuentos`, `From ${esc(catalog.leagues[0].name)} to ${esc(topLeague().name)}: leagues with rewards and discounts`)}</li></ul>
-                  <div class="ref-box${refCode() ? " open" : ""}" id="ref-box"><button type="button" class="ref-toggle" id="ref-toggle"><span aria-hidden="true">🎁</span>¿Te ha invitado un amigo?<b>Pon su código</b></button>
-                  <div class="ref-field"><label class="sr-only" for="ref-input">Código de amigo</label><input id="ref-input" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="16" placeholder="Ej.: CARLOS482" value="${esc(refCode())}"><p class="ref-state" id="ref-state" aria-live="polite"></p></div></div></div>`
-          }
+          <div class="quick-who">${user.photo ? `<img src="${esc(user.photo)}" alt="">` : `<b>${initial(user.name)}</b>`}<div><strong>${esc(user.name)}</strong><span>${esc(user.email)}${user.phone ? " · " + esc(user.phone) : ""}</span></div><a href="#profile">Cambiar</a></div>
+          <div class="club-joined"><span class="club-check">✓</span><div><strong>Eres del Club NOVA</strong><span>${L(`Cuando pagues esta cita en el estudio, sumas ${svcPoints(s)} puntos.`, `Once you pay for this booking at the studio, you earn ${svcPoints(s)} points.`)}</span></div></div>
           ${cardOn() ? guaranteeBox(s) : ""}
-          <button class="btn wide book-btn" type="submit">${cardOn() && !user?.card ? "Añadir tarjeta y reservar" : quick ? "Confirmar reserva" : cardOn() ? "Reservar" : "Reservar y pagar en el local"}</button>
+          <button class="btn wide book-btn" type="submit">${cardOn() && !user.card ? "Añadir tarjeta y reservar" : "Confirmar reserva"}</button>
           ${
             catalog.rules.recurring
               ? `<div class="repeat-box"><label for="f-every" style="margin-top:0">Repetir esta cita</label><div class="form-actions" style="margin-top:0"><select id="f-every" name="every"><option value="">No, solo esta</option><option value="1">Cada semana</option><option value="2">Cada 2 semanas</option><option value="3">Cada 3 semanas</option><option value="4">Cada 4 semanas</option></select><select name="times" aria-label="Cuántas veces">${Array.from({ length: catalog.rules.recurringMax - 1 }, (_, i) => i + 2).map((n) => `<option value="${n}" ${n === Math.min(4, catalog.rules.recurringMax) ? "selected" : ""}>${n} ${L("citas", "bookings")}</option>`).join("")}</select></div><small>Mismo día de la semana, misma hora y mismo barbero. Si algún día ya está ocupado, te lo decimos.</small></div>`
@@ -1418,63 +1418,15 @@ const pages = {
           <p class="pay-note">${svg(ICONS.card)} ${cardOn() ? "Ahora no se cobra nada. El servicio se paga en el local, en efectivo o con tarjeta." : "En el local puedes pagar en efectivo o con tarjeta."}</p>
         </form>`,
     );
-    // Código de amigo: se comprueba mientras se escribe y dice quién te invita.
-    let refOk = null,
-      refT = 0;
-    const refIn = $("#ref-input"),
-      refState = $("#ref-state");
-    const checkRef = async () => {
-      const code = (refIn.value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-      if (refIn.value !== code) refIn.value = code;
-      refOk = null;
-      refState.className = "ref-state";
-      refState.textContent = "";
-      if (code.length < 4) return;
-      refState.textContent = "Comprobando…";
-      try {
-        const r = await api("referral/" + encodeURIComponent(code));
-        if (refIn.value !== code) return;
-        refOk = code;
-        refState.className = "ref-state ok";
-        refState.innerHTML = L(
-          `✓ Te invita <b>${esc(r.name)}</b>. ${esc(r.name)} sumará ${r.points} puntos cuando vengas a tu primera cita.`,
-          `✓ Invited by <b>${esc(r.name)}</b>. ${esc(r.name)} will earn ${r.points} points when you come to your first appointment.`,
-        );
-      } catch (err) {
-        if (refIn.value !== code) return;
-        refOk = false;
-        refState.className = "ref-state bad";
-        refState.textContent = err.message;
-      }
-    };
-    if (refIn) {
-      $("#ref-toggle").onclick = () => {
-        $("#ref-box").classList.add("open");
-        setTimeout(() => refIn.focus(), 50);
-      };
-      refIn.oninput = () => {
-        clearTimeout(refT);
-        refT = setTimeout(checkRef, 350);
-      };
-      if (refIn.value) checkRef();
-    }
     $("#g-change")?.addEventListener("click", async () => {
       if (await addCard()) render();
     });
-    onForm("details", async (d, f) => {
-      for (const el of f.querySelectorAll("input[required]")) if (!el.reportValidity()) return;
-      if (refIn?.value && refOk === null) await checkRef();
-      if (refIn?.value && !refOk) {
-        refIn.focus();
-        return toast("Ese código de amigo no existe. Revísalo o bórralo.");
-      }
-      const num = String(d.phone || "").trim();
-      const data = { name: String(d.name || user?.name || "").trim(), email: (user?.email || d.email).trim(), phone: num ? `${d.cc} ${num}` : user?.phone || "" };
-      Object.assign(draft, data, { terms: true });
+    onForm("details", async (d) => {
+      Object.assign(draft, { terms: true });
       saveDraft();
       // Tarjeta en garantía: se guarda una vez y queda en el perfil para las próximas citas.
       if (cardOn() && !user?.card) {
-        const card = await addCard({ ...data, ref: refOk || "" });
+        const card = await addCard();
         if (!card) return toast("Sin tarjeta en garantía no podemos guardar la cita.");
       }
       const repeat = d.every ? { every: Number(d.every), times: Number(d.times) } : null;
@@ -1486,7 +1438,7 @@ const pages = {
       const book = async () => {
         for (let i = 0; ; i++) {
           try {
-            return await api("book", { ...data, ref: refOk || "", service: draft.service, provider: draft.provider, date: draft.date, start: draft.start, terms: true, repeat, key: draft.key }, { timeout: 20000 });
+            return await api("book", { service: draft.service, provider: draft.provider, date: draft.date, start: draft.start, terms: true, repeat, key: draft.key }, { timeout: 20000 });
           } catch (err) {
             if (!(err.network || err.data?.pending) || i >= 3) throw err;
             if (!i) toast("La conexión va lenta. Seguimos intentándolo…");
@@ -1500,22 +1452,24 @@ const pages = {
           r = await book();
         } catch (err) {
           if (err.status !== 402) throw err;
-          if (!(await addCard(data))) return toast("Sin tarjeta en garantía no podemos guardar la cita.");
+          if (!(await addCard())) return toast("Sin tarjeta en garantía no podemos guardar la cita.");
           r = await book();
         }
       } catch (err) {
+        // La sesión se cerró mientras tanto: se vuelve a entrar sin perder la hora elegida.
+        if (err.status === 401) {
+          user = null;
+          nav();
+          return render();
+        }
         if (err.status !== 409 || !err.data?.alternatives?.length) throw err;
         availCache.clear();
         return pickAlternative(err.data.alternatives);
       }
       availCache.clear();
-      lastBooked = { id: r.id, existing: r.existing, service: s, provider: (r.provider && provById(r.provider.id)) || r.provider || p, date: draft.date, start: draft.start, series: r.series };
+      lastBooked = { id: r.id, service: s, provider: (r.provider && provById(r.provider.id)) || r.provider || p, date: draft.date, start: draft.start, series: r.series };
       draft = {};
       saveDraft();
-      if (r.session) {
-        await refreshMe();
-        nav();
-      }
       go("booked");
     });
   },
@@ -1555,10 +1509,8 @@ const pages = {
             }</div>`
           : "") +
         calButtons({ ...b, end: addMin(b.start, b.service.duration) }) +
-        (b.existing
-          ? `<p class="warning">Ya tenías cuenta con este correo. Entra con tu correo para ver y cambiar todas tus citas.</p><a class="btn wide" href="#login">Entrar a mis citas</a>`
-          : `<a class="btn wide" style="margin-top:10px" href="#booking/${esc(b.id)}">Ver, cambiar o cancelar mi cita</a>`) +
-        (user && !user.phone && !b.existing
+        `<a class="btn wide" style="margin-top:10px" href="#booking/${esc(b.id)}">Ver, cambiar o cancelar mi cita</a>` +
+        (user && !user.phone
           ? `<form id="bk-phone" class="card complete"><strong>Completa tu perfil</strong><span>Déjanos tu teléfono por si hay algún cambio con tu cita. Solo te lo pedimos esta vez.</span>
               <div class="form-actions" style="margin-top:10px"><input name="phone" type="tel" inputmode="tel" required maxlength="25" autocomplete="tel" placeholder="+34 600 000 000" aria-label="Teléfono"><button class="btn" type="submit">Guardar</button></div></form>`
           : ""),
@@ -1674,26 +1626,16 @@ const pages = {
     });
   },
 
-  async login() {
-    loginScreen("", "bookings");
+  // #login/<pantalla>: adónde ir después de entrar (por defecto, el perfil).
+  async login([next]) {
+    const to = /^[a-z]+$/.test(next || "") ? next : "profile";
+    if (user?.name) return go(to);
+    loginScreen("", to);
   },
 
+  // (Antes el código iba en su propia pantalla; ahora va dentro de «Entrar».)
   async code() {
-    if (!challenge) return go("login");
-    show(
-      heading("Mira tu correo", "Te hemos enviado un código de 6 cifras. Caduca en diez minutos.") +
-        `<form id="code"><label for="f-code">Código</label><input id="f-code" name="code" required inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" style="letter-spacing:8px;font-size:22px;text-align:center"><button class="btn wide" style="margin-top:16px" type="submit">Entrar</button></form>` +
-        `<a class="btn wide secondary" style="margin-top:10px" href="#login">Usar otro correo</a>`,
-    );
-    $("#f-code").focus();
-    onForm("code", async (d) => {
-      await api("auth/verify", { code: d.code, challenge });
-      challenge = null;
-      await refreshMe();
-      nav();
-      toast(L("¡Hola", "Hi") + (user?.name ? ", " + first(user.name) : "") + "!");
-      go(sessionStorage.getItem("nova_next") || "bookings");
-    });
+    go("login");
   },
 
   async profile() {
@@ -1750,9 +1692,17 @@ const pages = {
         }</div>`
           : ""
       }
+      <p class="section-label">Ranking</p>
+      <div class="card rk-pref">
+        <label class="check"><input type="checkbox" id="rk-show" ${user.rank !== false ? "checked" : ""}><span>${tl("Salir en el ranking de todo el Club", "Appear in the whole-Club ranking")}<small>${tl(
+          `Se ve <b>${esc(user.rankName || rankName(user.name))}</b>, tu liga y tus puntos. Tus amigos te ven siempre.`,
+          `It shows <b>${esc(user.rankName || rankName(user.name))}</b>, your league and your points. Your friends always see you.`,
+        )}</small></span></label>
+        <a class="btn wide secondary" href="#ranking" style="margin-top:12px">${svg(ICONS.trophy)} ${tl("Ver el ranking", "See the ranking")}</a>
+      </div>
       <p class="section-label">Tus datos</p>
       <form id="profile" class="card">
-        <label for="p-name" style="margin-top:0">Nombre</label><input id="p-name" name="name" required maxlength="120" autocomplete="name" value="${esc(user.name || "")}">
+        <label for="p-name" style="margin-top:0">${tl("Nombre", "Name")} <small class="opt">${tl("(en el ranking, nombre e inicial)", "(first name and initial in the ranking)")}</small></label><input id="p-name" name="name" required maxlength="60" autocomplete="name" value="${esc(user.name || "")}">
         <label for="p-phone">Teléfono</label><input id="p-phone" name="phone" type="tel" maxlength="30" autocomplete="tel" value="${esc(user.phone || "")}">
         <label for="p-email">Correo</label><input id="p-email" value="${esc(user.email)}" readonly>
         <button class="btn wide" style="margin-top:18px" type="submit">Guardar</button>
@@ -1775,6 +1725,20 @@ const pages = {
       }
     };
     bindInvite();
+    $("#rk-show").onchange = async (e) => {
+      const box = e.currentTarget;
+      box.disabled = true;
+      try {
+        await api("profile/rank", { show: box.checked });
+        await refreshMe();
+        toast(box.checked ? L("Vuelves a salir en el ranking.", "You're back on the ranking.") : L("Ya no sales en el ranking de todo el Club.", "You no longer appear in the whole-Club ranking."));
+      } catch (err) {
+        box.checked = !box.checked;
+        toast(err.message);
+      } finally {
+        box.disabled = false;
+      }
+    };
     $("#card-change")?.addEventListener("click", async () => {
       try {
         if (await addCard()) render();
@@ -1816,6 +1780,26 @@ const pages = {
     };
   },
 
+  async ranking([sub]) {
+    const scope = sub === "amigos" ? "friends" : "global";
+    if (!user) {
+      show(
+        heading("Ranking", L("Los socios del Club, por puntos ganados. Todo el Club y tus amigos, en directo.", "Club members by points earned. The whole Club and your friends, live.")) +
+          `<div class="rk-me rk-off"><p>${L(
+            `Entra con tu correo para ver en qué puesto vas. Empiezas con ${catalog.points.welcome} puntos de regalo.`,
+            `Log in with your email to see where you stand. You start with ${catalog.points.welcome} welcome points.`,
+          )}</p><a class="btn" href="#login/ranking">${L("Entrar o crear cuenta", "Log in or sign up")}</a></div>`,
+      );
+      return;
+    }
+    if (!user.name) {
+      show(heading("Ranking", L("Antes, dinos tu nombre: es el que sale en el ranking.", "First, tell us your name: it's the one shown in the ranking.")) + `<div id="auth" class="auth-box"></div>`);
+      authFlow($("#auth"), { step: "name", onDone: () => render() });
+      return;
+    }
+    await rankingPage(scope);
+  },
+
   async rewards() {
     const P = catalog.points;
     if (!user) {
@@ -1847,6 +1831,7 @@ const pages = {
         )}</p>
         <div class="pts-league">${leagueArt(L.league)}<span>${tl(`Liga <b>${esc(L.label)}</b> · ${nf(m.earned)} puntos ganados`, `<b>${esc(L.label)}</b> league · ${nf(m.earned)} points earned`)}</span></div>
       </section>` +
+        `<a class="rk-mini" id="rk-mini" href="#ranking" hidden></a>` +
         nextBlock(m, L) +
         (open.length
           ? `<p class="section-label">Para recoger en el local</p><div class="rw-list">${open
@@ -1864,6 +1849,7 @@ const pages = {
           : "") +
         `<a class="btn wide secondary" style="margin-top:18px" href="#profile">Ver mi perfil y medallas</a>`,
     );
+    rkMini();
     celebrate(m, L);
     $$("[data-redeem]").forEach(
       (b) =>
@@ -2352,7 +2338,10 @@ function inviteBlock(m) {
   return `<section class="invite" id="amigos">
     <span class="club-tag">INVITA Y SUMA</span>
     <h2>${L(`+${catalog.points.perFriend} puntos por cada amigo`, `+${catalog.points.perFriend} points for every friend`)}</h2>
-    <p>Pásale tu código para que lo ponga al reservar. Los puntos son tuyos en cuanto venga a su primera cita.</p>
+    <p>${L(
+      "Pásale tu código para que lo ponga al crear su cuenta. Los puntos son tuyos en cuanto venga a su primera cita, y os veréis en el ranking de amigos.",
+      "Give them your code to enter when they sign up. The points are yours as soon as they come to their first appointment, and you'll see each other in the friends ranking.",
+    )}</p>
     <div class="inv-code"><strong id="my-code">${esc(user.ref || "—")}</strong><button type="button" id="copy-code" aria-label="Copiar código">${svg(ICONS.copy)}</button></div>
     <button type="button" class="btn wide club-btn" id="share-code">${svg(ICONS.share)} Compartir mi código</button>
     ${
@@ -2365,8 +2354,6 @@ function inviteBlock(m) {
 function bindInvite() {
   const code = user?.ref;
   if (!code) return;
-  const url = `${location.origin}/?ref=${encodeURIComponent(code)}`,
-    text = L(`Reserva en NOVA Studio con mi código ${code} 💈`, `Book at NOVA Studio with my code ${code} 💈`);
   $("#copy-code").onclick = async () => {
     try {
       await navigator.clipboard.writeText(code);
@@ -2375,13 +2362,244 @@ function bindInvite() {
       toast(code);
     }
   };
-  $("#share-code").onclick = async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: "NOVA Studio", text, url });
-      } catch {}
-    } else window.open("https://wa.me/?text=" + encodeURIComponent(text + " " + url), "_blank", "noopener");
+  $("#share-code").onclick = shareMyCode;
+}
+// Compartir mi código: sirve para invitar (quien se da de alta con él) y para
+// que alguien que ya es del Club me añada a su ranking de amigos.
+async function shareMyCode() {
+  const code = user?.ref;
+  if (!code) return;
+  const url = `${location.origin}/?ref=${encodeURIComponent(code)}`,
+    text = L(`Reserva en NOVA Studio con mi código ${code} 💈`, `Book at NOVA Studio with my code ${code} 💈`);
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: "NOVA Studio", text, url });
+    } catch {}
+  } else window.open("https://wa.me/?text=" + encodeURIComponent(text + " " + url), "_blank", "noopener");
+}
+
+// ── Ranking ────────────────────────────────────────────────────────────────
+// Se pide cada 6 s mientras está en pantalla (y al volver a la app). El
+// servidor solo manda la lista si algo ha cambiado; entonces las filas se
+// deslizan a su nuevo puesto y los puntos que cambian se marcan un momento.
+let rkPeriod = "month",
+  rkGen = 0,
+  rkLast = null,
+  rkTimer = 0;
+const RK_EVERY = 6000;
+async function rankingPage(scope) {
+  const gen = ++rkGen;
+  rkLast = null;
+  const r = await api(`ranking?scope=${scope}&period=${rkPeriod}`);
+  if (gen !== rkGen) return;
+  show(
+    heading("Ranking", L("Puntos ganados en el Club. Canjear premios no te hace bajar.", "Points earned in the Club. Redeeming rewards doesn't move you down.")) +
+      `<div class="tabs rk-tabs"><a href="#ranking" class="${scope === "global" ? "active" : ""}">${L("Todo el Club", "Whole Club")}</a><a href="#ranking/amigos" class="${scope === "friends" ? "active" : ""}">${L("Amigos", "Friends")}</a></div>
+       <div class="rk-bar"><div class="rk-period" role="group" aria-label="${L("Periodo", "Period")}"><button type="button" data-period="month" aria-pressed="${rkPeriod === "month"}">${esc(cap(new Date(r.month + "-15T12:00:00").toLocaleDateString(LOC(), { month: "long" })))}</button><button type="button" data-period="all" aria-pressed="${rkPeriod === "all"}">${L("Siempre", "All time")}</button></div>
+       <span class="rk-live" title="${L("Se actualiza solo", "Updates by itself")}"><i aria-hidden="true"></i>${L("En directo", "Live")}</span></div>
+       <div id="rk-me" aria-live="polite"></div><ol id="rk-list" class="rk-list"></ol><div id="rk-foot"></div>`,
+  );
+  $$("[data-period]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        if (rkPeriod === b.dataset.period) return;
+        rkPeriod = b.dataset.period;
+        render();
+      }),
+  );
+  rkDraw(r);
+  rkPoll(gen);
+}
+async function rkFetch(gen, force) {
+  const s = rkLast;
+  if (!s) return;
+  try {
+    const r = await api(`ranking?scope=${s.scope}&period=${s.period}${force ? "" : "&v=" + encodeURIComponent(s.v)}`);
+    if (gen !== rkGen || document.body.dataset.page !== "ranking" || !$("#rk-list")) return;
+    if (!r.same) rkDraw(r);
+  } catch {}
+}
+function rkPoll(gen) {
+  clearTimeout(rkTimer);
+  const loop = async () => {
+    if (gen !== rkGen || document.body.dataset.page !== "ranking") return;
+    if (!document.hidden) await rkFetch(gen);
+    if (gen === rkGen) rkTimer = setTimeout(loop, rkLast?.building ? 2500 : RK_EVERY);
   };
+  rkTimer = setTimeout(loop, rkLast?.building ? 2500 : RK_EVERY);
+}
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && document.body.dataset.page === "ranking") rkFetch(rkGen);
+});
+const ptsWord = (n) => (n === 1 ? L("punto", "point") : L("puntos", "points"));
+function rkDraw(r) {
+  const prev = rkLast && rkLast.scope === r.scope && rkLast.period === r.period ? rkLast : null;
+  rkLast = r;
+  $("#rk-me").innerHTML = rkMe(r);
+  rkList(r);
+  $("#rk-foot").innerHTML = rkFoot(r);
+  // Has subido (o te han pasado): una marca en tu fila y, si subes, un aviso.
+  if (prev?.me && r.me && prev.me.r !== r.me.r) {
+    const up = r.me.r < prev.me.r,
+      row = $("#rk-list .rk-row.me");
+    row?.insertAdjacentHTML("beforeend", `<span class="rk-delta ${up ? "up" : "down"}">${up ? "▲" : "▼"} ${Math.abs(prev.me.r - r.me.r)}</span>`);
+    if (up) toast(L(`¡Subes al puesto ${r.me.r}!`, `You're up to #${r.me.r}!`));
+  }
+  $("#rk-unhide")?.addEventListener("click", async (e) => {
+    e.currentTarget.disabled = true;
+    try {
+      await api("profile/rank", { show: true });
+      await refreshMe();
+      rkFetch(rkGen, true);
+    } catch (err) {
+      toast(err.message);
+    }
+  });
+  $("#rk-add")?.addEventListener("click", rkAddFriend);
+  $("#rk-invite")?.addEventListener("click", shareMyCode);
+  $$("#rk-list [data-friend]").forEach(
+    (el) =>
+      (el.onclick = el.onkeydown =
+        (e) => {
+          if (e.type === "keydown" && e.key !== "Enter") return;
+          rkFriendSheet(r.rows.find((x) => String(x.k) === el.dataset.k));
+        }),
+  );
+}
+function rkMe(r) {
+  const friends = r.scope === "friends",
+    per = r.period === "month" ? L("este mes", "this month") : L("en total", "in total");
+  if (r.me) {
+    const gap = r.me.ahead
+      ? L(
+          `Te faltan <b>${nf(r.me.ahead.gap)}</b> ${ptsWord(r.me.ahead.gap)} para adelantar a <b>${esc(r.me.ahead.n)}</b>`,
+          `You need <b>${nf(r.me.ahead.gap)}</b> ${ptsWord(r.me.ahead.gap)} to overtake <b>${esc(r.me.ahead.n)}</b>`,
+        )
+      : r.total > 1
+        ? L("Vas el primero. Que no te alcancen.", "You're in first place. Don't let them catch you.")
+        : friends
+          ? L("Añade a tus amigos para competir con ellos.", "Add your friends to compete with them.")
+          : "";
+    return `<div class="rk-me"><div class="rk-pos"><small>${friends ? L("Entre tus amigos", "Among your friends") : L("Tu puesto", "Your position")}</small><strong>${r.me.r}<sup>${L("º", "")}</sup></strong><span>${L(`de ${nf(r.total)}`, `of ${nf(r.total)}`)}</span></div>
+      <div class="rk-pts"><strong>${nf(r.me.p)}</strong><span>${ptsWord(r.me.p)} ${per}</span></div>${gap ? `<p class="rk-gap">${gap}</p>` : ""}</div>`;
+  }
+  if (r.building) return `<div class="rk-me rk-off"><p>${L("Preparando el ranking…", "Getting the ranking ready…")}</p></div>`;
+  if (!friends && r.hidden)
+    return `<div class="rk-me rk-off"><p>${L("No sales en el ranking de todo el Club. Tus amigos sí te ven.", "You're hidden from the whole-Club ranking. Your friends can still see you.")}</p><button type="button" class="btn secondary" id="rk-unhide">${L("Volver a salir", "Show me again")}</button></div>`;
+  if (!friends && r.listed && r.period === "month")
+    return `<div class="rk-me rk-off"><p>${L("Aún no has sumado puntos este mes. Con tu próximo corte entras en la lista.", "You haven't earned points this month yet. Your next haircut puts you on the board.")}</p><a class="btn secondary" href="#home">${L("Reservar", "Book")}</a></div>`;
+  return `<div class="rk-me rk-off"><p>${L("Aún no sales en el ranking. Apareces en cuanto sumes tus primeros puntos.", "You're not on the ranking yet. You'll appear once you earn your first points.")}</p></div>`;
+}
+const rkRow = (x, friends) => {
+  const lg = leagueOf(x.a || 0),
+    tap = friends && !x.me;
+  return `${x.out ? `<li class="rk-skip" aria-hidden="true">···</li>` : ""}<li class="rk-row${x.me ? " me" : ""}${x.r <= 3 ? " podium" : ""}" data-k="${esc(x.k)}" data-p="${x.p}" style="${leagueVars(lg.league)}"${tap ? ` data-friend role="button" tabindex="0"` : ""}>
+    <span class="rk-r">${x.r}</span><span class="rk-lg">${leagueArt(lg.league)}</span>
+    <span class="rk-n"><strong>${esc(x.n)}${x.me ? ` <em>${L("Tú", "You")}</em>` : ""}</strong><small>${esc(lg.label)}</small></span>
+    <b class="rk-p">${nf(x.p)}</b></li>`;
+};
+// Pinta la lista y desliza cada fila desde donde estaba (FLIP).
+function rkList(r) {
+  const list = $("#rk-list"),
+    friends = r.scope === "friends";
+  const before = new Map([...list.querySelectorAll(".rk-row")].map((el) => [el.dataset.k, { top: el.getBoundingClientRect().top, p: el.dataset.p }]));
+  const rows = r.rows || [];
+  list.innerHTML = rows.length
+    ? rows.map((x) => rkRow(x, friends)).join("")
+    : `<li class="rk-empty">${
+        friends
+          ? L("Aún no tienes amigos en el ranking. Añádelos con su código del Club o invita a alguien nuevo.", "No friends on your ranking yet. Add them with their Club code or invite someone new.")
+          : r.period === "month"
+            ? L("Este mes aún no ha sumado nadie. El primer corte cobrado se pone en cabeza.", "Nobody has scored this month yet. The first paid haircut takes the lead.")
+            : L("Aún no hay nadie en el ranking.", "Nobody on the ranking yet.")
+      }</li>`;
+  if (!before.size || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  for (const el of list.querySelectorAll(".rk-row")) {
+    const b = before.get(el.dataset.k);
+    if (!b) {
+      el.classList.add("rk-in");
+      continue;
+    }
+    const dy = b.top - el.getBoundingClientRect().top;
+    if (dy) {
+      el.style.transition = "none";
+      el.style.transform = `translateY(${dy}px)`;
+      void el.offsetWidth;
+      el.style.transition = "";
+      el.style.transform = "";
+    }
+    if (b.p !== el.dataset.p) el.classList.add("rk-bump");
+  }
+}
+function rkFoot(r) {
+  if (r.scope === "friends")
+    return `<div class="rk-actions"><button type="button" class="btn wide" id="rk-add">${svg(ICONS.users)} ${L("Añadir amigo", "Add a friend")}</button><button type="button" class="btn wide secondary" id="rk-invite">${svg(ICONS.share)} ${L("Invitar a alguien nuevo", "Invite someone new")}</button></div>
+      <p class="rk-note">${L(
+        `Tu código es <b>${esc(r.code)}</b>. Quien ya sea del Club lo pone en «Añadir amigo». Si alguien nuevo lo usa al darse de alta, sumas ${catalog.points.perFriend} puntos con su primera cita.`,
+        `Your code is <b>${esc(r.code)}</b>. Club members enter it in “Add a friend”. If someone new uses it when signing up, you earn ${catalog.points.perFriend} points with their first appointment.`,
+      )}</p>`;
+  return `<p class="rk-note">${
+    r.total ? L(`${nf(r.total)} ${r.total === 1 ? "socio" : "socios"} en la lista.`, `${nf(r.total)} ${r.total === 1 ? "member" : "members"} on the board.`) + " " : ""
+  }${L("Se ve el nombre y la inicial de cada socio. Si prefieres no salir, cámbialo en tu perfil.", "Members show with first name and initial. If you'd rather not appear, change it in your profile.")}</p>`;
+}
+function rkAddFriend() {
+  const sh = sheet(
+    `<p class="eyebrow">${L("Ranking de amigos", "Friends ranking")}</p><h2>${L("Añadir amigo", "Add a friend")}</h2>
+     <p class="muted">${L("Pídele su código del Club: lo tiene en su perfil, en «Invita y suma».", "Ask for their Club code: it's in their profile, under “Invite and earn”.")}</p>
+     <form id="rk-add-f"><label for="rk-code">${L("Su código", "Their code")}</label><input id="rk-code" name="code" required autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="16" placeholder="${L("Ej.: CARLOS482", "E.g. CARLOS482")}">
+     <button class="btn wide" style="margin-top:16px" type="submit">${L("Añadir", "Add")}</button></form>`,
+  );
+  setTimeout(() => sh.el.querySelector("#rk-code")?.focus(), 50);
+  onForm("rk-add-f", async (d) => {
+    const r = await api("ranking/friends", { code: d.code });
+    sh.close();
+    toast(L(`${r.name} ya está en tus amigos.`, `${r.name} is now on your friends list.`));
+    rkFetch(rkGen, true);
+  });
+}
+function rkFriendSheet(x) {
+  if (!x) return;
+  const lg = leagueOf(x.a || 0);
+  const sh = sheet(
+    `<div class="rk-sheet" style="${leagueVars(lg.league)}">${leagueArt(lg.league)}<div><h2>${esc(x.n)}</h2><p class="muted">${esc(lg.label)} · ${nf(x.a || 0)} ${L("puntos ganados", "points earned")}</p></div></div>
+     <button type="button" class="btn wide danger" id="rk-rm">${L("Quitar de mis amigos", "Remove from my friends")}</button>`,
+  );
+  sh.el.querySelector("#rk-rm").onclick = async (e) => {
+    const b = e.currentTarget;
+    if (b.dataset.sure !== "1") {
+      b.dataset.sure = "1";
+      b.textContent = L("¿Seguro? Pulsa otra vez", "Sure? Tap again");
+      return;
+    }
+    b.disabled = true;
+    try {
+      await api("ranking/friends/remove", { id: x.k });
+      sh.close();
+      rkFetch(rkGen, true);
+    } catch (err) {
+      b.disabled = false;
+      toast(err.message);
+    }
+  };
+}
+// Tarjeta de «Puntos y premios»: tu puesto de este mes, a un toque del ranking.
+async function rkMini() {
+  const el = $("#rk-mini");
+  if (!el) return;
+  try {
+    const r = await api("ranking?scope=global&period=month&mini=1");
+    if (!document.body.contains(el)) return;
+    el.innerHTML = `<span class="rk-mini-ic">${svg(ICONS.trophy)}</span><span class="rk-mini-t"><strong>${
+      r.me ? L(`Vas ${r.me.r}º este mes`, `You're #${r.me.r} this month`) : L("Ranking del Club", "Club ranking")
+    }</strong><small>${
+      r.me?.ahead
+        ? L(`${nf(r.me.ahead.gap)} ${ptsWord(r.me.ahead.gap)} para adelantar a ${esc(r.me.ahead.n)}`, `${nf(r.me.ahead.gap)} ${ptsWord(r.me.ahead.gap)} to overtake ${esc(r.me.ahead.n)}`)
+        : r.me
+          ? L(`de ${nf(r.total)} · ¡vas en cabeza!`, `of ${nf(r.total)} · you're in the lead!`)
+          : L("Mira quién va primero y compite con tus amigos", "See who's leading and compete with your friends")
+    }</small></span><b aria-hidden="true">›</b>`;
+    el.hidden = false;
+  } catch {}
 }
 function rewardRow(r, balance) {
   const can = user && balance >= r.cost;
@@ -2454,27 +2672,247 @@ function loginScreen(reason, next) {
   } catch {}
   show(
     heading(
-      "Entra en tu cuenta",
-      reason || (loginCode ? "Sin contraseña: pon el correo con el que reservaste y te enviamos un código de 6 cifras." : "Sin contraseña: pon el correo con el que reservaste."),
+      L("Entra o crea tu cuenta", "Log in or sign up"),
+      reason || L("Solo con tu correo, sin contraseñas. Si es tu primera vez, la cuenta se crea al entrar.", "Just your email, no passwords. If it's your first time, your account is created as you log in."),
     ) +
-      (loginCode && !mailOn ? `<p class="warning">Ahora mismo el acceso por correo no está activo. Si necesitas cambiar una cita, escríbenos por WhatsApp.</p>` : "") +
-      `<form id="login"><label for="l-email">Correo electrónico</label><input id="l-email" name="email" type="email" required autocomplete="email"><button class="btn wide" style="margin-top:16px" type="submit">${loginCode ? "Recibir código" : "Entrar"}</button></form>` +
-      `<p class="muted" style="margin-top:22px">¿Aún no tienes cuenta? Se crea sola con tu primera reserva.</p><a class="btn wide secondary" href="#home">Reservar cita</a>` +
-      `<p class="muted" style="margin-top:22px;text-align:center">¿Trabajas en el estudio? <a href="#equipo">Entra en tu panel</a></p>` +
+      `<div id="auth" class="auth-box"></div>` +
+      `<p class="muted" style="margin-top:26px;text-align:center">¿Trabajas en el estudio? <a href="#equipo">Entra en tu panel</a></p>` +
       legalLinks(),
   );
-  onForm("login", async (d) => {
-    const r = await api("auth/request", { email: d.email });
-    if (r.direct) {
-      await refreshMe();
-      nav();
+  authFlow($("#auth"), {
+    step: user && !user.name ? "name" : "",
+    onDone: () => {
       toast(L("¡Hola", "Hi") + (user?.name ? ", " + first(user.name) : "") + "!");
-      return go(sessionStorage.getItem("nova_next") || "profile");
-    }
-    challenge = r.challenge;
-    if (r.dev) toast("Modo prueba: el código sale en la consola del servidor.");
-    go("code");
+      go(sessionStorage.getItem("nova_next") || "profile");
+    },
   });
+}
+
+// Entrar y darse de alta son el mismo camino: correo → código de 6 cifras →
+// nombre (solo si la cuenta aún no lo tiene). Se pinta dentro de `host`, así
+// sirve en «Entrar» y en medio de una reserva sin salir de ella.
+// `step: "name"`: la sesión ya está abierta y solo falta el nombre.
+function authFlow(host, { step = "", onDone, onStep } = {}) {
+  const st = { via: "email", to: "", challenge: "", fresh: false, wait: 0 };
+  const draw = (html, focus) => {
+    host.innerHTML = html;
+    if (focus) setTimeout(() => host.querySelector(focus)?.focus(), 30);
+  };
+  const finish = async () => {
+    await refreshMe();
+    nav();
+    await onDone?.();
+  };
+
+  // 1 · Correo (o teléfono, cuando esté activo).
+  const idStep = () => {
+    if (!authCh.email && !authCh.phone)
+      return draw(
+        `<p class="warning">${L("Ahora mismo no podemos mandar códigos para entrar. Para reservar o cambiar una cita, escríbenos por WhatsApp.", "We can't send login codes right now. To book or change an appointment, message us on WhatsApp.")}</p>
+         <a class="btn wide wa-btn" href="${wa(L("Hola, quiero reservar una cita.", "Hi, I'd like to book an appointment."))}" target="_blank" rel="noopener">${svg(ICONS.chat)} WhatsApp</a>`,
+      );
+    if (!authCh.email) st.via = "phone";
+    const phone = st.via === "phone";
+    draw(
+      `<form id="au-id" class="auth-step" novalidate>
+        ${
+          authCh.email && authCh.phone
+            ? `<div class="auth-via" role="tablist"><button type="button" role="tab" data-via="email" aria-selected="${!phone}">${L("Correo", "Email")}</button><button type="button" role="tab" data-via="phone" aria-selected="${phone}">${L("Teléfono", "Phone")}</button></div>`
+            : ""
+        }
+        ${
+          phone
+            ? `<label for="au-to">${L("Tu número de móvil", "Your mobile number")}</label><input id="au-to" name="to" type="tel" inputmode="tel" required autocomplete="tel" maxlength="22" placeholder="+34 600 000 000" value="${esc(st.via === "phone" ? st.to : "")}">`
+            : `<label for="au-to">${L("Tu correo", "Your email")}</label><input id="au-to" name="to" type="email" inputmode="email" required autocomplete="email" autocapitalize="off" spellcheck="false" maxlength="120" value="${esc(st.via === "email" ? st.to : "")}">`
+        }
+        <button class="btn wide" type="submit">${L("Recibir código", "Get a code")}</button>
+        <p class="auth-note">${phone ? L("Te mandamos un código de 6 cifras por SMS para comprobar que el número es tuyo.", "We'll text you a 6-digit code to check the number is yours.") : L("Te mandamos un código de 6 cifras para comprobar que el correo es tuyo.", "We'll send you a 6-digit code to check the email is yours.")}</p>
+      </form>`,
+      "#au-to",
+    );
+    host.querySelectorAll("[data-via]").forEach(
+      (b) =>
+        (b.onclick = () => {
+          st.via = b.dataset.via;
+          idStep();
+        }),
+    );
+    onForm("au-id", async (d, f) => {
+      const input = f.querySelector("#au-to");
+      if (!input.reportValidity()) return;
+      st.to = String(d.to || "").trim();
+      await send();
+      codeStep();
+    });
+  };
+  const send = async () => {
+    const r = await api("auth/request", st.via === "phone" ? { phone: st.to } : { email: st.to });
+    st.challenge = r.challenge;
+    st.wait = Date.now() + 30000;
+    if (r.dev) toast("Modo prueba: el código sale en la consola del servidor.");
+  };
+
+  // 2 · El código.
+  const codeStep = () => {
+    draw(
+      `<form id="au-code" class="auth-step" novalidate>
+        <p class="auth-to">${L("Código enviado a", "Code sent to")} <b>${esc(st.to)}</b> <button type="button" class="link-btn" id="au-back">${L("Cambiar", "Change")}</button></p>
+        <label for="au-c">${L("Código de 6 cifras", "6-digit code")}</label>
+        <input id="au-c" class="code-input" name="code" required inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="······">
+        <button class="btn wide" type="submit">${L("Entrar", "Log in")}</button>
+        <p class="auth-note">${L("Caduca en diez minutos. Si no lo ves, mira en spam o promociones.", "It expires in ten minutes. If you can't see it, check spam or promotions.")} <button type="button" class="link-btn" id="au-again"></button></p>
+      </form>`,
+      "#au-c",
+    );
+    const again = host.querySelector("#au-again"),
+      input = host.querySelector("#au-c");
+    const tick = () => {
+      if (!host.contains(again)) return;
+      const left = Math.ceil((st.wait - Date.now()) / 1000);
+      again.disabled = left > 0;
+      again.textContent = left > 0 ? L(`Reenviar en ${left} s`, `Resend in ${left} s`) : L("Reenviar código", "Resend code");
+      if (left > 0) setTimeout(tick, 1000);
+    };
+    tick();
+    again.onclick = async () => {
+      again.disabled = true;
+      try {
+        await send();
+        toast(L("Te hemos mandado otro código.", "We've sent you another code."));
+        input.value = "";
+        input.focus();
+      } catch (e) {
+        toast(e.message);
+      }
+      tick();
+    };
+    host.querySelector("#au-back").onclick = idStep;
+    // Con las 6 cifras puestas (o pegadas) se entra solo.
+    input.oninput = () => {
+      input.value = input.value.replace(/\D/g, "").slice(0, 6);
+      if (input.value.length === 6) host.querySelector("#au-code").requestSubmit();
+    };
+    let checking = false;
+    onForm("au-code", async (d) => {
+      const code = String(d.code || "").replace(/\D/g, "");
+      if (code.length !== 6) return toast(L("El código tiene 6 cifras.", "The code has 6 digits."));
+      if (checking) return;
+      checking = true;
+      let r;
+      try {
+        r = await api("auth/verify", { code, challenge: st.challenge });
+      } catch (e) {
+        input.select();
+        throw e;
+      } finally {
+        checking = false;
+      }
+      st.fresh = !!r.fresh;
+      if (r.needName) {
+        await refreshMe();
+        nav();
+        return nameStep();
+      }
+      await finish();
+    });
+  };
+
+  // 3 · El nombre, que es el que sale en el ranking. Si la cuenta es nueva,
+  // también el código del amigo que te invitó.
+  const nameStep = () => {
+    onStep?.("name");
+    draw(
+      `<form id="au-name" class="auth-step" novalidate>
+        ${st.fresh ? `<p class="auth-welcome">${L(`¡Ya eres del Club! Tienes <b>${catalog.points.welcome} puntos</b> de regalo.`, `You're in the Club! You've got <b>${catalog.points.welcome} points</b> as a gift.`)}</p>` : ""}
+        <label for="au-n">${L("¿Cómo te llamas?", "What's your name?")}</label>
+        <input id="au-n" name="name" required minlength="2" maxlength="60" autocomplete="name" autocapitalize="words" placeholder="${L("Nombre y apellido", "First and last name")}" value="${esc(user?.name || "")}">
+        <p class="auth-note" id="au-prev"></p>
+        ${st.fresh || step === "name" ? refBoxHtml() : ""}
+        <button class="btn wide" type="submit">${L("Continuar", "Continue")}</button>
+      </form>`,
+      "#au-n",
+    );
+    const n = host.querySelector("#au-n"),
+      prev = host.querySelector("#au-prev");
+    const preview = () => {
+      const r = rankName(n.value);
+      prev.innerHTML = r ? L(`Así saldrás en el ranking del Club: <b>${esc(r)}</b>`, `This is how you'll appear in the Club ranking: <b>${esc(r)}</b>`) : L("Así te verá tu barbero y así saldrás en el ranking del Club (nombre e inicial).", "Your barber will see this, and the Club ranking shows your first name and initial.");
+    };
+    n.oninput = preview;
+    preview();
+    const ref = bindRefBox(host);
+    onForm("au-name", async (d) => {
+      if (!n.reportValidity()) return;
+      const code = await ref.value();
+      if (code === false) return toast(L("Ese código de amigo no existe. Revísalo o bórralo.", "That friend code doesn't exist. Check it or clear it."));
+      await api("auth/name", { name: String(d.name || "").trim(), ref: code || "" });
+      try {
+        localStorage.removeItem("nova_ref");
+      } catch {}
+      await finish();
+    });
+  };
+
+  (step === "name" ? nameStep : idStep)();
+}
+// «carlos pérez» → «Carlos P.» (igual que el servidor).
+function rankName(name) {
+  const w = String(name || "").trim().split(/\s+/).filter(Boolean);
+  if (!w.length) return "";
+  const up = (s) => s.charAt(0).toLocaleUpperCase("es");
+  return (up(w[0]) + w[0].slice(1, 18) + (w[1] ? " " + up(w[1]) + "." : "")).trim();
+}
+// «¿Te ha invitado un amigo?»: el código se comprueba mientras se escribe y dice quién te invita.
+const refBoxHtml = () =>
+  `<div class="ref-box${refCode() ? " open" : ""}" id="ref-box"><button type="button" class="ref-toggle" id="ref-toggle"><span aria-hidden="true">🎁</span>¿Te ha invitado un amigo?<b>Pon su código</b></button>
+    <div class="ref-field"><label for="ref-input">${L("Código del amigo que te invitó", "Code of the friend who invited you")} <small class="opt">${L("(si tienes)", "(if you have one)")}</small></label><input id="ref-input" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="16" placeholder="Ej.: CARLOS482" value="${esc(refCode())}"><p class="ref-state" id="ref-state" aria-live="polite"></p></div></div>`;
+// Devuelve value(): el código válido, "" si no hay, o false si el que hay no existe.
+function bindRefBox(root) {
+  const refIn = root.querySelector("#ref-input"),
+    refState = root.querySelector("#ref-state");
+  if (!refIn) return { value: async () => "" };
+  let ok = null,
+    t = 0;
+  const check = async () => {
+    const code = (refIn.value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (refIn.value !== code) refIn.value = code;
+    ok = null;
+    refState.className = "ref-state";
+    refState.textContent = "";
+    if (code.length < 4) return;
+    refState.textContent = "Comprobando…";
+    try {
+      const r = await api("referral/" + encodeURIComponent(code));
+      if (refIn.value !== code) return;
+      ok = code;
+      refState.className = "ref-state ok";
+      refState.innerHTML = L(
+        `✓ Te invita <b>${esc(r.name)}</b>. ${esc(r.name)} sumará ${r.points} puntos cuando vengas a tu primera cita, y os veréis en el ranking de amigos.`,
+        `✓ Invited by <b>${esc(r.name)}</b>. ${esc(r.name)} will earn ${r.points} points when you come to your first appointment, and you'll see each other in the friends ranking.`,
+      );
+    } catch (err) {
+      if (refIn.value !== code) return;
+      ok = false;
+      refState.className = "ref-state bad";
+      refState.textContent = err.message;
+    }
+  };
+  root.querySelector("#ref-toggle").onclick = () => {
+    root.querySelector("#ref-box").classList.add("open");
+    setTimeout(() => refIn.focus(), 50);
+  };
+  refIn.oninput = () => {
+    clearTimeout(t);
+    t = setTimeout(check, 350);
+  };
+  if (refIn.value) check();
+  return {
+    value: async () => {
+      if (!refIn.value) return "";
+      if (ok === null) await check();
+      return ok || false;
+    },
+  };
 }
 
 // ── Productos del estudio ──────────────────────────────────────────────────
