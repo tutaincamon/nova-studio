@@ -19,7 +19,7 @@
         }
       ],
       "destination": "https://www.novasupply.es/$1",
-      "permanent": false
+      "permanent": true
     }
   ]
 }

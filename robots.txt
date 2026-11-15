@@ -1,0 +1,6 @@
+# Todo el mundo puede entrar. Lo de /api/ son las funciones del servidor
+# (apartar prendas, contar visitas…): no son páginas, no hay nada que leer.
+User-agent: *
+Disallow: /api/
+
+Sitemap: https://www.novasupply.es/sitemap.xml

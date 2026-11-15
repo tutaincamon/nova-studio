@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  El mapa de la web para Google. Si añades una prenda nueva en prendas.js,
+  añádela también aquí con su id: https://www.novasupply.es/prenda?id=...
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://www.novasupply.es/</loc><lastmod>2026-11-15</lastmod></url>
+  <url><loc>https://www.novasupply.es/prenda?id=camiseta</loc><lastmod>2026-11-15</lastmod></url>
+  <url><loc>https://www.novasupply.es/prenda?id=camiseta-rosa</loc><lastmod>2026-11-15</lastmod></url>
+  <url><loc>https://www.novasupply.es/prenda?id=sudadera</loc><lastmod>2026-11-15</lastmod></url>
+  <url><loc>https://www.novasupply.es/prenda?id=p-camisa</loc><lastmod>2026-11-15</lastmod></url>
+  <url><loc>https://www.novasupply.es/prenda?id=p-tirantes</loc><lastmod>2026-11-15</lastmod></url>
+  <url><loc>https://www.novasupply.es/prenda?id=p-vaqueros</loc><lastmod>2026-11-15</lastmod></url>
+  <url><loc>https://www.novasupply.es/prenda?id=p-short</loc><lastmod>2026-11-15</lastmod></url>
+  <url><loc>https://www.novasupply.es/aviso-legal</loc><lastmod>2026-11-15</lastmod></url>
+  <url><loc>https://www.novasupply.es/privacidad</loc><lastmod>2026-11-15</lastmod></url>
+  <url><loc>https://www.novasupply.es/cookies</loc><lastmod>2026-11-15</lastmod></url>
+  <url><loc>https://www.novasupply.es/condiciones</loc><lastmod>2026-11-15</lastmod></url>
+</urlset>
