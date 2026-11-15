@@ -20,6 +20,7 @@ function shell(title, body) {
 
 export async function send(to, subject, title, bodyHtml, replyTo, attachments) {
   if (!mailReady()) return false;
+  if (/\.invalid$/i.test(String(to || "").trim())) return false; // clientes de prueba: nunca se les escribe
   try {
     const r = await fetch("https://api.resend.com/emails", {
       method: "POST",

@@ -3011,14 +3011,26 @@ const routes = {
     return { id: b.id, series };
   },
 
-  // Caja del mes. Cada barbero ve solo lo suyo y sin comisiones; el dueño ve
-  // a todo el equipo, el % de cada uno y lo que le toca cobrar.
+  // Caja de un periodo: un mes (`month`) o de `from` a `to` (los dos días
+  // incluidos, hasta dos años). Cada barbero ve solo lo suyo y sin comisiones;
+  // el dueño ve a todo el equipo, el % de cada uno y lo que le toca cobrar.
+  // «Marcar como cobrado» va por meses: solo sale cuando se mira un mes entero.
   "GET staff/summary": async ({ req, q }) => {
     const me = await needStaff(req);
-    const month = q.get("month") || T.nowLocal().date.slice(0, 7);
-    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) fail(400, "Mes incorrecto.");
     const now = T.nowLocal();
-    const [all, pays] = await Promise.all([monthBookings(month), monthPays(month)]);
+    let from, to, month;
+    if (q.get("from")) {
+      from = q.get("from");
+      to = q.get("to") || from;
+      if (!T.isDate(from) || !T.isDate(to) || to < from) fail(400, "Fechas incorrectas.");
+      if (to >= T.addDays(from, 732)) fail(400, "Elige como mucho dos años.");
+      month = from.endsWith("-01") && to === lastOfMonth(from.slice(0, 7)) ? from.slice(0, 7) : "";
+    } else {
+      month = q.get("month") || now.date.slice(0, 7);
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) fail(400, "Mes incorrecto.");
+      [from, to] = [month + "-01", lastOfMonth(month)];
+    }
+    const [all, pays] = await rangeData(from, to);
     // Una cita cobrada en caja cuenta por lo cobrado (y para quien la cobró), no por su precio.
     const cobradas = new Set(pays.map((x) => x.booking).filter(Boolean));
     const used = (id) => all.some((b) => b.provider.id === id) || pays.some((x) => x.provider.id === id);
@@ -3034,10 +3046,10 @@ const routes = {
       ),
     }));
     const lean = () => people.forEach((x) => delete x.upcomingRows);
-    if (!me.owner) return lean(), { month, owner: false, people };
+    if (!me.owner) return lean(), { month, from, to, owner: false, people };
 
     const workers = team.filter((p) => !p.owner);
-    const [hist, paid] = await Promise.all([commissionHistory(workers), cmd("MGET", ...workers.map((p) => `commpaid:${p.id}:${month}`))]);
+    const [hist, paid] = await Promise.all([commissionHistory(workers), month && workers.length ? cmd("MGET", ...workers.map((p) => `commpaid:${p.id}:${month}`)) : []]);
     for (const person of people) {
       if (person.owner) continue;
       const h = hist[person.id];
@@ -3048,10 +3060,10 @@ const routes = {
         commission += r.commission;
       }
       Object.assign(person, {
-        pct: rateAt(person.id, h, month + "-31"),
+        pct: rateAt(person.id, h, to),
         commission: cents(commission),
         expectedCommission: cents(person.upcomingRows.reduce((a, r) => a + (r.price * rateAt(person.id, h, r.date)) / 100, 0)),
-        paid: paid[workers.findIndex((w) => w.id === person.id)] || "",
+        paid: (month && paid[workers.findIndex((w) => w.id === person.id)]) || "",
       });
     }
     lean();
@@ -3059,13 +3071,15 @@ const routes = {
     const commissions = cents(people.reduce((a, p) => a + (p.commission || 0), 0));
     return {
       month,
+      from,
+      to,
       owner: true,
       people,
       totals: {
         salon: cents(people.reduce((a, p) => a + p.billed, 0)),
         own: cents(own),
         commissions,
-        pendingCommissions: cents(people.filter((p) => !p.owner && !p.paid).reduce((a, p) => a + p.commission, 0)),
+        pendingCommissions: month ? cents(people.filter((p) => !p.owner && !p.paid).reduce((a, p) => a + p.commission, 0)) : 0,
         income: cents(own + commissions),
       },
     };
@@ -3112,6 +3126,23 @@ const routes = {
         for (const [k, [b, c]] of Object.entries(x.heat)) (h[k] ||= [0, 0]), (h[k][0] += b), (h[k][1] += c);
       }
 
+    // Al dueño se le suman las comisiones de cada uno (`comm`), con el % de ese mes.
+    if (me.owner) {
+      const boss = TEAM.find((p) => p.owner);
+      const hist = await commissionHistory(TEAM.filter((p) => !p.owner));
+      const addComm = (a, m) => {
+        if (!boss) return;
+        let comm = 0;
+        for (const [pid, x] of Object.entries(a.people)) if (pid !== boss.id && hist[pid]) comm += (x.billed * rateAt(pid, hist[pid], m + "-01")) / 100;
+        const o = (a.people[boss.id] ||= { billed: 0, services: 0, clients: 0, booked: 0, cap: 0, heat: {} });
+        o.comm = cents(comm);
+      };
+      for (const m of months) agg[m] = { people: Object.fromEntries(Object.entries(agg[m].people).map(([k, v]) => [k, { ...v }])) };
+      months.forEach((m) => addComm(agg[m], m));
+      addComm(prevToDate, prev);
+      addComm(restOfMonth, cur);
+      addComm(ahead, cur);
+    }
     const ok = (pid) => me.owner || pid === me.id;
     const pick = (a) => Object.fromEntries(Object.entries(a.people).filter(([pid]) => ok(pid)).map(([pid, { heat, ...x }]) => [pid, x]));
     const seen = new Set(months.flatMap((m) => Object.keys(agg[m].people)));
@@ -3730,6 +3761,21 @@ const routes = {
     else await cmd("DEL", `commpaid:${p.id}:${body.month}`);
     return { ok: true };
   },
+
+  // Datos de prueba (solo el dueño): clientes, citas, cobros y ranking
+  // ficticios para enseñar la app. Se borran de una vez con «clear».
+  "GET staff/demo": async ({ req }) => {
+    const me = await needStaff(req);
+    if (!me.owner) fail(403, "Solo para el dueño.");
+    return await demoStatus();
+  },
+  "POST staff/demo": async ({ req, body }) => {
+    const me = await needStaff(req);
+    if (!me.owner) fail(403, "Solo para el dueño.");
+    if (body.action === "load") return await demoLoad();
+    if (body.action === "clear") return await demoClear();
+    fail(400, "¿Cargar o borrar?");
+  },
 };
 
 // ── Caja ───────────────────────────────────────────────────────────────────
@@ -3950,6 +3996,234 @@ function rateAt(id, history, date) {
   let pct = TEAM.find((p) => p.id === id)?.commission ?? COMMISSION[id] ?? 0;
   for (const e of [...history].sort((a, b) => a.from.localeCompare(b.from))) if (e.from <= date) pct = e.pct;
   return pct;
+}
+
+// ── Caja de un periodo ─────────────────────────────────────────────────────
+const lastOfMonth = (month) => {
+  const [y, m] = month.split("-").map(Number);
+  return `${month}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`;
+};
+// Citas y cobros de caja entre dos días (los dos incluidos).
+async function rangeData(from, to) {
+  const dates = [];
+  for (let d = from; d <= to; d = T.addDays(d, 1)) dates.push(d);
+  const sets = [];
+  for (let i = 0; i < dates.length; i += 250)
+    sets.push(...(await pipe(dates.slice(i, i + 250).flatMap((d) => [["SMEMBERS", "day:" + d], ["SMEMBERS", "payday:" + d]]))));
+  const bids = new Set(),
+    pids = new Set();
+  sets.forEach((ids, i) => ids.forEach((id) => (i % 2 ? pids : bids).add(id)));
+  const pays = [];
+  const pl = [...pids];
+  for (let i = 0; i < pl.length; i += 300) pays.push(...(await bookingsByIds2("pay:", pl.slice(i, i + 300))));
+  const list = (await bookingsByIds([...bids])).filter((b) => b.kind === "booking" && b.date >= from && b.date <= to);
+  return [list, pays.filter((x) => x.date >= from && x.date <= to)];
+}
+
+// ── Datos de prueba ────────────────────────────────────────────────────────
+// Clientes ficticios (correos @demo.invalid, a los que nunca se escribe), con
+// casi un año de citas y cobros con cada barbero, citas para los próximos días
+// y puntos del Club, para ver la agenda, la caja, el progreso y el ranking con
+// vida. Todo lo que se crea se apunta en `demo:*` y se borra de una vez.
+const DEMO_DOMAIN = "@demo.invalid";
+const DEMO_NAMES = [
+  "Jonay Suárez", "Yeray Vega", "Kevin Santana", "Adrián Melián", "Iván Rodríguez", "Carlos Pérez", "Aythami Díaz", "Tana Hernández",
+  "Dani Cabrera", "Mr Fade", "ElTigre", "Saúl Trujillo", "Raúl Ojeda", "Nauzet Quintana", "Pablo Medina", "Moisés León",
+  "Gara Sosa", "Cristian Afonso", "Jorge Falcón", "Rayco Mendoza", "Néstor Batista", "Alberto Cruz", "KingDavid", "Chachi",
+  "Óscar Monzón", "Héctor Bordón", "Samuel Ramírez", "Abián Guedes", "Fran Rivero", "Manu del Pino", "Toni Navarro", "Luis Ventura",
+  "Yone Pérez", "Elías Castellano", "Rubén Marrero", "Joel Santana",
+];
+const isDemoEmail = (e) => String(e || "").endsWith(DEMO_DOMAIN);
+
+async function demoStatus() {
+  const [users, bks, pays, at] = await pipe([["SCARD", "demo:users"], ["SCARD", "demo:bk"], ["SCARD", "demo:pay"], ["GET", "demo:at"]]);
+  return { loaded: users > 0 || bks > 0, users, bookings: bks, pays, at: at || "" };
+}
+
+async function demoLoad() {
+  if ((await cmd("SET", "lock:demo", "1", "NX", "EX", 300)) !== "OK") fail(409, "Ya se están cargando.");
+  try {
+    if ((await demoStatus()).loaded) fail(409, "Los datos de prueba ya están cargados. Bórralos antes para volver a cargarlos.");
+    const now = T.nowLocal();
+    let seed = 20261115;
+    const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+    const pickW = (list, w) => {
+      let r = rnd() * w.reduce((a, b) => a + b, 0);
+      for (let i = 0; i < list.length; i++) if ((r -= w[i]) < 0) return list[i];
+      return list.at(-1);
+    };
+    const team = TEAM.filter((p) => p.active !== false && Object.values(p.hours || {}).some((x) => x?.length));
+    const svcs = activeSvcs().filter((x) => !x.consult && x.duration > 0);
+    if (!team.length || !svcs.length) fail(400, "Faltan barberos con horario o servicios.");
+    const svcW = svcs.map((_, i) => Math.max(1, 6 - i * 1.5));
+    const DAYS = 330;
+
+    // Los clientes: cada uno con su barbero, desde cuándo viene y si ha dejado de venir.
+    const people = DEMO_NAMES.map((name, i) => {
+      const join = -DAYS + Math.floor(rnd() * (DAYS - 30));
+      return {
+        email: `cliente${i + 1}${DEMO_DOMAIN}`,
+        name,
+        barber: team[i % team.length].id,
+        join,
+        leave: i % 9 === 4 ? Math.min(-75, join + 60 + Math.floor(rnd() * 120)) : 99,
+        every: 14 + Math.floor(rnd() * 30), // cada cuántos días suele venir
+        due: join,
+      };
+    });
+    // El resto de citas son de clientes sin cuenta (apuntados por el equipo).
+    const WALK = ["Javi", "Sergio", "Marcos", "Alejandro", "Diego", "Hugo", "Mario", "Álvaro", "Lucas", "Bruno", "Nico", "Eric", "Aarón", "Gabriel", "Izan", "Leo", "Thiago", "Unai", "Marco", "Iker"];
+    const SUR = ["G.", "M.", "S.", "R.", "H.", "D.", "P.", "C.", "V.", "Q."];
+    const ops = [],
+      future = [];
+    const flush = async (force) => {
+      while (ops.length >= (force ? 1 : 400)) await pipe(ops.splice(0, 400));
+    };
+    let nb = 0,
+      np = 0;
+    for (let d = -DAYS; d <= 7; d++) {
+      const date = T.addDays(now.date, d);
+      const wd = T.weekday(date);
+      const grow = (d + DAYS) / DAYS;
+      for (const p of team) {
+        if ((p.off || []).some((o) => o.from <= date && date <= o.to)) continue;
+        for (const [a, b] of p.hours?.[wd] || []) {
+          const end = T.toMin(b);
+          let t = T.toMin(a);
+          while (t + 30 <= end) {
+            let fill = (0.18 + 0.4 * Math.min(1, grow)) * (wd === 6 ? 1.3 : wd === 2 ? 0.75 : 1);
+            if (d > 0) fill *= 0.6;
+            const s = pickW(svcs, svcW);
+            if (rnd() > fill || t + s.duration > end) {
+              t += 30;
+              continue;
+            }
+            const start = T.toHHMM(t);
+            // Le toca a un socio que ya debía venir (mejor con su barbero); si no, uno sin cuenta.
+            const due = people.filter((c) => c.join <= d && d <= c.leave && c.due <= d && !c.busy?.[date]);
+            const c = due.find((x) => x.barber === p.id) || (rnd() < 0.3 ? due[0] : null);
+            const who = c || { email: "", name: WALK[Math.floor(rnd() * WALK.length)] + " " + SUR[Math.floor(rnd() * SUR.length)] };
+            if (c) {
+              c.used = true;
+              c.due = d + c.every - 3 + Math.floor(rnd() * 7);
+              (c.busy ||= {})[date] = 1;
+            }
+            const past = date + " " + start < now.stamp;
+            const bk = {
+              ...makeBooking(s, p, date, start, { email: who.email, name: who.name, phone: "", by: c ? "client" : "staff", demo: true }),
+              id: "D" + crypto.randomBytes(4).toString("hex").toUpperCase().slice(0, 7),
+              created: T.addDays(date, -1 - Math.floor(rnd() * 10)) + " 1" + Math.floor(rnd() * 10) + ":00",
+            };
+            const r = rnd();
+            if (past && r < 0.03) {
+              bk.status = "canceled";
+              bk.canceled = bk.created;
+            } else if (past && r < 0.08) bk.attendance = "absent";
+            else if (past) {
+              bk.attendance = "done";
+              const tip = rnd() < 0.12 ? 2 : 0;
+              const x = {
+                id: "CD" + crypto.randomBytes(4).toString("hex").toUpperCase().slice(0, 7),
+                provider: { id: p.id, name: p.name },
+                items: [{ id: s.id, name: s.name, price: Number(s.price) || 0 }],
+                amount: cents((Number(s.price) || 0) + tip),
+                method: pickW(PAY_METHODS.map((m) => m.id), [4, 5, 2]),
+                name: who.name,
+                booking: bk.id,
+                date,
+                time: bk.end,
+                created: date + " " + bk.end,
+                by: p.id,
+                demo: true,
+              };
+              bk.pay = { id: x.id, amount: x.amount, method: x.method };
+              ops.push(["SET", "pay:" + x.id, JSON.stringify(x)], ["SADD", "payday:" + date, x.id], ["SADD", "paymonth:" + monthOf(date), x.id], ["SADD", "demo:pay", x.id + "|" + date]);
+              np++;
+            }
+            ops.push(["SADD", "demo:bk", bk.id + "|" + date + "|" + p.id]);
+            if (past || bk.status !== "confirmed") {
+              ops.push(...indexWrites(bk));
+              if (bk.status !== "confirmed") ops.push(["HDEL", `occ:${p.id}:${monthOf(date)}`, bk.id]);
+            } else future.push(bk);
+            nb++;
+            t += Math.ceil(s.duration / 30) * 30;
+            await flush();
+          }
+        }
+      }
+    }
+    await flush(true);
+    // Las citas que vienen apartan su hora como cualquier otra (si alguien
+    // real ya la tiene, esa se salta).
+    let skipped = 0;
+    for (const bk of future) {
+      try {
+        await place(bk);
+      } catch {
+        skipped++;
+        ops.push(["SREM", "demo:bk", bk.id + "|" + bk.date + "|" + bk.provider.id]);
+      }
+    }
+    // Las cuentas: todas «han entrado en la app» para salir en el ranking;
+    // algunas invitadas por otras y unas cuantas amistades.
+    const used = people.filter((c) => c.used);
+    used.forEach((c, i) => {
+      const ref = "DEMO" + String(i + 1).padStart(3, "0");
+      const inviter = i % 5 === 3 ? used[i - 1] : null;
+      const u = { email: c.email, name: c.name, phone: "", no: 0, created: T.addDays(now.date, c.join - 3) + " 10:00", ref, verified: T.addDays(now.date, c.join) + " 10:00", demo: true, ...(inviter ? { referredBy: inviter.email } : {}) };
+      ops.push(["SET", "user:" + c.email, JSON.stringify(u)], ["SET", "refcode:" + ref, c.email], ["SADD", "users", c.email], ["SADD", "demo:users", c.email], ["SET", "seen:" + c.email, T.addDays(now.date, Math.min(0, c.leave))]);
+      if (inviter) ops.push(["SADD", "refs:" + inviter.email, c.email]);
+      if (i % 4 === 1 && used[i + 1]) ops.push(["SADD", "fr:" + c.email, used[i + 1].email], ["SADD", "fr:" + used[i + 1].email, c.email]);
+    });
+    ops.push(["SET", "demo:at", now.stamp], ["DEL", "contacts:list"], ...Array.from({ length: 13 }, (_, i) => ["DEL", "progm:" + shiftMonth(now.date.slice(0, 7), -i)]));
+    await flush(true);
+    const tm = await teamEmails();
+    for (const c of used) await syncRank(c.email, tm).catch((e) => console.error("demo ranking", e));
+    await cmd("INCR", "lb:ver");
+    return { ok: true, users: used.length, bookings: nb - skipped, pays: np };
+  } finally {
+    await cmd("DEL", "lock:demo");
+  }
+}
+
+async function demoClear() {
+  if ((await cmd("SET", "lock:demo", "1", "NX", "EX", 300)) !== "OK") fail(409, "Ya se está haciendo.");
+  try {
+    const [listed, bks, pys] = await pipe([["SMEMBERS", "demo:users"], ["SMEMBERS", "demo:bk"], ["SMEMBERS", "demo:pay"]]);
+    // También los correos de prueba que no llegaron a apuntarse (si la carga se cortó).
+    const emails = [...new Set([...listed, ...DEMO_NAMES.map((_, i) => `cliente${i + 1}${DEMO_DOMAIN}`)])];
+    // Además de lo apuntado, todo lo que se haya hecho después con esas cuentas
+    // (citas nuevas, cobros apuntados en caja).
+    const own = emails.length ? await pipe(emails.map((e) => ["SMEMBERS", "ubk:" + e])) : [];
+    const ids = new Set([...bks.map((x) => x.split("|")[0]), ...own.flat()]);
+    const books = await bookingsByIds([...ids]);
+    const payIds = new Set([...pys.map((x) => x.split("|")[0]), ...books.map((b) => b.pay?.id).filter(Boolean)]);
+    const pays = [];
+    const pl = [...payIds];
+    for (let i = 0; i < pl.length; i += 300) pays.push(...(await bookingsByIds2("pay:", pl.slice(i, i + 300))));
+    const ops = [];
+    for (const b of books) {
+      if (!isDemoEmail(b.email) && !b.demo) continue;
+      ops.push(["DEL", "bk:" + b.id], ["SREM", "day:" + b.date, b.id], ["HDEL", `occ:${b.provider.id}:${monthOf(b.date)}`, b.id]);
+      if (b.status === "confirmed" && b.date >= T.nowLocal().date) for (const k of lockKeys(b)) ops.push(["DEL", k]);
+    }
+    for (const x of pays) ops.push(["DEL", "pay:" + x.id], ["SREM", "payday:" + x.date, x.id], ["SREM", "paymonth:" + monthOf(x.date), x.id]);
+    // Quien de verdad añadió de amigo a una cuenta de prueba, la pierde.
+    const frs = emails.length ? await pipe(emails.map((e) => ["SMEMBERS", "fr:" + e])) : [];
+    emails.forEach((e, i) => frs[i].forEach((f) => ops.push(["SREM", "fr:" + f, e], ["SREM", "frx:" + f, e])));
+    for (const e of emails) {
+      for (const k of ["user:", "ubk:", "ush:", "urd:", "refs:", "seen:", "purgewarn:", "winback:", "nomkt:", "reviewed:", "revmail:", "backmail:", "fr:", "frx:"]) ops.push(["DEL", k + e]);
+      ops.push(["SREM", "users", e], ["HDEL", "lb:u", e], ["ZREM", "lb:all", e]);
+    }
+    for (let i = 1; i <= DEMO_NAMES.length; i++) ops.push(["DEL", "refcode:DEMO" + String(i).padStart(3, "0")]);
+    const now = T.nowLocal();
+    ops.push(["DEL", "demo:users"], ["DEL", "demo:bk"], ["DEL", "demo:pay"], ["DEL", "demo:at"], ["DEL", "contacts:list"], ["INCR", "lb:ver"]);
+    ops.push(...Array.from({ length: 13 }, (_, i) => ["DEL", "progm:" + shiftMonth(now.date.slice(0, 7), -i)]));
+    while (ops.length) await pipe(ops.splice(0, 400));
+    return { ok: true, users: listed.length, bookings: books.length, pays: pays.length };
+  } finally {
+    await cmd("DEL", "lock:demo");
+  }
 }
 
 // Convierte "bookings/N12AB/cancel" en la ruta "bookings/:id/cancel".

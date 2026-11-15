@@ -3,6 +3,9 @@
   "framework": null,
   "buildCommand": null,
   "regions": ["lhr1"],
+  "functions": {
+    "api/handler.js": { "maxDuration": 60 }
+  },
   "rewrites": [
     {
       "source": "/api/:path*",

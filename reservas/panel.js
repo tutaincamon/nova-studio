@@ -605,7 +605,7 @@ async function staffAgenda() {
 }
 
 // ── Equipo: caja ───────────────────────────────────────────────────────────
-function cajaStats(p) {
+function cajaStats(p, word = "este mes") {
   const withComm = staff.owner && !p.owner;
   const rows = p.rows
     .map(
@@ -615,7 +615,7 @@ function cajaStats(p) {
     .join("");
   return (
     `<div class="stat3 money"><div><strong>${p.services}</strong><span>Servicios</span></div><div><strong>${euro(p.billed)}</strong><span>Facturado</span></div><div><strong>${euro(p.average)}</strong><span>Ticket medio</span></div></div>` +
-    `<p class="caja-meta">${p.upcoming ? `Quedan ${p.upcoming} ${p.upcoming === 1 ? "cita" : "citas"} este mes (${euro(p.expected)})` : "No quedan citas este mes"} · ${p.absent} no ${p.absent === 1 ? "vino" : "vinieron"} · ${p.canceled} ${p.canceled === 1 ? "cancelada" : "canceladas"}${p.penalties ? ` · ${euro(p.penalties)} cobrados por faltas` : ""}</p>` +
+    `<p class="caja-meta">${p.upcoming ? `Quedan ${p.upcoming} ${p.upcoming === 1 ? "cita" : "citas"} ${esc(word)} (${euro(p.expected)})` : `No quedan citas ${esc(word)}`} · ${p.absent} no ${p.absent === 1 ? "vino" : "vinieron"} · ${p.canceled} ${p.canceled === 1 ? "cancelada" : "canceladas"}${p.penalties ? ` · ${euro(p.penalties)} cobrados por faltas` : ""}</p>` +
     (p.collected
       ? `<p class="caja-meta">Cobrado en caja: <b>${euro(p.collected)}</b> (${(catalog.payMethods || [])
           .filter((m) => p.methods?.[m.id])
@@ -628,46 +628,142 @@ function cajaStats(p) {
       : "") +
     (p.rows.length
       ? `<details class="caja-more"><summary>Ver ${p.rows.length === 1 ? "el servicio" : `los ${p.rows.length} servicios`}</summary><ul class="caja-rows">${rows}</ul></details>`
-      : `<p class="ag-free">Aún no hay servicios hechos este mes.</p>`)
+      : `<p class="ag-free">No hay servicios hechos ${esc(word)}.</p>`)
   );
 }
 
+// Periodo de la caja: un día, una semana (de lunes a domingo), un mes, un año
+// o las fechas que se quiera. El mes usa `staffMonth`, igual que «Faltas».
+let cajaMode = "mes",
+  cajaRef = "",
+  cajaFrom = "",
+  cajaTo = "";
+const CAJA_MODES = [
+  ["dia", "Día"],
+  ["semana", "Semana"],
+  ["mes", "Mes"],
+  ["ano", "Año"],
+  ["fechas", "Fechas"],
+];
+const isoAdd = (iso, n) => {
+  const d = dayDate(iso);
+  d.setDate(d.getDate() + n);
+  return isoDay(d);
+};
+const lastDayOf = (month) => isoAdd(shiftMonth(month, 1) + "-01", -1);
+const dateTxt = (iso) => fmtDay(iso, { day: "numeric", month: "short", ...(iso.slice(0, 4) !== isoDay(salonDate()).slice(0, 4) ? { year: "numeric" } : {}) });
+
+function cajaRange() {
+  const today = isoDay(salonDate());
+  const ref = cajaRef || today;
+  if (cajaMode === "dia") return { from: ref, to: ref, label: longDay(ref) + (ref.slice(0, 4) !== today.slice(0, 4) ? " de " + ref.slice(0, 4) : ""), word: ref === today ? "hoy" : "ese día" };
+  if (cajaMode === "semana") {
+    const from = isoAdd(ref, -((dayDate(ref).getDay() + 6) % 7));
+    const to = isoAdd(from, 6);
+    return { from, to, label: `Semana del ${dateTxt(from)} al ${dateTxt(to)}`, word: from <= today && today <= to ? "esta semana" : "esa semana" };
+  }
+  if (cajaMode === "ano") {
+    const y = ref.slice(0, 4);
+    return { from: y + "-01-01", to: y + "-12-31", label: "Año " + y, word: y === today.slice(0, 4) ? "este año" : "ese año", byMonth: true };
+  }
+  if (cajaMode === "fechas") {
+    const from = cajaFrom || isoAdd(today, -29);
+    const to = cajaTo && cajaTo >= from ? cajaTo : from > today ? from : today;
+    return { from, to, label: `Del ${dateTxt(from)} al ${dateTxt(to)}`, word: "en estas fechas", byMonth: from < isoAdd(to, -92) };
+  }
+  const m = staffMonth || today.slice(0, 7);
+  return { from: m + "-01", to: lastDayOf(m), month: m, label: monthLabel(m), word: m === today.slice(0, 7) ? "este mes" : "ese mes" };
+}
+// Mueve el periodo uno hacia atrás o hacia delante.
+function cajaStep(n) {
+  const today = isoDay(salonDate());
+  const ref = cajaRef || today;
+  if (cajaMode === "mes") staffMonth = shiftMonth(staffMonth || today.slice(0, 7), n);
+  else if (cajaMode === "dia") cajaRef = isoAdd(ref, n);
+  else if (cajaMode === "semana") cajaRef = isoAdd(ref, 7 * n);
+  else if (cajaMode === "ano") cajaRef = String(Number(ref.slice(0, 4)) + n) + ref.slice(4);
+}
+
+// Día a día (o mes a mes en un año): servicios, facturado y, para el dueño,
+// lo que le queda a él (sus servicios + la comisión de los demás).
+function cajaBreakdown(people, range, owner) {
+  const g = {};
+  for (const p of people)
+    for (const x of p.rows) {
+      const k = range.byMonth ? x.date.slice(0, 7) : x.date;
+      const o = (g[k] ||= { services: 0, billed: 0, mine: 0 });
+      o.services++;
+      o.billed += x.price;
+      o.mine += p.owner ? x.price : x.commission || 0;
+    }
+  const keys = Object.keys(g).sort().reverse();
+  if (keys.length < 2) return "";
+  const r2 = (n) => Math.round(n * 100) / 100;
+  const max = Math.max(...keys.map((k) => g[k].billed));
+  return `<details class="caja-more" open><summary>${range.byMonth ? "Mes a mes" : "Día a día"}</summary><table class="pg-table caja-days"><thead><tr><th>${range.byMonth ? "Mes" : "Día"}</th><th>Servicios</th><th>Facturado</th>${owner ? "<th>Para ti</th>" : ""}</tr></thead><tbody>${keys
+    .map((k) => {
+      const o = g[k];
+      return `<tr><td>${esc(range.byMonth ? monthLabel(k) : shortDay(k))}<i class="caja-bar" style="width:${((100 * o.billed) / (max || 1)).toFixed(1)}%"></i></td><td>${o.services}</td><td>${euro(r2(o.billed))}</td>${owner ? `<td>${euro(r2(o.mine))}</td>` : ""}</tr>`;
+    })
+    .join("")}</tbody></table></details>`;
+}
+
 async function staffCaja() {
-  const nowKey = monthKey(salonDate());
-  if (!staffMonth) staffMonth = nowKey;
-  const r = await api("staff/summary?month=" + staffMonth);
-  const label = monthLabel(r.month);
-  const monthNav = `<div class="month-nav"><button type="button" class="cal-nav" data-m="-1" aria-label="Mes anterior">‹</button><strong>${esc(label)}</strong><button type="button" class="cal-nav" data-m="1" aria-label="Mes siguiente" ${staffMonth >= shiftMonth(nowKey, 2) ? "disabled" : ""}>›</button></div>`;
+  const range = cajaRange();
+  const r = await api("staff/summary?" + (range.month ? "month=" + range.month : `from=${range.from}&to=${range.to}`));
+  const today = isoDay(salonDate());
+  const tooFar = range.from > isoAdd(today, 60);
+  const modes = `<div class="pg-chips caja-modes" role="radiogroup" aria-label="Periodo">${CAJA_MODES.map(([id, name]) => `<button type="button" role="radio" aria-checked="${cajaMode === id}" class="${cajaMode === id ? "on" : ""}" data-mode="${id}">${name}</button>`).join("")}</div>`;
+  const nav =
+    cajaMode === "fechas"
+      ? `<form id="caja-dates" class="card caja-dates"><label>Desde<input type="date" name="from" value="${esc(range.from)}" required></label><label>Hasta<input type="date" name="to" value="${esc(range.to)}" required></label><button class="btn" type="submit">Ver</button></form>`
+      : `<div class="month-nav"><button type="button" class="cal-nav" data-m="-1" aria-label="Anterior">‹</button><strong>${esc(range.label)}</strong><button type="button" class="cal-nav" data-m="1" aria-label="Siguiente" ${tooFar ? "disabled" : ""}>›</button></div>` +
+        (range.from <= today && today <= range.to ? "" : `<button type="button" class="caja-today" id="caja-today">Volver a ${cajaMode === "dia" ? "hoy" : cajaMode === "semana" ? "esta semana" : cajaMode === "ano" ? "este año" : "este mes"}</button>`);
   const me = r.people.find((p) => p.id === staff.id);
   let body;
   if (!r.owner) {
-    body = `<p class="section-label">Tu mes</p>` + cajaStats(me);
+    body = `<p class="section-label">Lo tuyo · ${esc(range.label.toLowerCase())}</p>` + cajaStats(me, range.word) + cajaBreakdown([me], range, false);
   } else {
     const t = r.totals;
     const team = r.people.filter((p) => !p.owner);
     body =
-      `<div class="club-card caja-hero"><span class="club-tag">TUS INGRESOS · ${esc(label.toUpperCase())}</span><p class="caja-big">${euro(t.income)}</p>
+      `<div class="club-card caja-hero"><span class="club-tag">TUS INGRESOS · ${esc(range.label.toUpperCase())}</span><p class="caja-big">${euro(t.income)}</p>
         <ul class="caja-split"><li><span>Tus servicios</span><b>${euro(t.own)}</b></li><li><span>Comisiones del equipo</span><b>${euro(t.commissions)}</b></li><li><span>Facturación de todo el salón</span><b>${euro(t.salon)}</b></li></ul>
-        ${t.pendingCommissions ? `<p>Te quedan por cobrar ${euro(t.pendingCommissions)} de comisiones.</p>` : t.commissions ? `<p>Comisiones del mes cobradas.</p>` : ""}</div>` +
+        ${r.month ? (t.pendingCommissions ? `<p>Te quedan por cobrar ${euro(t.pendingCommissions)} de comisiones.</p>` : t.commissions ? `<p>Comisiones del mes cobradas.</p>` : "") : ""}</div>` +
+      cajaBreakdown(r.people, range, true) +
       `<p class="section-label">Equipo</p>` +
       team
         .map(
           (p) => `<div class="card worker">
             <div class="worker-head">${face(provById(p.id), "who-face")}<div><strong>${esc(p.name)}</strong><span>${p.services} ${p.services === 1 ? "servicio" : "servicios"} · ${euro(p.billed)} facturado</span></div></div>
             <div class="comm-box"><div><span>Comisión</span><strong>${String(p.pct).replace(".", ",")} %</strong></div><div><span>Te toca</span><strong>${euro(p.commission)}</strong></div><div><span>Le queda</span><strong>${euro(Math.round((p.billed - p.commission) * 100) / 100)}</strong></div></div>
-            ${p.expectedCommission ? `<p class="caja-meta">Con las citas que quedan este mes: +${euro(p.expectedCommission)} de comisión.</p>` : ""}
-            <div class="seg"><button type="button" class="secondary" data-pct="${esc(p.id)}">Cambiar %</button><button type="button" class="${p.paid ? "paid" : "secondary"}" data-paid="${esc(p.id)}">${p.paid ? "✓ Cobrado" : "Marcar como cobrado"}</button></div>
-            ${p.paid ? `<p class="caja-meta">Cobrado el ${esc(shortDate(p.paid.slice(0, 10)))}. Pulsa otra vez para desmarcarlo.</p>` : ""}
-            <details class="caja-more"><summary>Ver el detalle de ${esc(first(p.name))}</summary>${cajaStats(p)}</details>
+            ${p.expectedCommission ? `<p class="caja-meta">Con las citas que quedan ${esc(range.word)}: +${euro(p.expectedCommission)} de comisión.</p>` : ""}
+            <div class="seg"><button type="button" class="secondary" data-pct="${esc(p.id)}">Cambiar %</button>${r.month ? `<button type="button" class="${p.paid ? "paid" : "secondary"}" data-paid="${esc(p.id)}">${p.paid ? "✓ Cobrado" : "Marcar como cobrado"}</button>` : ""}</div>
+            ${r.month && p.paid ? `<p class="caja-meta">Cobrado el ${esc(shortDate(p.paid.slice(0, 10)))}. Pulsa otra vez para desmarcarlo.</p>` : ""}
+            <details class="caja-more"><summary>Ver el detalle de ${esc(first(p.name))}</summary>${cajaStats(p, range.word)}</details>
           </div>`,
         )
         .join("") +
+      (r.month ? "" : `<p class="caja-meta">Para marcar una comisión como cobrada, mira el mes entero.</p>`) +
       `<p class="section-label">Tus servicios</p>` +
-      cajaStats(me);
+      cajaStats(me, range.word);
   }
-  show(staffTop("caja") + monthNav + body);
-  $$(".month-nav [data-m]").forEach((b) => (b.onclick = () => ((staffMonth = shiftMonth(staffMonth, Number(b.dataset.m))), render())));
-  $$("[data-pct]").forEach((b) => (b.onclick = () => pctSheet(r.people.find((p) => p.id === b.dataset.pct), label)));
+  show(staffTop("caja") + modes + nav + body);
+  $$("[data-mode]").forEach((b) => (b.onclick = () => ((cajaMode = b.dataset.mode), render())));
+  $$(".month-nav [data-m]").forEach((b) => (b.onclick = () => (cajaStep(Number(b.dataset.m)), render())));
+  const back = $("#caja-today");
+  if (back) back.onclick = () => ((cajaRef = ""), (staffMonth = today.slice(0, 7)), render());
+  const df = $("#caja-dates");
+  if (df)
+    df.onsubmit = (e) => {
+      e.preventDefault();
+      const [a, b] = [df.from.value, df.to.value];
+      if (!a || !b) return;
+      [cajaFrom, cajaTo] = a <= b ? [a, b] : [b, a];
+      if (cajaTo >= isoAdd(cajaFrom, 731)) return toast("Elige como mucho dos años.");
+      render();
+    };
+  $$("[data-pct]").forEach((b) => (b.onclick = () => pctSheet(r.people.find((p) => p.id === b.dataset.pct), r.from.slice(0, 7))));
   $$("[data-paid]").forEach(
     (b) =>
       (b.onclick = async () => {
@@ -685,7 +781,9 @@ async function staffCaja() {
   );
 }
 
-function pctSheet(p, label) {
+function pctSheet(p, month) {
+  const label = monthLabel(month);
+
   const sh = sheet(
     `<p class="eyebrow">Comisión</p><h2>${esc(p.name)}</h2>
     <p class="muted">Lo que te quedas de cada servicio que hace ${esc(first(p.name))}. Se aplica desde ${esc(label.toLowerCase())} en adelante; los meses anteriores no cambian.</p>
@@ -697,7 +795,7 @@ function pctSheet(p, label) {
     const btn = e.target.querySelector("[type=submit]");
     btn.disabled = true;
     try {
-      await api("staff/commission", { provider: p.id, pct: e.target.pct.value, month: staffMonth });
+      await api("staff/commission", { provider: p.id, pct: e.target.pct.value, month });
       sh.close();
       toast("Comisión guardada.");
       render();
@@ -729,9 +827,10 @@ const hoursTxt = (min) => {
 };
 
 function progSum(map, ids) {
-  const out = { billed: 0, services: 0, clients: 0, booked: 0, cap: 0 };
+  const out = { billed: 0, services: 0, clients: 0, booked: 0, cap: 0, comm: 0 };
   for (const id of ids) for (const k in out) out[k] += map?.[id]?.[k] || 0;
   out.billed = Math.round(out.billed * 100) / 100;
+  out.comm = Math.round(out.comm * 100) / 100;
   return out;
 }
 
@@ -842,6 +941,9 @@ async function staffProgress() {
   const prevLabel = monthLabel(prevMonth.month).split(" ")[0].toLowerCase();
   const avg = (x) => (x.services ? x.billed / x.services : 0);
   const shortM = (m) => fmtDay(m + "-01", { month: "short" });
+  // El dueño, mirándose a sí mismo: sus ganancias llevan también las comisiones del equipo.
+  const boss = r.owner && r.people.find((p) => p.id === progPick)?.owner;
+  const gain = (x) => Math.round((x.billed + (boss ? x.comm : 0)) * 100) / 100;
 
   const filters =
     `<div class="pg-filters">` +
@@ -855,9 +957,10 @@ async function staffProgress() {
       .join("")}</div></div>`;
 
   const hero = `<div class="club-card caja-hero pg-hero"><span class="club-tag">${esc(progPick === "all" && r.owner ? "EL SALÓN" : progPick === staff.id ? "TÚ" : first(r.people.find((p) => p.id === progPick)?.name).toUpperCase())} · LO QUE VA DE ${esc(curLabel.toUpperCase())}</span>
-    <p class="caja-big">${euro(mtd.billed)}</p>
-    <p class="pg-vs">${progDelta(mtd.billed, before.billed)} <span>frente a ${euro(before.billed)} a estas alturas de ${esc(prevLabel)}</span></p>
-    ${rest.billed ? `<ul class="caja-split"><li><span>Ya reservado para lo que queda de mes</span><b>${euro(rest.billed)}</b></li><li><span>Si se cumple, el mes cierra en</span><b>${euro(Math.round((mtd.billed + rest.billed) * 100) / 100)}</b></li></ul>` : ""}</div>`;
+    <p class="caja-big">${euro(gain(mtd))}</p>
+    <p class="pg-vs">${progDelta(gain(mtd), gain(before))} <span>frente a ${euro(gain(before))} a estas alturas de ${esc(prevLabel)}</span></p>
+    ${boss ? `<ul class="caja-split"><li><span>Tus servicios</span><b>${euro(mtd.billed)}</b></li><li><span>Comisiones del equipo</span><b>${euro(mtd.comm)}</b></li></ul>` : ""}
+    ${rest.billed ? `<ul class="caja-split"><li><span>Ya reservado para lo que queda de mes</span><b>${euro(gain(rest))}</b></li><li><span>Si se cumple, el mes cierra en</span><b>${euro(Math.round((gain(mtd) + gain(rest)) * 100) / 100)}</b></li></ul>` : ""}</div>`;
 
   const tiles = `<div class="stat3 money pg-tiles">
     <div><strong>${pctTxt(occOf(mtd))}</strong><span>Ocupación</span>${progDelta(occOf(mtd), occOf(before), "pp")}</div>
@@ -869,26 +972,26 @@ async function staffProgress() {
   const series = r.months.map((m) => ({ m, x: progSum(m.people, ids) }));
   const money = series.map(({ m, x }) => ({
     label: shortM(m.month),
-    value: x.billed,
-    extra: m.partial ? rest.billed : 0,
-    tip: `${monthLabel(m.month)}: ${euro(x.billed)} · ${x.services} servicios${m.partial ? ` (en curso; ${euro(rest.billed)} más ya reservados)` : ""}`,
+    value: gain(x),
+    extra: m.partial ? gain(rest) : 0,
+    tip: `${monthLabel(m.month)}: ${euro(gain(x))}${boss ? ` (${euro(x.comm)} de comisiones)` : ""} · ${x.services} servicios${m.partial ? ` (en curso; ${euro(gain(rest))} más ya reservados)` : ""}`,
   }));
   const occ = series.map(({ m, x }) => ({
     label: shortM(m.month),
     value: occOf(x),
     tip: `${monthLabel(m.month)}: ${pctTxt(occOf(x))} ocupado · ${hoursTxt(x.booked)} con cita de ${hoursTxt(x.cap)}${m.partial ? " (en curso)" : ""}`,
   }));
-  const closed = series.filter(({ m, x }) => !m.partial && (x.billed || x.cap));
+  const closed = series.filter(({ m, x }) => !m.partial && (gain(x) || x.cap));
   let trend = "";
   if (closed.length >= 6) {
-    const [a, b] = [closed.slice(-6, -3), closed.slice(-3)].map((g) => g.reduce((s, { x }) => s + x.billed, 0) / g.length);
+    const [a, b] = [closed.slice(-6, -3), closed.slice(-3)].map((g) => g.reduce((s, { x }) => s + gain(x), 0) / g.length);
     const [oa, ob] = [closed.slice(-6, -3), closed.slice(-3)].map((g) => occOf(progSum(Object.fromEntries(g.map(({ x }, i) => [i, x])), g.map((_, i) => i))));
     trend = `<p class="pg-trend">Los últimos 3 meses cerrados, de media, ${b >= a ? "<b>han facturado más</b>" : "<b>han facturado menos</b>"} que los 3 anteriores (${euro(Math.round(b))} frente a ${euro(Math.round(a))} al mes) y la ocupación ${Math.round(ob) === Math.round(oa) ? "se ha quedado igual" : ob > oa ? "<b>ha subido</b>" : "<b>ha bajado</b>"} (${pctTxt(ob)} frente a ${pctTxt(oa)}).</p>`;
   }
   const table = `<details class="caja-more"><summary>Ver los números mes a mes</summary><table class="pg-table"><thead><tr><th>Mes</th><th>Ganancias</th><th>Servicios</th><th>Ocupación</th></tr></thead><tbody>${series
     .slice()
     .reverse()
-    .map(({ m, x }) => `<tr><td>${esc(monthLabel(m.month))}${m.partial ? " <small>(en curso)</small>" : ""}</td><td>${euro(x.billed)}</td><td>${x.services}</td><td>${pctTxt(occOf(x))}</td></tr>`)
+    .map(({ m, x }) => `<tr><td>${esc(monthLabel(m.month))}${m.partial ? " <small>(en curso)</small>" : ""}</td><td>${euro(gain(x))}</td><td>${x.services}</td><td>${pctTxt(occOf(x))}</td></tr>`)
     .join("")}</tbody></table></details>`;
 
   const charts =
@@ -917,7 +1020,7 @@ async function staffProgress() {
           const x = progSum(cur.people, [p.id]);
           const b = progSum(r.prevToDate, [p.id]);
           return `<button type="button" class="card worker pg-person" data-pick="${esc(p.id)}"><div class="worker-head">${face(provById(p.id), "who-face")}<div><strong>${esc(p.name)}</strong><span>${x.services} ${x.services === 1 ? "servicio" : "servicios"} · ticket medio ${euro(Math.round(avg(x) * 100) / 100)}</span></div></div>
-            <div class="comm-box"><div><span>Ganancias</span><strong>${euro(x.billed)}</strong>${progDelta(x.billed, b.billed)}</div><div><span>Ocupación</span><strong>${pctTxt(occOf(x))}</strong>${progDelta(occOf(x), occOf(b), "pp")}</div><div><span>Clientes</span><strong>${x.clients}</strong>${progDelta(x.clients, b.clients)}</div></div></button>`;
+            <div class="comm-box"><div><span>${p.owner ? "Ganancias (con comisiones)" : "Ganancias"}</span><strong>${euro(Math.round((x.billed + (p.owner ? x.comm : 0)) * 100) / 100)}</strong>${progDelta(x.billed + (p.owner ? x.comm : 0), b.billed + (p.owner ? b.comm : 0))}</div><div><span>Ocupación</span><strong>${pctTxt(occOf(x))}</strong>${progDelta(occOf(x), occOf(b), "pp")}</div><div><span>Clientes</span><strong>${x.clients}</strong>${progDelta(x.clients, b.clients)}</div></div></button>`;
         })
         .join("");
   }
@@ -931,7 +1034,7 @@ async function staffProgress() {
       ahead14 +
       heat +
       team +
-      `<p class="caja-meta pg-note">Ganancias: lo cobrado en caja, o el precio del servicio si no se apuntó el cobro. Ocupación: horas con cita entre las horas de ${r.owner && progPick === "all" ? "cada horario" : "tu horario"}, sin contar las bloqueadas ni las citas «No vino». Usa el horario de ahora para los meses pasados.</p>`,
+      `<p class="caja-meta pg-note">Ganancias: lo cobrado en caja, o el precio del servicio si no se apuntó el cobro${boss ? ", más tu comisión de lo que ha hecho cada uno del equipo" : ""}. Ocupación: horas con cita entre las horas de ${r.owner && progPick === "all" ? "cada horario" : "tu horario"}, sin contar las bloqueadas ni las citas «No vino». Usa el horario de ahora para los meses pasados.</p>`,
   );
   $$("[data-pick]").forEach((b) => (b.onclick = () => ((progPick = b.dataset.pick), render())));
   $$("[data-months]").forEach((b) => (b.onclick = () => ((progMonths = Number(b.dataset.months)), render())));
@@ -2095,6 +2198,52 @@ const backupBlock = () => `<p class="section-label">Copia de seguridad</p>
     <label class="btn wide secondary" style="margin:0">Recuperar desde una copia<input type="file" accept="application/json,.json" class="sr-only" id="bk-file"></label></div>
   </div>`;
 
+// Datos de prueba: clientes, citas, cobros y ranking ficticios para ver la app
+// con vida. Se borran de una vez y no tocan nada de verdad.
+async function demoBox() {
+  const box = $("#demo-box");
+  if (!box) return;
+  let st;
+  try {
+    st = await api("staff/demo");
+  } catch (e) {
+    box.innerHTML = `<p class="muted" style="margin:0">${esc(e.message)}</p>`;
+    return;
+  }
+  const n = (x) => Number(x || 0).toLocaleString("es-ES");
+  box.innerHTML = st.loaded
+    ? `<p style="margin-top:0"><b>Están cargados</b> desde el ${esc(shortDate(st.at.slice(0, 10)))}: ${n(st.users)} clientes ficticios, ${n(st.bookings)} citas y ${n(st.pays)} cobros.</p>
+       <p class="muted">Salen en la agenda, la caja, el progreso y el ranking del Club. Bórralos antes de empezar con clientes de verdad.</p>
+       <button type="button" class="btn wide secondary" id="demo-clear">Borrar los datos de prueba</button>`
+    : `<p class="muted" style="margin-top:0">Carga unos 36 clientes ficticios con casi un año de citas y cobros con cada barbero, citas para los próximos días y puntos del Club, para ver la agenda, la caja, el progreso y el ranking en marcha. Sus correos son inventados: nunca se les escribe. Luego se borran de una vez, sin tocar nada de verdad.</p>
+       <button type="button" class="btn wide" id="demo-load">Cargar datos de prueba</button>`;
+  const run = async (btn, action, msg) => {
+    btn.disabled = true;
+    btn.textContent = action === "load" ? "Cargando… (puede tardar un minuto)" : "Borrando…";
+    try {
+      const r = await api("staff/demo", { action });
+      toast(msg(r));
+      contactsP = null;
+      demoBox();
+    } catch (e) {
+      toast(e.message);
+      demoBox();
+    }
+  };
+  const load = $("#demo-load");
+  if (load) load.onclick = () => run(load, "load", (r) => `Listo: ${n(r.users)} clientes, ${n(r.bookings)} citas y ${n(r.pays)} cobros de prueba.`);
+  const clear = $("#demo-clear");
+  if (clear)
+    clear.onclick = () => {
+      const sh = sheet(`<p class="eyebrow">Datos de prueba</p><h2>¿Borrar los datos de prueba?</h2><p class="muted">Se quitan los clientes ficticios, sus citas, sus cobros y sus puntos. Lo de verdad no se toca.</p><div class="stack"><button type="button" class="btn wide" id="demo-yes">Sí, borrarlos</button><button type="button" class="btn wide secondary" id="demo-no">Cancelar</button></div>`);
+      sh.el.querySelector("#demo-no").onclick = () => sh.close();
+      sh.el.querySelector("#demo-yes").onclick = () => {
+        sh.close();
+        run(clear, "clear", (r) => `Borrados ${n(r.users)} clientes y ${n(r.bookings)} citas de prueba.`);
+      };
+    };
+}
+
 function bindBackup() {
   const f = $("#bk-file");
   if (!f) return;
@@ -2586,9 +2735,11 @@ async function staffTeam() {
         )
         .join("")}</div>
       <button type="button" class="btn wide" style="margin-top:12px" id="w-new">+ Añadir trabajador</button>` +
-      backupBlock(),
+      backupBlock() +
+      `<p class="section-label">Datos de prueba</p><div class="card" id="demo-box"><p class="muted" style="margin:0">Cargando…</p></div>`,
   );
   bindBackup();
+  demoBox();
   onForm("norms", async (d) => {
     const on = (k) => d[k] === "on";
     await api("staff/rules", { ...d, reminders: on("reminders"), recurring: on("recurring"), remindSoon: on("remindSoon"), waitlist: on("waitlist"), dailyClose: on("dailyClose"), reviews: on("reviews") });

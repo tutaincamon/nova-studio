@@ -2040,3 +2040,15 @@ main:has(.ag-wide) { max-width: 1180px; }
 .w-color input:checked + span { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--ink); }
 .w-color input:focus-visible + span { outline: 2px solid var(--ink); outline-offset: 4px; }
 .w-color small { font-size: 11px; color: var(--muted); }
+
+/* Caja por periodos: día, semana, mes, año o fechas */
+.caja-modes { margin: 4px 0 8px; }
+.caja-modes button { flex: 1 1 auto; }
+.caja-dates { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: end; padding: 10px; margin-bottom: 4px; }
+.caja-dates label { display: grid; gap: 4px; margin: 0; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.caja-dates input { min-width: 0; }
+.caja-dates .btn { min-height: 44px; padding: 0 16px; }
+@media (max-width: 420px) { .caja-dates { grid-template-columns: 1fr 1fr; } .caja-dates .btn { grid-column: 1 / -1; } }
+.caja-today { display: block; margin: 0 auto 6px; background: none; border: 0; color: var(--ink); font-size: 13px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; min-height: 36px; cursor: pointer; }
+.caja-days td:first-child { position: relative; }
+.caja-bar { position: absolute; left: 0; bottom: 2px; height: 3px; background: var(--ink); opacity: .18; border-radius: 2px; pointer-events: none; }
