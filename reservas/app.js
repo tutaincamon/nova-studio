@@ -3036,7 +3036,7 @@ async function initHabit(h) {
   const when = pick ? `${cap(DAY_LONG[dayDate(pick.date).getDay()])} ${dayDate(pick.date).getDate()} ${fmtDay(pick.date, { month: "short" })} · ${pick.start}` : "";
   box.outerHTML = `<section class="habit${h.due ? " due" : ""}">
     <p class="eyebrow">${h.due ? "Te toca" : "Tu cita de siempre"}</p>
-    <div class="habit-main">${face(p, "habit-face")}<div><strong>${esc(cap(DAY_LONG[h.weekday]))}s${h.start ? " · " + esc(h.start) : ""}</strong><span>${esc(tx(s.name))} ${L("con", "with")} ${esc(first(p.name))}${h.every ? " · " + esc(everyText(h.every)) : ""}</span></div></div>
+    <div class="habit-main">${face(p, "habit-face")}<div><strong>${esc(cap(DAY_LONG[h.weekday]).replace(/([^s])$/, "$1s"))}${h.start ? " · " + esc(h.start) : ""}</strong><span>${esc(tx(s.name))} ${L("con", "with")} ${esc(first(p.name))}${h.every ? " · " + esc(everyText(h.every)) : ""}</span></div></div>
     ${
       pick
         ? `<button type="button" class="btn wide" id="habit-go">${L("Reservar", "Book")} ${esc(when)}</button>`
