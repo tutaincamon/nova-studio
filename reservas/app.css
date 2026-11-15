@@ -1844,12 +1844,6 @@ body[data-page="equipo"] #lang-btn { display: none; }
    Una tabla de borde fino, como la carta de precios. Tu fila va en negro. */
 .rk-tabs { margin: 18px 0 12px; }
 .rk-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
-.rk-period { display: inline-flex; border: 1px solid var(--ink); }
-.rk-period button {
-  min-height: 34px; padding: 0 14px; border: 0; background: none; color: var(--ink);
-  font-family: var(--serif); font-weight: 800; font-size: 10.5px; letter-spacing: .02em; text-transform: uppercase;
-}
-.rk-period button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
 .rk-live { display: inline-flex; align-items: center; gap: 7px; font-family: var(--serif); font-weight: 800; font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .rk-live i { width: 7px; height: 7px; border-radius: 50%; background: #1f9d55; animation: rk-pulse 2.4s ease-out infinite; }
 @keyframes rk-pulse { 0% { box-shadow: 0 0 0 0 #1f9d5566; } 70%, 100% { box-shadow: 0 0 0 7px #1f9d5500; } }
@@ -1925,3 +1919,124 @@ body[data-page="equipo"] #lang-btn { display: none; }
   .rk-live i, .rk-row.rk-in, .rk-row.rk-bump .rk-p, .rk-delta { animation: none; }
   .rk-row { transition: none; }
 }
+
+/* ── Agenda: vistas lista, día, semana y mes (un color por barbero) ───── */
+main:has(.ag-wide) { max-width: 1180px; }
+.ag-bar { display: grid; gap: 10px; margin: 0 0 10px; }
+.ag-views { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--ink); }
+.ag-views button { min-height: 40px; padding: 0 4px; background: none; color: var(--ink); border: 0; border-left: 1px solid var(--ink); font-family: var(--serif); font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: .02em; }
+.ag-views button:first-child { border-left: 0; }
+.ag-views button.on { background: var(--ink); color: var(--bg); }
+.ag-nav { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.ag-nav .ag-today { min-height: 36px; padding: 0 14px; font-size: 11px; margin-right: 4px; flex: none; }
+.ag-nav .ag-today:disabled { background: none; border-color: var(--line); color: var(--muted); }
+.ag-nav .cal-nav { flex: none; }
+.ag-title { margin-left: 6px; font-size: 16px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (min-width: 760px) {
+  .ag-wide .ag-bar { grid-template-columns: minmax(0, 1fr) 340px; align-items: center; }
+  .ag-wide .ag-views { order: 2; }
+  .ag-title { font-size: 19px; }
+}
+.ag-legend { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+.ag-lg { min-height: 34px; padding: 4px 12px 4px 8px; gap: 8px; background: var(--bg); color: var(--ink); border: 1px solid var(--ink); font-size: 13px; font-weight: 600; }
+.ag-lg i { width: 14px; height: 14px; background: var(--c); border: 1px solid var(--c); flex: none; }
+.ag-lg:hover { background: #fff; }
+.ag-lg.off { color: var(--muted); border-color: var(--line); }
+.ag-lg.off i { background: transparent; }
+.ag-sum { margin: 4px 0 10px; font-size: 13px; color: var(--muted); }
+.ag-wrap .staff-bar { margin-bottom: 12px; }
+@media (min-width: 760px) {
+  .ag-wide .staff-bar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ag-wide .staff-bar > :nth-child(3) { grid-column: auto; }
+}
+.ag-chp small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Lista: el color de cada barbero en su columna */
+.ag-sw { display: inline-block; width: 12px; height: 12px; background: var(--c); margin-right: 8px; vertical-align: 1px; }
+.ag-col[style] .ag-item[data-id] { border-left: 4px solid var(--c); }
+
+/* Rejilla de horas (día y semana) */
+.ag-cal { --hh: 60px; border: 1px solid var(--ink); background: var(--bg); }
+.ag-cal.compact { --hh: 52px; }
+.ag-ch-row, .ag-body { display: grid; grid-template-columns: 44px repeat(var(--n), minmax(0, 1fr)); }
+.ag-ch-row { position: sticky; top: var(--hdr); z-index: 4; background: var(--bg); border-bottom: 1px solid var(--ink); }
+.ag-ch { min-width: 0; padding: 8px 6px; border-left: 1px solid var(--line); }
+.ag-chp { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ag-ch .ag-chp { border-bottom: 3px solid var(--c); padding-bottom: 6px; margin-bottom: -2px; }
+.ag-chp .who-face { width: 32px; height: 32px; font-size: 14px; }
+.ag-chp > span { display: grid; min-width: 0; }
+.ag-chp b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ag-chp small { font-size: 11px; color: var(--muted); }
+.compact .ag-ch { display: grid; justify-items: center; gap: 2px; cursor: pointer; padding: 6px 2px; }
+.compact .ag-ch small { font-size: 10px; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.compact .ag-ch b { display: grid; place-items: center; width: 30px; height: 30px; font-size: 16px; font-weight: 700; }
+.compact .ag-ch.today b { background: var(--ink); color: var(--bg); }
+.compact .ag-ch:hover b { outline: 1px solid var(--ink); }
+.ag-body { position: relative; }
+.ag-hours { position: relative; }
+.ag-hours span { position: absolute; right: 6px; transform: translateY(-50%); font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ag-cc { position: relative; min-width: 0; border-left: 1px solid var(--line); cursor: copy;
+  background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(#0a090c0d 1px, transparent 1px);
+  background-size: 100% var(--hh), 100% calc(var(--hh) / 2); }
+.ag-closed { position: absolute; left: 0; right: 0; pointer-events: none; background: repeating-linear-gradient(135deg, #0a090c0a, #0a090c0a 6px, transparent 6px, transparent 12px); }
+.ag-cc.off { cursor: default; }
+.ag-offtag { position: absolute; top: 10px; left: 0; right: 0; text-align: center; font-style: normal; font-size: 11px; color: var(--muted); pointer-events: none; }
+.ag-ev { position: absolute; z-index: 1; display: block; min-height: 0; padding: 3px 6px; overflow: hidden; text-align: left; border: 0; border-radius: 0;
+  background: var(--c); color: #fff; font-family: inherit; font-size: 12px; font-weight: 400; line-height: 1.25; text-transform: none; letter-spacing: 0;
+  box-shadow: 0 0 0 1px var(--bg); }
+.ag-ev b, .ag-ev span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ag-ev b { font-weight: 700; }
+.ag-ev span { opacity: .9; font-size: 11px; }
+.ag-ev:hover { filter: brightness(1.08); z-index: 2; }
+.ag-ev:active { transform: none; }
+.ag-ev.past { background: var(--t); color: var(--ink); box-shadow: inset 3px 0 0 var(--c), 0 0 0 1px var(--bg); padding-left: 8px; }
+.ag-ev.now { box-shadow: 0 0 0 1px var(--bg), 0 0 0 3px var(--ink); z-index: 2; }
+.ag-ev.absent b { text-decoration: line-through; }
+.ag-ev.block { background: repeating-linear-gradient(135deg, #e9e7e0, #e9e7e0 6px, #dedbd2 6px, #dedbd2 12px); color: var(--ink); box-shadow: inset 3px 0 0 var(--c), 0 0 0 1px var(--bg); padding-left: 8px; }
+.ag-nowline { position: absolute; left: -1px; right: 0; height: 2px; background: #d93025; z-index: 3; pointer-events: none; }
+.ag-nowline::before { content: ""; position: absolute; left: -5px; top: -4px; width: 10px; height: 10px; border-radius: 50%; background: #d93025; }
+.compact .ag-ev { padding: 2px 4px; font-size: 11px; }
+.compact .ag-ev.past, .compact .ag-ev.block { padding-left: 6px; }
+.compact .ag-ev span { font-size: 10px; }
+@media (max-width: 560px) {
+  .ag-ch-row, .ag-body { grid-template-columns: 36px repeat(var(--n), minmax(0, 1fr)); }
+  .ag-hours span { font-size: 9.5px; right: 4px; }
+  .compact .ag-ev { padding: 2px 3px; font-size: 10px; }
+  .compact .ag-ev span { display: none; }
+  .ag-chp .who-face { display: none; }
+}
+@media (min-width: 900px) { .ag-cal { --hh: 64px; } .ag-cal.compact { --hh: 56px; } }
+
+/* Mes */
+.ag-month { border: 1px solid var(--ink); }
+.ag-mh, .ag-mgrid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.ag-mh { border-bottom: 1px solid var(--ink); }
+.ag-mh span { padding: 8px 6px; font-size: 10.5px; font-weight: 700; text-transform: uppercase; color: var(--muted); text-align: center; }
+.ag-mc { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 2px; min-width: 0; min-height: 96px; padding: 4px; background: var(--bg); color: var(--ink);
+  border: 0; border-left: 1px solid var(--line); border-top: 1px solid var(--line); font-family: inherit; font-weight: 400; font-size: 12px; text-transform: none; letter-spacing: 0; text-align: left; }
+.ag-mc:nth-child(7n + 1) { border-left: 0; }
+.ag-mc:nth-child(-n + 7) { border-top: 0; }
+.ag-mc:hover { background: #fff; }
+.ag-mc:active { transform: none; }
+.ag-mc.out { background: var(--soft); color: var(--muted); }
+.ag-md { align-self: center; display: grid; place-items: center; width: 26px; height: 26px; font-size: 13px; font-weight: 700; margin-bottom: 2px; }
+.ag-mc.today .ag-md { background: var(--ink); color: var(--bg); }
+.ag-mev { display: block; padding: 1px 5px; background: var(--c); color: #fff; font-size: 11px; line-height: 1.45; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ag-mev i { font-style: normal; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ag-mev.past { background: var(--t); color: var(--ink); box-shadow: inset 3px 0 0 var(--c); }
+.ag-mc small { font-size: 10.5px; color: var(--muted); padding-left: 3px; }
+@media (max-width: 560px) {
+  .ag-mc { min-height: 74px; padding: 3px 2px; }
+  .ag-mev { font-size: 9.5px; padding: 0 3px; }
+  .ag-mev i { font-weight: 600; }
+  .ag-mc small { font-size: 9.5px; }
+}
+
+/* Color de cada trabajador en su ficha */
+.w-colors { display: flex; flex-wrap: wrap; gap: 10px; }
+.w-color { position: relative; display: grid; justify-items: center; gap: 4px; cursor: pointer; margin: 0; }
+.w-color input { position: absolute; opacity: 0; pointer-events: none; }
+.w-color span { width: 34px; height: 34px; background: var(--c); box-shadow: 0 0 0 2px var(--bg); }
+.w-color input:checked + span { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--ink); }
+.w-color input:focus-visible + span { outline: 2px solid var(--ink); outline-offset: 4px; }
+.w-color small { font-size: 11px; color: var(--muted); }

@@ -147,7 +147,6 @@ let catalog = null,
   lastPage = "",
   staffDay = "",
   staffMonth = "",
-  staffAll = false,
   cobroDay = "",
   cobroPre = "";
 const availCache = new Map();
@@ -813,12 +812,12 @@ const LEGAL = {
     ${lgGrid(
       ["Para qué", "Qué datos", "Base legal", "Cuánto tiempo"],
       [
-        ["Crear tu cuenta y que entres en ella", "Nombre, correo, teléfono (opcional), foto de perfil (opcional), la fecha de alta y el código de 6 cifras que te mandamos para entrar (caduca a los 10 minutos)", "El contrato: lo necesitamos para darte el servicio (art. 6.1.b RGPD)", "Hasta que pidas borrar la cuenta o pasen 3 años sin citas ni uso"],
+        ["Crear tu cuenta y que entres en ella", "Nombre, correo, teléfono (opcional), foto de perfil (opcional) y la fecha de alta" + (authCh.code === false ? "" : ", y el código de 6 cifras que te mandamos para entrar (caduca a los 10 minutos)"), "El contrato: lo necesitamos para darte el servicio (art. 6.1.b RGPD)", "Hasta que pidas borrar la cuenta o pasen 3 años sin citas ni uso"],
         ["Gestionar tus citas", "Servicio, barbero, día y hora, cambios y cancelaciones, si viniste, lo que pagaste y cómo (efectivo, tarjeta o Bizum) y las citas periódicas si las pides", "El contrato (art. 6.1.b RGPD)", "Igual que la cuenta. Los cobros, 6 años"],
         ["Avisarte de tus citas", "Tu correo y los datos de la cita: confirmación, cambios, recordatorio el día antes y unas horas antes, y el aviso de la lista de espera si te apuntas", "El contrato (art. 6.1.b RGPD)", "Lo que dura la cita. La lista de espera se borra al pasar ese día"],
         cardOn() && ["Tarjeta en garantía y cobro de faltas", "La tarjeta la guarda Stripe, no nosotros. Nosotros solo vemos la marca, los 4 últimos números y la caducidad, además de las faltas, las cancelaciones tardías y lo que se haya cobrado o devuelto", "El contrato (art. 6.1.b RGPD) y nuestro interés legítimo en que no se pierdan huecos (art. 6.1.f)", "La tarjeta, hasta que la quites. Los cobros, 6 años"],
         ["Club NOVA", "Puntos, liga, medallas, premios canjeados, las compras de ropa de NOVA Supply que el equipo apunta a tu cuenta (fecha, importe y prendas), tu código de amigo, quién te invitó, los amigos que añades al ranking y si has pulsado «Dejar mi reseña»", "El contrato: las condiciones del Club (art. 6.1.b RGPD)", "Mientras tengas cuenta"],
-        ["Ranking del Club", "Tu nombre con la inicial del apellido, tu liga y tus puntos ganados (del mes y de siempre). Los ven los demás socios que han entrado en la app. Tus amigos te ven siempre; en el ranking de todo el Club puedes dejar de salir desde tu perfil cuando quieras", "El contrato: las condiciones del Club (art. 6.1.b RGPD)", "Mientras tengas cuenta"],
+        ["Ranking del Club", "El nombre o apodo que elijas, tu liga y tus puntos ganados. Los ven los demás socios que han entrado en la app. Tus amigos te ven siempre; en el ranking de todo el Club puedes dejar de salir desde tu perfil cuando quieras", "El contrato: las condiciones del Club (art. 6.1.b RGPD)", "Mientras tengas cuenta"],
         ["Ofrecerte «tu cita de siempre»", "A partir de tu historial calculamos tu día, hora, barbero y servicio habituales y cada cuánto vienes. Se calcula en el momento y no se guarda aparte", "Interés legítimo en facilitarte la reserva (art. 6.1.f RGPD)", "Mientras tengas cuenta"],
         ["Correos comerciales nuestros: «¿cuándo vuelves?», «te echamos de menos» (a veces con una oferta) y la petición de reseña", "Nombre, correo, fecha de tu último corte y tu barbero", "Eres cliente y son servicios como los que ya usas (art. 21.2 LSSI), y nuestro interés legítimo (art. 6.1.f RGPD). Cada correo trae un enlace para darte de baja", "Hasta que te des de baja. Guardamos la baja para no volver a escribirte"],
         ["Lista de interesados en la formación", "Lo que pones en el formulario: nombre, teléfono, correo, Instagram si lo das, nivel, preferencias y mensaje", "Tu consentimiento (art. 6.1.a RGPD)", "2 años desde el último contacto, o hasta que lo retires"],
@@ -832,7 +831,7 @@ const LEGAL = {
     <p>No vendemos tus datos ni compramos listas. Todos los datos nos los das tú, salvo las compras de ropa y los cobros, que apunta el equipo cuando pagas en el estudio.</p>
 
     <h3>3 · Quién del equipo ve tus datos</h3>
-    <p>${esc(catalog.business.holder)}, como titular, puede verlo todo. Cada barbero, que es trabajador del estudio, ve las citas y los datos de contacto de quienes atiende, y le llega un aviso con tu nombre, el servicio y la hora a su correo y al calendario de su móvil. La tableta de caja solo ve los cobros del día. Todo el equipo tiene deber de confidencialidad.</p>
+    <p>${esc(catalog.business.holder)}, como titular, puede verlo todo. Cada barbero, que es trabajador del estudio, ve las citas y los datos de contacto de quienes atiende, y le llega un aviso con tu nombre, el servicio y la hora a su correo y al calendario de su móvil. La tableta de caja solo ve los cobros del día y la agenda (nombre, servicio y hora, sin teléfono ni correo). Todo el equipo tiene deber de confidencialidad.</p>
 
     <h3>4 · Con quién los compartimos</h3>
     <p>Para funcionar nos apoyamos en estos proveedores. Tratan los datos por encargo nuestro y solo para lo que les pedimos:</p>
@@ -868,7 +867,7 @@ const LEGAL = {
     <p>Si crees que no te hemos atendido bien, puedes reclamar ante la Agencia Española de Protección de Datos (C/ Jorge Juan 6, 28001 Madrid, <a href="https://www.aepd.es" target="_blank" rel="noopener">www.aepd.es</a>). Te agradecemos que antes nos lo cuentes a nosotros.</p>
 
     <h3>7 · Seguridad</h3>
-    <p>La app funciona siempre por HTTPS. Para entrar en tu cuenta te mandamos un código a tu correo. Cada persona del equipo entra con su propio PIN, que se guarda cifrado.${cardOn() ? " Los números de tu tarjeta van directamente de tu móvil a Stripe y nunca pasan por nuestro servidor." : ""} Las claves de los servicios están en el servidor, nunca en la app. Si hubiera una brecha de seguridad que pudiera afectarte, te avisaríamos y lo comunicaríamos a la AEPD como manda la ley.</p>
+    <p>La app funciona siempre por HTTPS. ${authCh.code === false ? "De momento se entra en tu cuenta solo con tu correo, sin contraseña ni código; cuando activemos el código por correo, te lo pediremos al entrar." : "Para entrar en tu cuenta te mandamos un código a tu correo."} Cada persona del equipo entra con su propio PIN, que se guarda cifrado.${cardOn() ? " Los números de tu tarjeta van directamente de tu móvil a Stripe y nunca pasan por nuestro servidor." : ""} Las claves de los servicios están en el servidor, nunca en la app. Si hubiera una brecha de seguridad que pudiera afectarte, te avisaríamos y lo comunicaríamos a la AEPD como manda la ley.</p>
 
     <h3>8 · Menores</h3>
     <p>Para tener cuenta hay que tener al menos 14 años. Si quieres reservar para un menor de 14, hazlo desde tu cuenta: la cita queda a tu nombre y eres tú quien responde de ella. Si descubrimos una cuenta de un menor de 14 sin permiso de sus padres o tutores, la borramos.</p>
@@ -968,7 +967,7 @@ const LEGAL = {
     <ul>
       <li>Es gratis y forma parte de tu cuenta. Sumas puntos por los servicios y por la ropa de NOVA Supply que pagas en el estudio, según la tabla que ves en la app. Los puntos llegan cuando el equipo te cobra, no al reservar.</li>
       <li>Los puntos, las ligas, las medallas, los premios y los descuentos no tienen valor en dinero, no se pueden cambiar por dinero ni pasar a otra persona.</li>
-      <li>El ranking ordena a los socios por los puntos que han ganado, este mes y desde siempre (canjear premios no resta). En él sale tu nombre con la inicial del apellido, tu liga y tus puntos. Puedes dejar de salir en el ranking de todo el Club desde tu perfil; tus amigos te siguen viendo. El ranking no da premios por sí solo.</li>
+      <li>El ranking ordena a los socios por los puntos que han ganado desde siempre (canjear premios no resta). En él sale el nombre o apodo que elijas, tu liga y tus puntos. Puedes dejar de salir en el ranking de todo el Club desde tu perfil; tus amigos te siguen viendo. El ranking no da premios por sí solo.</li>
       <li>Los premios y ventajas pueden cambiar. Si cambian a peor o cerramos el Club, te avisaremos con al menos 30 días para que puedas canjear tus puntos.</li>
       <li>Si borras la cuenta o pasan 3 años sin usarla, se pierden los puntos.</li>
       <li>Si detectamos trampas (cuentas falsas para conseguir puntos por invitar, por ejemplo), anularemos los puntos conseguidos así.</li>
@@ -1024,12 +1023,12 @@ const LEGAL_EN = {
     ${lgGrid(
       ["Purpose", "Data", "Legal basis", "How long"],
       [
-        ["Your account and logging in", "Name, email, phone (optional), profile photo (optional), sign-up date and the 6-digit code we send you to log in (it expires after 10 minutes)", "Contract (art. 6.1.b GDPR)", "Until you ask us to delete it, or 3 years without bookings or use"],
+        ["Your account and logging in", "Name, email, phone (optional), profile photo (optional) and sign-up date" + (authCh.code === false ? "" : ", plus the 6-digit code we send you to log in (it expires after 10 minutes)"), "Contract (art. 6.1.b GDPR)", "Until you ask us to delete it, or 3 years without bookings or use"],
         ["Managing your bookings", "Service, barber, date and time, changes and cancellations, attendance, what you paid and how (cash, card, Bizum), recurring bookings if you set them", "Contract (art. 6.1.b GDPR)", "Same as the account. Payments: 6 years"],
         ["Booking notices", "Your email and the booking details: confirmation, changes, reminders the day before and a few hours before, and waitlist alerts if you join one", "Contract (art. 6.1.b GDPR)", "For as long as the booking lasts. Waitlists are deleted once the day has passed"],
         cardOn() && ["Guarantee card and no-show charges", "Your card is stored by Stripe, not by us. We only see the brand, the last 4 digits and the expiry date, plus your no-shows, late cancellations and any charges or refunds", "Contract (art. 6.1.b) and our legitimate interest in not losing slots (art. 6.1.f)", "The card: until you remove it. Charges: 6 years"],
         ["NOVA Club", "Points, league, medals, redeemed rewards, the NOVA Supply clothing purchases the team adds to your account (date, amount, items), your friend code, who invited you, the friends you add to the ranking and whether you tapped “Leave my review”", "Contract: the Club terms (art. 6.1.b GDPR)", "While you have an account"],
-        ["Club ranking", "Your first name with your surname initial, your league and the points you've earned (this month and all time). Other members who have logged in to the app can see them. Your friends always see you; you can stop appearing in the whole-Club ranking from your profile at any time", "Contract: the Club terms (art. 6.1.b GDPR)", "While you have an account"],
+        ["Club ranking", "The name or nickname you choose, your league and the points you've earned. Other members who have logged in to the app can see them. Your friends always see you; you can stop appearing in the whole-Club ranking from your profile at any time", "Contract: the Club terms (art. 6.1.b GDPR)", "While you have an account"],
         ["Offering “your usual booking”", "From your history we work out your usual day, time, barber and service, and how often you come. It is computed on the spot and not stored separately", "Legitimate interest in making booking easier (art. 6.1.f GDPR)", "While you have an account"],
         ["Our own marketing emails: “when are you coming back?”, “we miss you” (sometimes with an offer) and review requests", "Name, email, date of your last cut and your barber", "You are a client and these are for similar services (art. 21.2 LSSI), plus our legitimate interest (art. 6.1.f GDPR). Every email has an unsubscribe link", "Until you unsubscribe. We keep the unsubscribe so we don't write to you again"],
         ["Training interest list", "What you enter in the form: name, phone, email, Instagram if given, level, preferences and message", "Your consent (art. 6.1.a GDPR)", "2 years from the last contact, or until you withdraw consent"],
@@ -1079,7 +1078,7 @@ const LEGAL_EN = {
     <p>If you think we haven't handled your request properly, you can complain to the Spanish Data Protection Agency (C/ Jorge Juan 6, 28001 Madrid, <a href="https://www.aepd.es" target="_blank" rel="noopener">www.aepd.es</a>). We'd appreciate it if you told us first.</p>
 
     <h3>7 · Security</h3>
-    <p>The app always runs over HTTPS. To log in, we send a code to your email. Each team member logs in with their own PIN, which is stored encrypted.${cardOn() ? " Your card number goes straight from your phone to Stripe and never passes through our server." : ""} Service keys live on the server, never in the app. If a security breach could affect you, we would tell you and report it to the AEPD as the law requires.</p>
+    <p>The app always runs over HTTPS. ${authCh.code === false ? "For now you log in with just your email, no password or code; once we switch on the email code, we'll ask for it when you log in." : "To log in, we send a code to your email."} Each team member logs in with their own PIN, which is stored encrypted.${cardOn() ? " Your card number goes straight from your phone to Stripe and never passes through our server." : ""} Service keys live on the server, never in the app. If a security breach could affect you, we would tell you and report it to the AEPD as the law requires.</p>
 
     <h3>8 · Minors</h3>
     <p>You must be at least 14 to have an account. To book for a child under 14, use your own account: the booking is in your name and you are responsible for it. If we find an account belonging to someone under 14 without their parents' or guardians' permission, we delete it.</p>
@@ -1179,7 +1178,7 @@ const LEGAL_EN = {
     <ul>
       <li>It's free and part of your account. You earn points for services and for NOVA Supply clothing paid for at the studio, as shown in the app. Points arrive when the team charges you, not when you book.</li>
       <li>Points, leagues, medals, rewards and discounts have no cash value, can't be exchanged for money and can't be transferred to anyone else.</li>
-      <li>The ranking orders members by the points they've earned, this month and all time (redeeming rewards doesn't subtract). It shows your first name with your surname initial, your league and your points. You can stop appearing in the whole-Club ranking from your profile; your friends still see you. The ranking doesn't give prizes on its own.</li>
+      <li>The ranking orders members by the points they've earned since they joined (redeeming rewards doesn't subtract). It shows the name or nickname you choose, your league and your points. You can stop appearing in the whole-Club ranking from your profile; your friends still see you. The ranking doesn't give prizes on its own.</li>
       <li>Rewards and perks may change. If they get worse or we close the Club, we'll give you at least 30 days' notice so you can redeem your points.</li>
       <li>If you delete your account or don't use it for 3 years, your points are lost.</li>
       <li>If we detect cheating (for example, fake accounts to earn referral points), we'll cancel the points earned that way.</li>
@@ -1369,7 +1368,7 @@ const pages = {
         back(`time/${draft.provider}`, "Cambiar hora") +
           (user
             ? heading(L("Un último paso", "One last step"), L("Dinos tu nombre y confirmas tu cita.", "Tell us your name and confirm your booking."))
-            : heading(L("¿Quién reserva?", "Who's booking?"), L("Pon tu correo y te mandamos un código. Así la cita queda a tu nombre.", "Enter your email and we'll send you a code. That way the booking is in your name."))) +
+            : heading(L("¿Quién reserva?", "Who's booking?"), authCh.code === false ? L("Pon tu correo y tu nombre. Así la cita queda a tu nombre.", "Enter your email and your name. That way the booking is in your name.") : L("Pon tu correo y te mandamos un código. Así la cita queda a tu nombre.", "Enter your email and we'll send you a code. That way the booking is in your name."))) +
           summary +
           `<div id="auth" class="auth-box"></div>` +
           (user
@@ -1702,7 +1701,7 @@ const pages = {
       </div>
       <p class="section-label">Tus datos</p>
       <form id="profile" class="card">
-        <label for="p-name" style="margin-top:0">${tl("Nombre", "Name")} <small class="opt">${tl("(en el ranking, nombre e inicial)", "(first name and initial in the ranking)")}</small></label><input id="p-name" name="name" required maxlength="60" autocomplete="name" value="${esc(user.name || "")}">
+        <label for="p-name" style="margin-top:0">${tl("Nombre o apodo", "Name or nickname")} <small class="opt">${tl("(así sales en el ranking)", "(shown in the ranking)")}</small></label><input id="p-name" name="name" required maxlength="60" autocomplete="name" value="${esc(user.name || "")}">
         <label for="p-phone">Teléfono</label><input id="p-phone" name="phone" type="tel" maxlength="30" autocomplete="tel" value="${esc(user.phone || "")}">
         <label for="p-email">Correo</label><input id="p-email" value="${esc(user.email)}" readonly>
         <button class="btn wide" style="margin-top:18px" type="submit">Guardar</button>
@@ -1891,7 +1890,7 @@ const pages = {
     await loadPanel();
     if (!staff) return staffLogin();
     try {
-      if (staff.caja) return await staffCobros();
+      if (staff.caja) return await (args[0] === "agenda" ? staffAgenda : staffCobros)();
       await ({ mas: staffMore, cobrar: staffCobros, caja: staffCaja, progreso: staffProgress, faltas: staffFaltas, formacion: staffTraining, productos: staffProducts, ajustes: staffTeam, web: staffWeb, servicios: staffServices, clientes: staffClients, ropa: staffRopa }[args[0]] || staffAgenda)();
     } catch (e) {
       if (e.status !== 401) throw e;
@@ -2382,30 +2381,20 @@ async function shareMyCode() {
 // Se pide cada 6 s mientras está en pantalla (y al volver a la app). El
 // servidor solo manda la lista si algo ha cambiado; entonces las filas se
 // deslizan a su nuevo puesto y los puntos que cambian se marcan un momento.
-let rkPeriod = "month",
-  rkGen = 0,
+let rkGen = 0,
   rkLast = null,
   rkTimer = 0;
 const RK_EVERY = 6000;
 async function rankingPage(scope) {
   const gen = ++rkGen;
   rkLast = null;
-  const r = await api(`ranking?scope=${scope}&period=${rkPeriod}`);
+  const r = await api(`ranking?scope=${scope}`);
   if (gen !== rkGen) return;
   show(
     heading("Ranking", L("Puntos ganados en el Club. Canjear premios no te hace bajar.", "Points earned in the Club. Redeeming rewards doesn't move you down.")) +
       `<div class="tabs rk-tabs"><a href="#ranking" class="${scope === "global" ? "active" : ""}">${L("Todo el Club", "Whole Club")}</a><a href="#ranking/amigos" class="${scope === "friends" ? "active" : ""}">${L("Amigos", "Friends")}</a></div>
-       <div class="rk-bar"><div class="rk-period" role="group" aria-label="${L("Periodo", "Period")}"><button type="button" data-period="month" aria-pressed="${rkPeriod === "month"}">${esc(cap(new Date(r.month + "-15T12:00:00").toLocaleDateString(LOC(), { month: "long" })))}</button><button type="button" data-period="all" aria-pressed="${rkPeriod === "all"}">${L("Siempre", "All time")}</button></div>
-       <span class="rk-live" title="${L("Se actualiza solo", "Updates by itself")}"><i aria-hidden="true"></i>${L("En directo", "Live")}</span></div>
+       <div class="rk-bar"><span class="rk-live" title="${L("Se actualiza solo", "Updates by itself")}"><i aria-hidden="true"></i>${L("En directo", "Live")}</span></div>
        <div id="rk-me" aria-live="polite"></div><ol id="rk-list" class="rk-list"></ol><div id="rk-foot"></div>`,
-  );
-  $$("[data-period]").forEach(
-    (b) =>
-      (b.onclick = () => {
-        if (rkPeriod === b.dataset.period) return;
-        rkPeriod = b.dataset.period;
-        render();
-      }),
   );
   rkDraw(r);
   rkPoll(gen);
@@ -2414,7 +2403,7 @@ async function rkFetch(gen, force) {
   const s = rkLast;
   if (!s) return;
   try {
-    const r = await api(`ranking?scope=${s.scope}&period=${s.period}${force ? "" : "&v=" + encodeURIComponent(s.v)}`);
+    const r = await api(`ranking?scope=${s.scope}${force ? "" : "&v=" + encodeURIComponent(s.v)}`);
     if (gen !== rkGen || document.body.dataset.page !== "ranking" || !$("#rk-list")) return;
     if (!r.same) rkDraw(r);
   } catch {}
@@ -2433,7 +2422,7 @@ document.addEventListener("visibilitychange", () => {
 });
 const ptsWord = (n) => (n === 1 ? L("punto", "point") : L("puntos", "points"));
 function rkDraw(r) {
-  const prev = rkLast && rkLast.scope === r.scope && rkLast.period === r.period ? rkLast : null;
+  const prev = rkLast && rkLast.scope === r.scope ? rkLast : null;
   rkLast = r;
   $("#rk-me").innerHTML = rkMe(r);
   rkList(r);
@@ -2468,7 +2457,7 @@ function rkDraw(r) {
 }
 function rkMe(r) {
   const friends = r.scope === "friends",
-    per = r.period === "month" ? L("este mes", "this month") : L("en total", "in total");
+    per = L("en total", "in total");
   if (r.me) {
     const gap = r.me.ahead
       ? L(
@@ -2486,8 +2475,6 @@ function rkMe(r) {
   if (r.building) return `<div class="rk-me rk-off"><p>${L("Preparando el ranking…", "Getting the ranking ready…")}</p></div>`;
   if (!friends && r.hidden)
     return `<div class="rk-me rk-off"><p>${L("No sales en el ranking de todo el Club. Tus amigos sí te ven.", "You're hidden from the whole-Club ranking. Your friends can still see you.")}</p><button type="button" class="btn secondary" id="rk-unhide">${L("Volver a salir", "Show me again")}</button></div>`;
-  if (!friends && r.listed && r.period === "month")
-    return `<div class="rk-me rk-off"><p>${L("Aún no has sumado puntos este mes. Con tu próximo corte entras en la lista.", "You haven't earned points this month yet. Your next haircut puts you on the board.")}</p><a class="btn secondary" href="#home">${L("Reservar", "Book")}</a></div>`;
   return `<div class="rk-me rk-off"><p>${L("Aún no sales en el ranking. Apareces en cuanto sumes tus primeros puntos.", "You're not on the ranking yet. You'll appear once you earn your first points.")}</p></div>`;
 }
 const rkRow = (x, friends) => {
@@ -2509,9 +2496,7 @@ function rkList(r) {
     : `<li class="rk-empty">${
         friends
           ? L("Aún no tienes amigos en el ranking. Añádelos con su código del Club o invita a alguien nuevo.", "No friends on your ranking yet. Add them with their Club code or invite someone new.")
-          : r.period === "month"
-            ? L("Este mes aún no ha sumado nadie. El primer corte cobrado se pone en cabeza.", "Nobody has scored this month yet. The first paid haircut takes the lead.")
-            : L("Aún no hay nadie en el ranking.", "Nobody on the ranking yet.")
+          : L("Aún no hay nadie en el ranking.", "Nobody on the ranking yet.")
       }</li>`;
   if (!before.size || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   for (const el of list.querySelectorAll(".rk-row")) {
@@ -2540,7 +2525,7 @@ function rkFoot(r) {
       )}</p>`;
   return `<p class="rk-note">${
     r.total ? L(`${nf(r.total)} ${r.total === 1 ? "socio" : "socios"} en la lista.`, `${nf(r.total)} ${r.total === 1 ? "member" : "members"} on the board.`) + " " : ""
-  }${L("Se ve el nombre y la inicial de cada socio. Si prefieres no salir, cámbialo en tu perfil.", "Members show with first name and initial. If you'd rather not appear, change it in your profile.")}</p>`;
+  }${L("Cada socio sale con el nombre o apodo que eligió. Si prefieres no salir, cámbialo en tu perfil.", "Each member shows with the name or nickname they chose. If you'd rather not appear, change it in your profile.")}</p>`;
 }
 function rkAddFriend() {
   const sh = sheet(
@@ -2582,15 +2567,15 @@ function rkFriendSheet(x) {
     }
   };
 }
-// Tarjeta de «Puntos y premios»: tu puesto de este mes, a un toque del ranking.
+// Tarjeta de «Puntos y premios»: tu puesto en el Club, a un toque del ranking.
 async function rkMini() {
   const el = $("#rk-mini");
   if (!el) return;
   try {
-    const r = await api("ranking?scope=global&period=month&mini=1");
+    const r = await api("ranking?scope=global&mini=1");
     if (!document.body.contains(el)) return;
     el.innerHTML = `<span class="rk-mini-ic">${svg(ICONS.trophy)}</span><span class="rk-mini-t"><strong>${
-      r.me ? L(`Vas ${r.me.r}º este mes`, `You're #${r.me.r} this month`) : L("Ranking del Club", "Club ranking")
+      r.me ? L(`Vas ${r.me.r}º en el Club`, `You're #${r.me.r} in the Club`) : L("Ranking del Club", "Club ranking")
     }</strong><small>${
       r.me?.ahead
         ? L(`${nf(r.me.ahead.gap)} ${ptsWord(r.me.ahead.gap)} para adelantar a ${esc(r.me.ahead.n)}`, `${nf(r.me.ahead.gap)} ${ptsWord(r.me.ahead.gap)} to overtake ${esc(r.me.ahead.n)}`)
@@ -2725,8 +2710,14 @@ function authFlow(host, { step = "", onDone, onStep } = {}) {
             ? `<label for="au-to">${L("Tu número de móvil", "Your mobile number")}</label><input id="au-to" name="to" type="tel" inputmode="tel" required autocomplete="tel" maxlength="22" placeholder="+34 600 000 000" value="${esc(st.via === "phone" ? st.to : "")}">`
             : `<label for="au-to">${L("Tu correo", "Your email")}</label><input id="au-to" name="to" type="email" inputmode="email" required autocomplete="email" autocapitalize="off" spellcheck="false" maxlength="120" value="${esc(st.via === "email" ? st.to : "")}">`
         }
-        <button class="btn wide" type="submit">${L("Recibir código", "Get a code")}</button>
-        <p class="auth-note">${phone ? L("Te mandamos un código de 6 cifras por SMS para comprobar que el número es tuyo.", "We'll text you a 6-digit code to check the number is yours.") : L("Te mandamos un código de 6 cifras para comprobar que el correo es tuyo.", "We'll send you a 6-digit code to check the email is yours.")}</p>
+        <button class="btn wide" type="submit">${authCh.code === false ? L("Continuar", "Continue") : L("Recibir código", "Get a code")}</button>
+        <p class="auth-note">${
+          authCh.code === false
+            ? L("Sin contraseñas: con tu correo basta.", "No passwords: your email is enough.")
+            : phone
+              ? L("Te mandamos un código de 6 cifras por SMS para comprobar que el número es tuyo.", "We'll text you a 6-digit code to check the number is yours.")
+              : L("Te mandamos un código de 6 cifras para comprobar que el correo es tuyo.", "We'll send you a 6-digit code to check the email is yours.")
+        }</p>
       </form>`,
       "#au-to",
     );
@@ -2741,7 +2732,14 @@ function authFlow(host, { step = "", onDone, onStep } = {}) {
       const input = f.querySelector("#au-to");
       if (!input.reportValidity()) return;
       st.to = String(d.to || "").trim();
-      await send();
+      const r = await send();
+      // Sin código (aún no hay correo montado): se entra ya y, si falta, se pide el nombre.
+      if (r.direct) {
+        st.fresh = !!r.fresh;
+        await refreshMe();
+        nav();
+        return r.needName ? nameStep() : finish();
+      }
       codeStep();
     });
   };
@@ -2750,6 +2748,7 @@ function authFlow(host, { step = "", onDone, onStep } = {}) {
     st.challenge = r.challenge;
     st.wait = Date.now() + 30000;
     if (r.dev) toast("Modo prueba: el código sale en la consola del servidor.");
+    return r;
   };
 
   // 2 · El código.
@@ -2824,8 +2823,8 @@ function authFlow(host, { step = "", onDone, onStep } = {}) {
     draw(
       `<form id="au-name" class="auth-step" novalidate>
         ${st.fresh ? `<p class="auth-welcome">${L(`¡Ya eres del Club! Tienes <b>${catalog.points.welcome} puntos</b> de regalo.`, `You're in the Club! You've got <b>${catalog.points.welcome} points</b> as a gift.`)}</p>` : ""}
-        <label for="au-n">${L("¿Cómo te llamas?", "What's your name?")}</label>
-        <input id="au-n" name="name" required minlength="2" maxlength="60" autocomplete="name" autocapitalize="words" placeholder="${L("Nombre y apellido", "First and last name")}" value="${esc(user?.name || "")}">
+        <label for="au-n">${L("¿Cómo quieres que te llamemos?", "What should we call you?")}</label>
+        <input id="au-n" name="name" required minlength="2" maxlength="60" autocomplete="name" autocapitalize="words" placeholder="${L("Tu nombre o un apodo", "Your name or a nickname")}" value="${esc(user?.name || "")}">
         <p class="auth-note" id="au-prev"></p>
         ${st.fresh || step === "name" ? refBoxHtml() : ""}
         <button class="btn wide" type="submit">${L("Continuar", "Continue")}</button>
@@ -2836,7 +2835,7 @@ function authFlow(host, { step = "", onDone, onStep } = {}) {
       prev = host.querySelector("#au-prev");
     const preview = () => {
       const r = rankName(n.value);
-      prev.innerHTML = r ? L(`Así saldrás en el ranking del Club: <b>${esc(r)}</b>`, `This is how you'll appear in the Club ranking: <b>${esc(r)}</b>`) : L("Así te verá tu barbero y así saldrás en el ranking del Club (nombre e inicial).", "Your barber will see this, and the Club ranking shows your first name and initial.");
+      prev.innerHTML = r ? L(`Así saldrás en el ranking del Club: <b>${esc(r)}</b>`, `This is how you'll appear in the Club ranking: <b>${esc(r)}</b>`) : L("Puede ser tu nombre o un apodo. Así te verá tu barbero y así saldrás en el ranking del Club.", "It can be your name or a nickname. Your barber will see it, and so will the Club ranking.");
     };
     n.oninput = preview;
     preview();
@@ -2855,12 +2854,12 @@ function authFlow(host, { step = "", onDone, onStep } = {}) {
 
   (step === "name" ? nameStep : idStep)();
 }
-// «carlos pérez» → «Carlos P.» (igual que el servidor).
+// Nombre o apodo tal cual, hasta 20 letras (igual que el servidor).
 function rankName(name) {
-  const w = String(name || "").trim().split(/\s+/).filter(Boolean);
-  if (!w.length) return "";
-  const up = (s) => s.charAt(0).toLocaleUpperCase("es");
-  return (up(w[0]) + w[0].slice(1, 18) + (w[1] ? " " + up(w[1]) + "." : "")).trim();
+  const s = String(name || "").replace(/\s+/g, " ").trim().slice(0, 60);
+  if (s.length <= 20) return s;
+  const cut = s.slice(0, 21);
+  return cut.includes(" ") ? cut.replace(/\s+\S*$/, "") : s.slice(0, 20);
 }
 // «¿Te ha invitado un amigo?»: el código se comprueba mientras se escribe y dice quién te invita.
 const refBoxHtml = () =>

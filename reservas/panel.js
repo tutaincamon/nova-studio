@@ -77,7 +77,15 @@ const staffMoreGroups = () =>
 
 function staffTop(tab) {
   if (staff.caja)
-    return `<div class="staff-top"><span class="who-face" aria-hidden="true">${svg(ICONS.till)}</span><div><p class="eyebrow">NOVA Studio</p><h1>Caja</h1></div></div>`;
+    return (
+      `<div class="staff-top"><span class="who-face" aria-hidden="true">${svg(ICONS.till)}</span><div><p class="eyebrow">NOVA Studio</p><h1>Caja</h1></div></div>` +
+      `<div class="tabs" role="navigation" aria-label="Caja">${[
+        ["cobrar", "#equipo", "Cobrar"],
+        ["agenda", "#equipo/agenda", "Agenda"],
+      ]
+        .map(([k, href, label]) => `<a href="${href}" class="${k === tab ? "active" : ""}" ${k === tab ? 'aria-current="page"' : ""}>${label}</a>`)
+        .join("")}</div>`
+    );
   const main = [
     ["agenda", "#equipo", "Agenda"],
     ["cobrar", "#equipo/cobrar", "Cobrar"],
@@ -116,28 +124,241 @@ async function staffMore() {
   };
 }
 
-async function staffAgenda() {
-  if (!staffDay) staffDay = isoDay(salonDate());
-  const [r, rd] = await Promise.all([api("staff/day?date=" + staffDay), api("staff/redemptions").catch(() => ({ pending: [] }))]);
-  const canjes = rd.pending.length
-    ? `<section class="ag-col"><div class="ag-head"><h2>Premios por entregar</h2><span>${rd.pending.length}</span></div>${rd.pending
-        .map(
-          (x) => `<div class="ag-item rd-item"><time>${esc(x.id)}</time><div><strong>${esc(x.reward.name)}</strong><span>${esc(x.name || x.email)} · ${nf(x.reward.cost)} pts</span></div><span class="seg"><button type="button" class="small" data-rd="${esc(x.id)}" data-st="done">Entregado</button></span></div>`,
-        )
-        .join("")}</section>`
-    : "";
-  const today = salonDate();
-  let strip = "";
-  for (let i = -3; i < 21; i++) {
-    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + i),
-      iso = isoDay(d);
-    strip += `<button type="button" class="day-chip${iso === staffDay ? " active" : ""}" data-day="${iso}"><small>${esc(fmtDay(iso, { weekday: "short" }))}</small>${d.getDate()}</button>`;
+// ── Agenda: lista, día, semana y mes, con un color por barbero ─────────────
+// Como en Google Calendar: cada barbero tiene su color (lo elige el dueño en
+// «Equipo y normas») y con la leyenda se enseñan u ocultan sus citas.
+const AG_COLORS = {
+  azul: ["Azul", "#2f62c9", "#e1e9f8"],
+  rojo: ["Rojo", "#c8423a", "#f8e1df"],
+  verde: ["Verde", "#2a8a59", "#dcefe4"],
+  morado: ["Morado", "#7d4cc0", "#ece3f7"],
+  naranja: ["Naranja", "#cf7612", "#f9ead6"],
+  rosa: ["Rosa", "#c93f78", "#f8e0ea"],
+  turquesa: ["Turquesa", "#1b8c97", "#d8eef0"],
+  grafito: ["Grafito", "#4f535a", "#e4e5e7"],
+};
+const AG_DEFAULT = { airam: "azul", ehedey: "rojo", noa: "verde" };
+let agTeam = []; // el equipo que trae la última agenda (con su color)
+function agColorKey(id) {
+  const p = agTeam.find((x) => x.id === id) || provById(id);
+  if (p?.color && AG_COLORS[p.color]) return p.color;
+  if (AG_DEFAULT[id]) return AG_DEFAULT[id];
+  // Sin color elegido: el primero que no use nadie, por orden de llegada al equipo.
+  const all = (agTeam.length ? agTeam : catalog?.providers || []).map((x) => x.id);
+  const taken = new Set(all.map((x) => (agTeam.find((y) => y.id === x) || provById(x))?.color || AG_DEFAULT[x]).filter(Boolean));
+  const keys = Object.keys(AG_COLORS),
+    free = keys.filter((k) => !taken.has(k)),
+    pool = free.length ? free : keys;
+  const i = Math.max(0, all.filter((x) => !AG_DEFAULT[x] && !(agTeam.find((y) => y.id === x) || provById(x))?.color).indexOf(id));
+  return pool[i % pool.length];
+}
+const agVars = (id) => {
+  const [, c, t] = AG_COLORS[agColorKey(id)];
+  return `--c:${c};--t:${t}`;
+};
+
+const AG_VIEWS = [
+  ["list", "Lista"],
+  ["day", "Día"],
+  ["week", "Semana"],
+  ["month", "Mes"],
+];
+function agView() {
+  let v = "";
+  try {
+    v = localStorage.getItem("nova_ag_view") || "";
+  } catch {}
+  return AG_VIEWS.some(([k]) => k === v) ? v : staff.caja ? "day" : "list";
+}
+// A quién se ve. Un barbero, de primeras, solo a sí mismo (y los demás, sin importes).
+function agHidden(ids) {
+  try {
+    const v = JSON.parse(localStorage.getItem("nova_ag_hide_" + staff.id));
+    if (Array.isArray(v)) return new Set(v);
+  } catch {}
+  return new Set(staff.owner || staff.caja ? [] : ids.filter((id) => id !== staff.id));
+}
+function agSaveHidden(set) {
+  try {
+    localStorage.setItem("nova_ag_hide_" + staff.id, JSON.stringify([...set]));
+  } catch {}
+}
+const agMonday = (iso) => {
+  const d = dayDate(iso);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return isoDay(d);
+};
+const agAdd = (iso, n) => {
+  const d = dayDate(iso);
+  d.setDate(d.getDate() + n);
+  return isoDay(d);
+};
+function agRange(view, day) {
+  if (view === "week") return [agMonday(day), agAdd(agMonday(day), 6)];
+  const first1 = day.slice(0, 8) + "01",
+    from = agMonday(first1),
+    last = isoDay(new Date(dayDate(first1).getFullYear(), dayDate(first1).getMonth() + 1, 0));
+  return [from, agAdd(agMonday(last), 6)];
+}
+function agTitle(view, day) {
+  if (view === "list" || view === "day") return longDay(day);
+  if (view === "month") return monthLabel(day.slice(0, 7));
+  const [a, z] = agRange("week", day);
+  const sameMonth = a.slice(0, 7) === z.slice(0, 7);
+  return `${sameMonth ? dayDate(a).getDate() : shortDate(a)} – ${shortDate(z)} ${z.slice(0, 4)}`;
+}
+// Un día de la vista de semana o mes con la forma de «staff/day» (para apuntar una cita ahí).
+const agDayOf = (r, date) =>
+  r.providers.length && r.providers[0].days
+    ? { date, now: r.now, providers: r.providers.map((p) => ({ id: p.id, name: p.name, color: p.color, hours: p.days[date]?.hours || [], off: p.days[date]?.off ? { note: p.days[date].off === true ? "" : p.days[date].off } : null })), bookings: r.bookings.filter((b) => b.date === date) }
+    : r;
+
+// Estado de una cita para pintarla: ya pasó, en curso…
+function agWhen(b, r) {
+  const today = r.now.slice(0, 10),
+    nowM = hm(r.now.slice(11));
+  if (b.date < today) return "past";
+  if (b.date > today) return "";
+  return hm(b.end) <= nowM ? "past" : hm(b.start) <= nowM ? "now" : "";
+}
+const agMark = (b) => (b.kind === "block" ? "" : b.pay ? "✓ " : b.attendance === "done" ? "✓ " : b.attendance === "absent" ? "✗ " : "");
+
+// Citas que se solapan, una al lado de otra (como en Google Calendar).
+function agLanes(evts) {
+  const out = [];
+  let group = [],
+    ends = [],
+    groupEnd = -1;
+  const flush = () => {
+    group.forEach((x) => (x.n = ends.length));
+    out.push(...group);
+    (group = []), (ends = []), (groupEnd = -1);
+  };
+  for (const x of [...evts].sort((a, b) => a.s - b.s || b.e - a.e)) {
+    if (group.length && x.s >= groupEnd) flush();
+    let lane = ends.findIndex((end) => end <= x.s);
+    if (lane < 0) lane = ends.push(0) - 1;
+    ends[lane] = x.e;
+    x.lane = lane;
+    group.push(x);
+    groupEnd = Math.max(groupEnd, x.e);
   }
-  // Primero la columna propia. Un barbero ve las de los demás solo si lo pide,
-  // y sin importes.
-  const providers = [...r.providers].sort((a, b) => (b.id === staff.id) - (a.id === staff.id));
-  const shown = staff.owner || staffAll ? providers : providers.filter((p) => p.id === staff.id);
-  // Hoy se marca la cita en curso y la siguiente, y lo que ya pasó se atenúa.
+  if (group.length) flush();
+  return out;
+}
+
+// Rejilla de horas: `cols` son los barberos (día) o los días (semana).
+function agGrid(cols, r, compact) {
+  const today = r.now.slice(0, 10),
+    nowM = hm(r.now.slice(11));
+  let a = Infinity,
+    z = -Infinity;
+  for (const c of cols) {
+    for (const [x, y] of c.open) (a = Math.min(a, hm(x))), (z = Math.max(z, hm(y)));
+    for (const b of c.events) (a = Math.min(a, hm(b.start))), (z = Math.max(z, hm(b.end)));
+  }
+  if (!Number.isFinite(a)) (a = 10 * 60), (z = 20 * 60);
+  a = Math.floor(a / 60) * 60;
+  z = Math.max(a + 60, Math.ceil(z / 60) * 60);
+  const H = (m) => `calc(var(--hh) * ${(m - a) / 60})`;
+  const hours = [];
+  for (let m = a + 60; m < z; m += 60) hours.push(`<span style="top:${H(m)}">${addMin("00:00", m)}</span>`);
+  const col = (c) => {
+    // Lo que queda fuera del horario se ve rayado, como cerrado.
+    const open = c.open.map(([x, y]) => [hm(x), hm(y)]).sort((p, q) => p[0] - q[0]);
+    const closed = [];
+    let t = a;
+    for (const [x, y] of open) {
+      if (x > t) closed.push([t, Math.min(x, z)]);
+      t = Math.max(t, y);
+    }
+    if (t < z) closed.push([t, z]);
+    const shade = closed.map(([x, y]) => `<i class="ag-closed" style="top:${H(x)};height:calc(var(--hh) * ${(y - x) / 60})"></i>`).join("");
+    const evs = agLanes(c.events.map((b) => ({ b, s: hm(b.start), e: Math.max(hm(b.end), hm(b.start) + 15) })))
+      .map(({ b, s, e, lane, n }) => {
+        const w = agWhen(b, r),
+          tall = e - s >= 45;
+        return `<button type="button" class="ag-ev${b.kind === "block" ? " block" : ""}${w ? " " + w : ""}${b.attendance === "absent" ? " absent" : ""}" data-id="${esc(b.id)}" style="${agVars(b.provider.id)};top:calc(${H(s)} + 1px);height:calc(var(--hh) * ${(e - s) / 60} - 2px);left:calc(${(lane / n) * 100}% + 1px);width:calc(${100 / n}% - 3px)" title="${esc(`${b.start}–${b.end} · ${b.kind === "block" ? b.service.name : b.name + " · " + b.service.name} · ${first(b.provider.name)}`)}">
+            <b>${esc(agMark(b))}${b.kind === "block" ? esc(b.service.name || "Bloqueado") : esc(compact ? first(b.name) : b.name)}</b>${compact && !tall ? "" : `<span>${esc(b.start)}${tall ? "–" + esc(b.end) : ""}${b.kind === "block" || compact ? "" : " · " + esc(b.service.name)}</span>`}
+          </button>`;
+      })
+      .join("");
+    const now = c.date === today && nowM >= a && nowM <= z ? `<i class="ag-nowline" style="top:${H(nowM)}"></i>` : "";
+    return `<div class="ag-cc${c.off ? " off" : ""}" data-date="${c.date}" data-p="${esc(c.pid || "")}" data-a="${a}" data-z="${z}">${shade}${c.off ? `<em class="ag-offtag">${esc(c.off)}</em>` : ""}${evs}${now}</div>`;
+  };
+  return `<div class="ag-cal${compact ? " compact" : ""}" style="--n:${cols.length}">
+    <div class="ag-ch-row"><span></span>${cols.map((c) => `<div class="ag-ch${c.date === today && compact ? " today" : ""}" ${c.headAttr || ""}>${c.head}</div>`).join("")}</div>
+    <div class="ag-body" style="height:calc(var(--hh) * ${(z - a) / 60})"><div class="ag-hours">${hours.join("")}</div>${cols.map(col).join("")}</div>
+  </div>`;
+}
+
+function agDayView(r, shown) {
+  if (!shown.length) return `<p class="ag-free">Elige arriba a quién quieres ver.</p>`;
+  return agGrid(
+    shown.map((p) => {
+      const events = r.bookings.filter((b) => b.provider.id === p.id && b.status === "confirmed");
+      const n = events.filter((b) => b.kind === "booking").length;
+      return {
+        date: r.date,
+        pid: p.id,
+        open: p.hours,
+        off: "",
+        events,
+        head: `<span class="ag-chp" style="${agVars(p.id)}">${face(provById(p.id) || p, "who-face")}<span><b>${esc(p.id === staff.id ? "Tú" : first(p.name))}</b><small>${p.off ? "De vacaciones · " : !p.hours.length ? "No trabaja · " : ""}${n} ${n === 1 ? "cita" : "citas"}</small></span></span>`,
+      };
+    }),
+    r,
+    false,
+  );
+}
+
+function agWeekView(r, shown) {
+  const ids = new Set(shown.map((p) => p.id));
+  const [from] = agRange("week", staffDay);
+  const days = Array.from({ length: 7 }, (_, i) => agAdd(from, i));
+  return agGrid(
+    days.map((d) => {
+      const team = r.providers.filter((p) => ids.has(p.id));
+      const working = team.filter((p) => !p.days[d]?.off && p.days[d]?.hours.length);
+      return {
+        date: d,
+        pid: "",
+        open: working.flatMap((p) => p.days[d].hours),
+        off: team.length && !working.length ? (team.every((p) => p.days[d]?.off) ? "Vacaciones" : "Cerrado") : "",
+        events: r.bookings.filter((b) => b.date === d && ids.has(b.provider.id)),
+        head: `<small>${esc(fmtDay(d, { weekday: "short" }))}</small><b>${dayDate(d).getDate()}</b>`,
+        headAttr: `data-goday="${d}" role="button" tabindex="0" aria-label="${esc(longDay(d))}"`,
+      };
+    }),
+    r,
+    true,
+  );
+}
+
+function agMonthView(r, shown) {
+  const ids = new Set(shown.map((p) => p.id)),
+    today = r.now.slice(0, 10),
+    month = staffDay.slice(0, 7);
+  const days = [];
+  for (let d = r.from; d <= r.to; d = agAdd(d, 1)) days.push(d);
+  const names = Array.from({ length: 7 }, (_, i) => fmtDay(agAdd(r.from, i), { weekday: "short" }));
+  return `<div class="ag-month"><div class="ag-mh">${names.map((n) => `<span>${esc(n)}</span>`).join("")}</div><div class="ag-mgrid">${days
+    .map((d) => {
+      const list = r.bookings.filter((b) => b.date === d && b.kind === "booking" && ids.has(b.provider.id));
+      const max = 3;
+      return `<button type="button" class="ag-mc${d.slice(0, 7) !== month ? " out" : ""}${d === today ? " today" : ""}${d < today ? " gone" : ""}" data-goday="${d}" aria-label="${esc(longDay(d))}: ${list.length} ${list.length === 1 ? "cita" : "citas"}">
+        <span class="ag-md">${dayDate(d).getDate()}</span>
+        ${list
+          .slice(0, max)
+          .map((b) => `<span class="ag-mev${agWhen(b, r) === "past" ? " past" : ""}" style="${agVars(b.provider.id)}"><i>${esc(b.start)}</i> ${esc(first(b.name))}</span>`)
+          .join("")}${list.length > max ? `<small>+${list.length - max} más</small>` : ""}
+      </button>`;
+    })
+    .join("")}</div></div>`;
+}
+
+// La lista de siempre: una columna por barbero, con los huecos libres.
+function agListView(r, shown) {
   const isToday = r.date === r.now.slice(0, 10),
     nowM = hm(r.now.slice(11));
   const whenOf = (b, next) => (!isToday || b.status !== "confirmed" ? "" : hm(b.end) <= nowM ? "past" : hm(b.start) <= nowM ? "now" : b === next ? "next" : "");
@@ -163,7 +384,8 @@ async function staffAgenda() {
     }
     return out;
   };
-  const cols = shown
+  if (!shown.length) return `<p class="ag-free">Elige arriba a quién quieres ver.</p>`;
+  return shown
     .map((p) => {
       const list = r.bookings.filter((b) => b.provider.id === p.id);
       const live = list.filter((b) => b.status === "confirmed" && b.kind === "booking");
@@ -187,34 +409,174 @@ async function staffAgenda() {
           html: `<button type="button" class="ag-gap" data-p="${esc(p.id)}" data-h="${addMin("00:00", a)}"><span aria-hidden="true">＋</span><b>${addMin("00:00", a)} – ${addMin("00:00", z)}</b> libre</button>`,
         })),
       ].sort((a, b) => a.t - b.t);
-      return `<section class="ag-col${mine ? "" : " ag-other"}"><div class="ag-head"><h2>${p.id === staff.id ? "Tu agenda" : esc(p.name)}</h2><span>${p.off ? `De vacaciones${p.off.note ? " · " + esc(p.off.note) : ""}` : p.hours.length ? p.hours.map((h) => h.join("–")).join(" · ") : "No trabaja"} · ${live.length} ${live.length === 1 ? "cita" : "citas"}${mine ? " · " + euro(total) : ""}</span></div>
+      return `<section class="ag-col${mine || staff.caja ? "" : " ag-other"}" style="${agVars(p.id)}"><div class="ag-head"><h2><i class="ag-sw" aria-hidden="true"></i>${p.id === staff.id ? "Tu agenda" : esc(p.name)}</h2><span>${p.off ? `De vacaciones${p.off.note ? " · " + esc(p.off.note) : ""}` : p.hours.length ? p.hours.map((h) => h.join("–")).join(" · ") : "No trabaja"} · ${live.length} ${live.length === 1 ? "cita" : "citas"}${mine ? " · " + euro(total) : ""}</span></div>
         ${rows.length ? rows.map((x) => x.html).join("") : `<p class="ag-free">Sin citas este día.</p>`}</section>`;
     })
     .join("");
+}
+
+// La caja ve quién viene y lo cobra; nada de teléfonos ni de cambiar citas.
+function cajaBookingSheet(b, r) {
+  if (!b) return;
+  const today = b.date === r.now.slice(0, 10);
+  const canPay = today && b.kind === "booking" && b.status === "confirmed" && !b.pay && b.attendance !== "absent";
+  const state = b.kind === "block" ? "Hora bloqueada" : b.pay ? `✓ Cobrado · ${euro(b.pay.amount)}` : b.attendance === "done" ? "✓ Vino" : b.attendance === "absent" ? "✗ No vino" : agWhen(b, r) === "now" ? "Ahora en la silla" : agWhen(b, r) === "past" ? "Sin cobrar" : "Pendiente";
+  const sh = sheet(
+    `<p class="eyebrow">${esc(longDay(b.date))} · ${esc(b.start)}–${esc(b.end)}</p><h2>${b.kind === "block" ? esc(b.service.name || "Bloqueado") : esc(b.name)}</h2>
+    <div class="card"><dl class="detail-list">${b.kind === "block" ? "" : `<div><dt>Servicio</dt><dd>${esc(b.service.name)} · ${euro(b.service.price)}</dd></div>`}<div><dt>Barbero</dt><dd><span class="ag-chp" style="${agVars(b.provider.id)}"><i class="ag-sw" aria-hidden="true"></i>${esc(b.provider.name)}</span></dd></div><div><dt>Estado</dt><dd>${esc(state)}</dd></div></dl></div>` +
+      (canPay ? `<button type="button" class="btn wide" id="cj-pay">Cobrar en caja</button>` : ""),
+  );
+  const pay = sh.el.querySelector("#cj-pay");
+  if (pay) pay.onclick = () => (sh.close(), (cobroPre = b.id), go("equipo"));
+}
+
+async function staffAgenda() {
+  if (!staffDay) staffDay = isoDay(salonDate());
+  const view = agView(),
+    hashAt = location.hash,
+    grid = view === "week" || view === "month";
+  const [from, to] = grid ? agRange(view, staffDay) : [staffDay, staffDay];
+  const [r, rd] = await Promise.all([
+    api(grid ? `staff/range?from=${from}&to=${to}` : "staff/day?date=" + staffDay),
+    staff.caja ? { pending: [] } : api("staff/redemptions").catch(() => ({ pending: [] })),
+  ]);
+  agTeam = r.providers;
+  const today = salonDate(),
+    todayIso = isoDay(today);
+  // Primero la columna propia; luego el resto del equipo.
+  const providers = [...r.providers].sort((a, b) => (b.id === staff.id) - (a.id === staff.id));
+  const hidden = agHidden(providers.map((p) => p.id));
+  const shown = providers.filter((p) => !hidden.has(p.id));
+
+  const canjes = rd.pending.length
+    ? `<section class="ag-col"><div class="ag-head"><h2>Premios por entregar</h2><span>${rd.pending.length}</span></div>${rd.pending
+        .map(
+          (x) => `<div class="ag-item rd-item"><time>${esc(x.id)}</time><div><strong>${esc(x.reward.name)}</strong><span>${esc(x.name || x.email)} · ${nf(x.reward.cost)} pts</span></div><span class="seg"><button type="button" class="small" data-rd="${esc(x.id)}" data-st="done">Entregado</button></span></div>`,
+        )
+        .join("")}</section>`
+    : "";
+  let strip = "";
+  if (!grid)
+    for (let i = -3; i < 21; i++) {
+      const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + i),
+        iso = isoDay(d);
+      strip += `<button type="button" class="day-chip${iso === staffDay ? " active" : ""}" data-day="${iso}"><small>${esc(fmtDay(iso, { weekday: "short" }))}</small>${d.getDate()}</button>`;
+    }
+  const isNow = view === "month" ? staffDay.slice(0, 7) === todayIso.slice(0, 7) : view === "week" ? agMonday(staffDay) === agMonday(todayIso) : staffDay === todayIso;
+  // En semana y mes: cuántas citas se ven (y el dinero, solo el de lo que lleva cada uno).
+  let sum = "";
+  if (grid) {
+    const ids = new Set(shown.map((p) => p.id));
+    const list = r.bookings.filter((b) => b.kind === "booking" && ids.has(b.provider.id) && (view === "week" || b.date.slice(0, 7) === staffDay.slice(0, 7)));
+    const money_ = staff.caja ? 0 : list.filter((b) => canManage(b.provider.id)).reduce((a, b) => a + (b.service.price || 0), 0);
+    sum = `<p class="ag-sum">${list.length} ${list.length === 1 ? "cita" : "citas"} ${view === "week" ? "esta semana" : "este mes"}${money_ ? ` · ${euro(money_)}${staff.owner ? "" : " tuyos"}` : ""}</p>`;
+  }
+  const bar =
+    `<div class="ag-bar"><div class="ag-views" role="group" aria-label="Vista">${AG_VIEWS.map(([k, label]) => `<button type="button" data-view="${k}" class="${k === view ? "on" : ""}" aria-pressed="${k === view}">${label}</button>`).join("")}</div>
+      <div class="ag-nav"><button type="button" class="btn secondary ag-today" ${isNow ? "disabled" : ""}>Hoy</button><button type="button" class="cal-nav" data-step="-1" aria-label="Anterior">‹</button><button type="button" class="cal-nav" data-step="1" aria-label="Siguiente">›</button><strong class="ag-title">${esc(agTitle(view, staffDay))}</strong></div></div>` +
+    (providers.length > 1
+      ? `<div class="ag-legend" role="group" aria-label="A quién ver">${providers
+          .map((p) => `<button type="button" class="ag-lg${hidden.has(p.id) ? " off" : ""}" data-lg="${esc(p.id)}" style="${agVars(p.id)}" aria-pressed="${!hidden.has(p.id)}"><i aria-hidden="true"></i>${esc(p.id === staff.id ? "Tú" : first(p.name))}</button>`)
+          .join("")}</div>`
+      : "");
+  const body = view === "day" ? agDayView(r, shown) : view === "week" ? agWeekView(r, shown) : view === "month" ? agMonthView(r, shown) : agListView(r, shown);
   show(
     staffTop("agenda") +
       (r.alerts || []).map((a) => `<p class="warning">${esc(a)}</p>`).join("") +
-      `<p class="ag-day">${esc(longDay(staffDay))}</p>` +
-      `<div class="day-strip" id="strip">${strip}</div>` +
-      `<div class="staff-bar"><button type="button" class="btn" id="new-bk">+ Cita</button><button type="button" class="btn secondary" id="new-block">Bloquear hora</button><button type="button" class="btn secondary" id="new-off">Vacaciones</button></div>` +
-      canjes +
-      cols +
-      (staff.owner ? "" : `<button type="button" class="btn wide secondary" style="margin-top:14px" id="see-all">${staffAll ? "Ver solo mi agenda" : "Ver la agenda de todo el salón"}</button>`) +
-      `<button type="button" class="btn wide secondary" style="margin-top:28px" id="staff-set">${svg(ICONS.cal)} Avisos y calendario</button>` +
-      `<button type="button" class="btn wide secondary" style="margin-top:10px" id="staff-out">Salir del panel</button>`,
+      `<div class="ag-wrap${view === "list" ? "" : " ag-wide"}">` +
+      bar +
+      (strip ? `<div class="day-strip" id="strip">${strip}</div>` : "") +
+      (staff.caja ? "" : `<div class="staff-bar"><button type="button" class="btn" id="new-bk">+ Cita</button><button type="button" class="btn secondary" id="new-block">Bloquear hora</button><button type="button" class="btn secondary" id="new-off">Vacaciones</button></div>`) +
+      sum +
+      (view === "list" ? canjes : "") +
+      body +
+      (view === "list" ? "" : canjes) +
+      `</div>` +
+      (staff.caja
+        ? ""
+        : `<button type="button" class="btn wide secondary" style="margin-top:28px" id="staff-set">${svg(ICONS.cal)} Avisos y calendario</button>` +
+          `<button type="button" class="btn wide secondary" style="margin-top:10px" id="staff-out">Salir del panel</button>`),
   );
   if (!agendaQuiet) $("#strip .active")?.scrollIntoView({ inline: "center", block: "nearest" });
   agendaQuiet = false;
   clearTimeout(agendaTimer);
   agendaTimer = setTimeout(function tick() {
-    if (!staff || location.hash !== "#equipo") return; // ya no está en la agenda
+    if (!staff || location.hash !== hashAt) return; // ya no está en la agenda
     if (document.hidden || $(".sheet-back")) return void (agendaTimer = setTimeout(tick, 15000)); // con una ficha abierta, espera
     agendaQuiet = true;
     render();
   }, 60000);
-  $$(".ag-gap").forEach((g) => (g.onclick = () => staffNew(false, r, { provider: g.dataset.p, start: g.dataset.h })));
+
+  // Vista, días y leyenda.
+  $$("[data-view]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        try {
+          localStorage.setItem("nova_ag_view", b.dataset.view);
+        } catch {}
+        render();
+      }),
+  );
+  $(".ag-today").onclick = () => ((staffDay = todayIso), render());
+  $$(".ag-nav [data-step]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        const n = Number(b.dataset.step);
+        if (view === "month") {
+          const d = dayDate(staffDay.slice(0, 8) + "01");
+          d.setMonth(d.getMonth() + n);
+          staffDay = isoDay(d).slice(0, 7) === todayIso.slice(0, 7) ? todayIso : isoDay(d);
+        } else staffDay = agAdd(staffDay, view === "week" ? 7 * n : n);
+        render();
+      }),
+  );
   $$(".day-chip").forEach((b) => (b.onclick = () => ((staffDay = b.dataset.day), render())));
-  $$(".ag-item[data-id]").forEach((el) => (el.onclick = () => staffSheet(r.bookings.find((b) => b.id === el.dataset.id))));
+  $$("[data-goday]").forEach((el) => {
+    const open = () => {
+      staffDay = el.dataset.goday;
+      try {
+        localStorage.setItem("nova_ag_view", "day");
+      } catch {}
+      render();
+    };
+    el.onclick = open;
+    el.onkeydown = (e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), open());
+  });
+  $$("[data-lg]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        const id = b.dataset.lg;
+        hidden.has(id) ? hidden.delete(id) : hidden.add(id);
+        agSaveHidden(hidden);
+        agendaQuiet = true;
+        render();
+      }),
+  );
+
+  // Citas: la ficha de siempre (o la de la caja).
+  const openBk = (id) => {
+    const b = r.bookings.find((x) => x.id === id);
+    staff.caja ? cajaBookingSheet(b, r) : staffSheet(b);
+  };
+  $$(".ag-item[data-id], .ag-ev[data-id]").forEach((el) => (el.onclick = (e) => (e.stopPropagation(), openBk(el.dataset.id))));
+  $$(".ag-gap").forEach((g) => (g.onclick = () => staffNew(false, r, { provider: g.dataset.p, start: g.dataset.h })));
+  // Tocar un hueco vacío de la rejilla apunta una cita a esa hora.
+  if (!staff.caja)
+    $$(".ag-cc").forEach(
+      (c) =>
+        (c.onclick = (e) => {
+          if (e.target.closest(".ag-ev")) return;
+          const date = c.dataset.date,
+            pid = c.dataset.p || (shown.length === 1 && canManage(shown[0].id) ? shown[0].id : staff.id);
+          if (!canManage(pid) || date < todayIso) return;
+          const a = Number(c.dataset.a),
+            z = Number(c.dataset.z),
+            y = e.clientY - c.getBoundingClientRect().top;
+          const m = Math.min(z - 15, a + Math.floor(((y / c.offsetHeight) * (z - a)) / 15) * 15);
+          staffDay = date;
+          staffNew(false, agDayOf(r, date), { provider: pid, start: addMin("00:00", m) });
+        }),
+    );
   $$("[data-rd]").forEach(
     (b) =>
       (b.onclick = async () => {
@@ -229,12 +591,11 @@ async function staffAgenda() {
         }
       }),
   );
-  $("#new-bk").onclick = () => staffNew(false, r);
-  $("#new-block").onclick = () => staffNew(true, r);
+  if (staff.caja) return;
+  $("#new-bk").onclick = () => staffNew(false, agDayOf(r, staffDay));
+  $("#new-block").onclick = () => staffNew(true, agDayOf(r, staffDay));
   $("#new-off").onclick = () => offSheet();
   $("#staff-set").onclick = () => staffSettings();
-  const all = $("#see-all");
-  if (all) all.onclick = () => ((staffAll = !staffAll), render());
   $("#staff-out").onclick = async () => {
     await api("staff/logout", {});
     staff = null;
@@ -2264,6 +2625,9 @@ function workerSheet(p, services) {
         const r = hours[d]?.[0];
         return `<div class="w-day"><label class="check"><input type="checkbox" name="on${d}" ${r ? "checked" : ""}><span>${DAYS_ES[d]}</span></label>${timeSel("a" + d, r?.[0] || "10:00")}${timeSel("b" + d, r?.[1] || "20:00")}</div>`;
       }).join("")}</div></fieldset>
+      <fieldset class="tr-field"><legend>Color en la agenda</legend><div class="w-colors">${Object.entries(AG_COLORS)
+        .map(([k, [label, c]]) => `<label class="w-color" title="${label}"><input type="radio" name="color" value="${k}" ${k === (p ? agColorKey(p.id) : "") ? "checked" : ""}><span style="--c:${c}"></span><small>${label}</small></label>`)
+        .join("")}</div></fieldset>
       <fieldset class="tr-field"><legend>Servicios que hace</legend><div class="tchips">${services
         .map((x) => {
           const blocked = x.only.length && !x.only.includes(p?.id);
@@ -2305,6 +2669,7 @@ function workerSheet(p, services) {
         email: d.get("email"),
         hours: hrs,
         services: d.getAll("svc"),
+        color: d.get("color") || "",
         commission: d.get("commission") ?? undefined,
         pin: d.get("pin"),
         active: owner ? true : d.get("active") === "on",

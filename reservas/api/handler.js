@@ -17,7 +17,14 @@ const ON_VERCEL = !!process.env.VERCEL;
 // o WhatsApp: el día que se encienda, la cuenta de teléfono se guardaría con la
 // clave `tel:+34…` en lugar del correo, y habría que revisar lo que manda
 // correos a `u.email` (recordatorios, avisos) y lo que lo enseña en el panel.
-const authChannels = () => ({ email: mailReady() || !ON_VERCEL, phone: false });
+// Interruptor del código: mientras LOGIN_CON_CODIGO no sea "1" (decisión del
+// dueño, 2026-11-13: el correo aún no está montado), se entra y se da de alta
+// solo con el correo, sin código. El día que haya RESEND_API_KEY + MAIL_FROM
+// con dominio verificado, se pone LOGIN_CON_CODIGO=1 en Vercel y vuelve el
+// código sin tocar nada más. OJO: sin código, quien sepa un correo puede entrar
+// en esa cuenta.
+const LOGIN_CON_CODIGO = process.env.LOGIN_CON_CODIGO === "1";
+const authChannels = () => ({ email: !LOGIN_CON_CODIGO || mailReady() || !ON_VERCEL, phone: false, code: LOGIN_CON_CODIGO });
 const SESSION = "nova_s",
   STAFF = "nova_staff",
   MONTH = 30 * 86400,
@@ -275,18 +282,7 @@ async function clubOf(u) {
     counted.length * POINTS.perFriend +
     medalBonus;
   const spent = redemptions.filter((r) => r.status !== "canceled").reduce((a, r) => a + r.reward.cost, 0);
-  // Para el ranking «Este mes»: lo ganado cada mes en la silla, en la tienda y
-  // con amigos (sin la bienvenida ni el bonus de medallas, que no tienen mes).
-  const months = {};
-  for (const [day, pts] of [
-    ...done.map((b) => [b.date, pointsOf(b)]),
-    ...purchases.map((p) => [p.date || p.created, p.points]),
-    ...counted.map((f) => [f.date, POINTS.perFriend]),
-  ]) {
-    const k = String(day || "").slice(0, 7);
-    if (/^\d{4}-\d{2}$/.test(k)) months[k] = (months[k] || 0) + (Number(pts) || 0);
-  }
-  return { metrics, medals, friends, earned, spent, balance: earned - spent, redemptions, moves: moves.slice(0, 40), months };
+  return { metrics, medals, friends, earned, spent, balance: earned - spent, redemptions, moves: moves.slice(0, 40) };
 }
 // Puntos de una cita cobrada: lo que se pagó en caja × puntos por euro.
 function pointsOf(b) {
@@ -301,24 +297,24 @@ async function bookingsByIds2(prefix, ids) {
 
 // ── Ranking del Club ────────────────────────────────────────────────────────
 // Ordena a los socios por puntos GANADOS (canjear premios no te hace bajar),
-// de siempre o de este mes, entre todos o solo entre amigos.
-//  · lb:all y lb:m:<AAAA-MM>  listas ordenadas correo → puntos (solo quien sale en el general)
+// de siempre, entre todos o solo entre amigos.
+//  · lb:all                   lista ordenada correo → puntos (solo quien sale en el general)
 //  · lb:u                     ficha corta de cada socio del ranking: nombre que se enseña, Nº, puntos…
 //  · lb:ver                   sube con cada cambio: el móvil pregunta cada pocos segundos si ha cambiado
 //  · fr:<correo>              amigos añadidos con su código (en los dos sentidos); frx:<correo>, quitados
 // Sale en el ranking quien tiene nombre, ha entrado en la app (código o sesión)
 // y no es del equipo. Las cuentas que crea el equipo al apuntar una cita no
-// salen hasta que su dueño entra. En el general se enseña nombre e inicial.
+// salen hasta que su dueño entra. Sale el nombre o apodo que eligió el socio.
 const RANK_TOP = 50;
-const RANK_V = 1; // subir si cambia cómo se calcula: el ranking se rehace solo
+const RANK_V = 3; // subir si cambia cómo se calcula: el ranking se rehace solo
 const rankCfg = () => sha(JSON.stringify([RANK_V, POINTS, MEDALS.map((m) => [m.id, m.metric, m.goal, m.bonus])])).slice(0, 12);
-const thisMonth = () => T.nowLocal().date.slice(0, 7);
-// «carlos pérez garcía» → «Carlos P.»
+// Tal cual lo escribió el socio (su nombre o un apodo), hasta 20 letras.
+// Si pasa de 20, se corta en la última palabra entera.
 function rankName(name) {
-  const w = clean(name, 60).split(" ").filter(Boolean);
-  if (!w.length) return "";
-  const cap = (s) => s.charAt(0).toLocaleUpperCase("es") + s.slice(1);
-  return (cap(w[0]).slice(0, 18) + (w[1] ? " " + w[1].charAt(0).toLocaleUpperCase("es") + "." : "")).trim();
+  const s = clean(name, 60);
+  if (s.length <= 20) return s;
+  const cut = s.slice(0, 21);
+  return cut.includes(" ") ? cut.replace(/\s+\S*$/, "") : s.slice(0, 20);
 }
 async function teamEmails() {
   const cfgs = TEAM.length ? await cmd("MGET", ...TEAM.map((p) => "staffcfg:" + p.id)) : [];
@@ -327,7 +323,6 @@ async function teamEmails() {
 // Vuelve a calcular a un socio y, si algo ha cambiado, lo apunta y avisa a los
 // móviles que miran el ranking (lb:ver). Devuelve su cuenta.
 async function syncRank(email, team) {
-  const month = thisMonth();
   const [raw, seen, old] = await pipe([
     ["GET", "user:" + email],
     ["GET", "seen:" + email],
@@ -345,8 +340,6 @@ async function syncRank(email, team) {
     n: rankName(u.name),
     no: u.no || 0,
     a: c.earned,
-    mk: month,
-    mp: c.months[month] || 0,
     c: dayOf(u.created),
     ...(c.metrics.year ? { y: 1 } : {}),
     ...(u.rankHidden ? { h: 1 } : {}),
@@ -357,20 +350,12 @@ async function syncRank(email, team) {
     ["HSET", "lb:u", email, s],
     ["INCR", "lb:ver"],
   ];
-  if (e.h) ops.push(["ZREM", "lb:all", email], ["ZREM", "lb:m:" + month, email]);
-  else
-    ops.push(
-      ["ZADD", "lb:all", e.a, email],
-      e.mp > 0 ? ["ZADD", "lb:m:" + month, e.mp, email] : ["ZREM", "lb:m:" + month, email],
-      ["EXPIRE", "lb:m:" + month, 400 * 86400],
-    );
+  ops.push(e.h ? ["ZREM", "lb:all", email] : ["ZADD", "lb:all", e.a, email]);
   await pipe(ops);
   return u;
 }
 async function rankDrop(email) {
-  const now = T.nowLocal().date;
-  const months = Array.from({ length: 13 }, (_, i) => T.addDays(now.slice(0, 7) + "-15", -30 * i).slice(0, 7));
-  await pipe([["HDEL", "lb:u", email], ["ZREM", "lb:all", email], ...[...new Set(months)].map((m) => ["ZREM", "lb:m:" + m, email]), ["INCR", "lb:ver"]]);
+  await pipe([["HDEL", "lb:u", email], ["ZREM", "lb:all", email], ["INCR", "lb:ver"]]);
 }
 // Tras algo que cambia puntos (un cobro, una compra, «Vino»…): se recalcula al
 // socio y a quien le invitó (sus puntos por amigo dependen de esa primera cita).
@@ -717,6 +702,12 @@ const activeSvcs = () => SVCS.filter((x) => x.active !== false);
 // Vacaciones o días libres de un barbero: [{ from, to, note }] con fechas AAAA-MM-DD.
 const isOff = (p, date) => (p.off || []).some((r) => date >= r.from && date <= r.to);
 // Lo que el catálogo enseña de cada barbero: ni su clave, ni su correo, ni su comisión, ni el motivo de sus días libres.
+// Quién sale en la agenda: el equipo en activo y quien ya no está pero tiene citas.
+const agendaTeam = (list) => TEAM.filter((p) => p.active !== false || list.some((b) => b.provider.id === p.id));
+// Lo que ve la caja de una cita: quién, qué y a qué hora; nada de contacto.
+const forCaja = ({ phone, email, note, charge, user, ...b }) => b;
+// Colores de la agenda (como en Google Calendar, uno por barbero).
+const AGENDA_COLORS = ["azul", "rojo", "verde", "morado", "naranja", "rosa", "turquesa", "grafito"];
 const publicProvider = ({ hours, pinHash, commission, email, off, ...p }) => ({ ...p, off: (off || []).map(({ from, to }) => ({ from, to })) });
 // Lo que se cobra si no viene o si cancela con menos de `cancelHours` horas.
 const feeFor = (b, kind) => cents(((Number(b.service.price) || 0) * (kind === "late" ? NORMS.lateFeePct : NORMS.noShowFeePct)) / 100);
@@ -1960,7 +1951,7 @@ const routes = {
 
   // El ranking. El móvil lo pide cada pocos segundos con la versión que tiene
   // (`v`): si nada ha cambiado se contesta con una sola lectura y sin datos.
-  // scope = global | friends · period = month | all
+  // scope = global | friends. Siempre por los puntos ganados desde siempre.
   "GET ranking": async ({ req, q }) => {
     const [ver, cfg] = await cmd("MGET", "lb:ver", "lb:cfg");
     const ready = cfg === rankCfg();
@@ -1969,12 +1960,9 @@ const routes = {
     if (!u) fail(401, "Entra para ver el ranking.");
     let building = false;
     if (!ready) building = !(await rankRebuild(2500)).done;
-    const scope = q.get("scope") === "friends" ? "friends" : "global",
-      period = q.get("period") === "all" ? "all" : "month",
-      month = thisMonth(),
-      ptsOf = (e) => (period === "all" ? e.a : e.mk === month ? e.mp : 0);
+    const scope = q.get("scope") === "friends" ? "friends" : "global";
     const mine = rankEntry(await cmd("HGET", "lb:u", u.email));
-    const out = { v: String((await cmd("GET", "lb:ver")) || 0), scope, period, month, building, hidden: !!u.rankHidden, listed: !!mine, code: u.ref || "" };
+    const out = { v: String((await cmd("GET", "lb:ver")) || 0), scope, building, hidden: !!u.rankHidden, listed: !!mine, code: u.ref || "" };
     if (scope === "friends") {
       const friends = await friendsOf(u);
       const all = [u.email, ...friends];
@@ -1982,7 +1970,7 @@ const routes = {
       const rows = all
         .map((email, i) => {
           const e = rankEntry(raws[i]);
-          return e && { k: e.id, n: e.n, p: ptsOf(e), a: e.a, ...(email === u.email ? { me: 1 } : {}) };
+          return e && { k: e.id, n: e.n, p: e.a, a: e.a, ...(email === u.email ? { me: 1 } : {}) };
         })
         .filter(Boolean)
         .sort((x, y) => y.p - x.p || (x.me ? -1 : y.me ? 1 : x.n.localeCompare(y.n)));
@@ -1992,7 +1980,7 @@ const routes = {
       const ahead = i > 0 ? [...rows.slice(0, i)].reverse().find((x) => x.p > rows[i].p) : null;
       return { ...out, rows, total: rows.length, friends: friends.length, me: i >= 0 ? { r: rows[i].r, p: rows[i].p, ahead: ahead && { n: ahead.n, gap: ahead.p - rows[i].p } } : null };
     }
-    const key = period === "all" ? "lb:all" : "lb:m:" + month;
+    const key = "lb:all";
     // `mini`: solo tu puesto (la tarjeta de «Puntos y premios»), sin la lista.
     const mini = q.get("mini") === "1";
     const [listed, total, myScore] = await pipe([
@@ -2209,7 +2197,7 @@ const routes = {
   // Entrar o darse de alta, que es lo mismo: se pone el correo, llega un código
   // de 6 cifras y con él se entra. La cuenta se crea al acertar el código, nunca
   // antes: así no hay cuentas con correos de otros. (El teléfono, ver authChannels.)
-  "POST auth/request": async ({ req, body }) => {
+  "POST auth/request": async ({ req, res, body }) => {
     if (body.phone !== undefined && body.email === undefined) {
       if (!authChannels().phone) fail(400, "Por ahora solo se puede entrar con el correo.");
     }
@@ -2217,6 +2205,15 @@ const routes = {
     if (!EMAIL.test(email)) fail(400, "Revisa tu correo.");
     await limit("auth:" + email, 5, 900);
     await limit("authip:" + ip(req), 20, 900);
+    // Sin código (ver LOGIN_CON_CODIGO): se entra ya, y si falta el nombre la app lo pide.
+    // La cuenta no queda marcada como `verified`: nadie ha comprobado que el correo sea suyo.
+    if (!LOGIN_CON_CODIGO) {
+      const fresh = !(await getJSON("user:" + email));
+      const u = await ensureUser(email);
+      await startSession(req, res, email);
+      await rankTouch(email);
+      return { direct: true, fresh, needName: !u.name };
+    }
     const code = String(crypto.randomInt(0, 1e6)).padStart(6, "0"),
       challenge = token();
     await setJSON("code:" + challenge, { email, h: sha(code + challenge), tries: 0 }, "EX", 600);
@@ -2325,21 +2322,53 @@ const routes = {
     return { ok: true };
   },
 
+  // La agenda de un día. También la ve la caja del mostrador (para saber quién
+  // viene y cobrarle), pero sin teléfonos, correos ni faltas de los clientes.
   "GET staff/day": async ({ req, q }) => {
-    const me = await needStaff(req);
+    const me = await needCaja(req);
     const date = q.get("date");
     if (!T.isDate(date)) fail(400, "Fecha incorrecta.");
     const list = (await bookingsByIds(await cmd("SMEMBERS", "day:" + date)))
       .filter((b) => b.date === date)
       .sort((a, b) => a.start.localeCompare(b.start));
-    const info = await strikesAndCards(list.map((b) => b.email));
+    const info = me.caja ? { strikes: {}, card: {} } : await strikesAndCards(list.map((b) => b.email));
     return {
       date,
-      providers: TEAM.filter((p) => p.active !== false || list.some((b) => b.provider.id === p.id)).map((p) => ({ id: p.id, name: p.name, hours: isOff(p, date) ? [] : p.hours?.[T.weekday(date)] || [], off: isOff(p, date) ? (p.off || []).find((r) => date >= r.from && date <= r.to) : null })),
-      bookings: list.map((b) => (b.email ? { ...b, strikes: info.strikes[b.email] || 0, card: !!info.card[b.email] } : b)),
+      providers: agendaTeam(list).map((p) => ({ id: p.id, name: p.name, color: p.color || "", hours: isOff(p, date) ? [] : p.hours?.[T.weekday(date)] || [], off: isOff(p, date) ? (p.off || []).find((r) => date >= r.from && date <= r.to) : null })),
+      bookings: list.map((b) => (me.caja ? forCaja(b) : b.email ? { ...b, strikes: info.strikes[b.email] || 0, card: !!info.card[b.email] } : b)),
       cardEnabled: Card.cardEnabled(),
       now: T.nowLocal().stamp,
       alerts: me.owner ? await ownerAlerts() : [],
+    };
+  },
+
+  // Semana o mes de la agenda (vista de calendario): de `from` a `to`, como
+  // mucho 42 días (las 6 semanas que caben en un mes). Sin las canceladas.
+  "GET staff/range": async ({ req, q }) => {
+    const me = await needCaja(req);
+    const from = q.get("from"),
+      to = q.get("to");
+    if (!T.isDate(from) || !T.isDate(to) || to < from) fail(400, "Fechas incorrectas.");
+    const dates = [];
+    for (let d = from; d <= to && dates.length < 42; d = T.addDays(d, 1)) dates.push(d);
+    const sets = await pipe(dates.map((d) => ["SMEMBERS", "day:" + d]));
+    const list = (await bookingsByIds([...new Set(sets.flat())]))
+      .filter((b) => b.date >= from && b.date <= dates[dates.length - 1] && b.status === "confirmed")
+      .sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
+    // Las faltas y la tarjeta solo hacen falta en la semana (se abre la ficha de la cita).
+    const info = me.caja || dates.length > 7 ? { strikes: {}, card: {} } : await strikesAndCards(list.map((b) => b.email));
+    return {
+      from,
+      to: dates[dates.length - 1],
+      providers: agendaTeam(list).map((p) => ({
+        id: p.id,
+        name: p.name,
+        color: p.color || "",
+        days: Object.fromEntries(dates.map((d) => [d, isOff(p, d) ? { off: (p.off || []).find((r) => d >= r.from && d <= r.to)?.note || true, hours: [] } : { hours: p.hours?.[T.weekday(d)] || [] }])),
+      })),
+      bookings: list.map((b) => (me.caja ? forCaja(b) : b.email ? { ...b, strikes: info.strikes[b.email] || 0, card: !!info.card[b.email] } : b)),
+      cardEnabled: Card.cardEnabled(),
+      now: T.nowLocal().stamp,
     };
   },
 
@@ -3491,10 +3520,12 @@ const routes = {
       id = base;
       for (let i = 2; SVCS.some((x) => x.id === id); i++) id = base + "-" + i;
     }
+    const color = AGENDA_COLORS.includes(body.color) ? body.color : prev?.color || "";
     const item = {
       ...(prev || {}),
       id,
       name,
+      color,
       desc,
       price,
       duration: consult ? prev?.duration || null : duration,
@@ -3641,10 +3672,12 @@ const routes = {
     const active = prev?.owner ? true : body.active !== false;
     const wEmail = body.email !== undefined ? normEmail(body.email) : prev?.email || "";
     if (wEmail && !EMAIL.test(wEmail)) fail(400, "Revisa el correo.");
+    const color = AGENDA_COLORS.includes(body.color) ? body.color : prev?.color || "";
     const item = {
       ...(prev || {}),
       id,
       name,
+      color,
       role: clean(body.role, 40) || (prev?.owner ? "Barbero · Fundador" : "Barbero"),
       hours,
       services,
