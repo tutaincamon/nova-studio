@@ -817,7 +817,7 @@ const LEGAL = {
         ["Avisarte de tus citas", "Tu correo y los datos de la cita: confirmación, cambios, recordatorio el día antes y unas horas antes, y el aviso de la lista de espera si te apuntas", "El contrato (art. 6.1.b RGPD)", "Lo que dura la cita. La lista de espera se borra al pasar ese día"],
         cardOn() && ["Tarjeta en garantía y cobro de faltas", "La tarjeta la guarda Stripe, no nosotros. Nosotros solo vemos la marca, los 4 últimos números y la caducidad, además de las faltas, las cancelaciones tardías y lo que se haya cobrado o devuelto", "El contrato (art. 6.1.b RGPD) y nuestro interés legítimo en que no se pierdan huecos (art. 6.1.f)", "La tarjeta, hasta que la quites. Los cobros, 6 años"],
         ["Club NOVA", "Puntos, liga, medallas, premios canjeados, las compras de ropa de NOVA Supply que el equipo apunta a tu cuenta (fecha, importe y prendas), tu código de amigo, quién te invitó, los amigos que añades al ranking y si has pulsado «Dejar mi reseña»", "El contrato: las condiciones del Club (art. 6.1.b RGPD)", "Mientras tengas cuenta"],
-        ["Ranking del Club", "El nombre o apodo que elijas, tu liga y tus puntos ganados. Los ven los demás socios que han entrado en la app. Tus amigos te ven siempre; en el ranking de todo el Club puedes dejar de salir desde tu perfil cuando quieras", "El contrato: las condiciones del Club (art. 6.1.b RGPD)", "Mientras tengas cuenta"],
+        ["Ranking del Club", "Tu foto de perfil (si has puesto una), el nombre o apodo que elijas, tu liga y tus puntos ganados. Los ven los demás socios que han entrado en la app. Tus amigos te ven siempre; en el ranking de todo el Club puedes dejar de salir desde tu perfil cuando quieras", "El contrato: las condiciones del Club (art. 6.1.b RGPD)", "Mientras tengas cuenta"],
         ["Ofrecerte «tu cita de siempre»", "A partir de tu historial calculamos tu día, hora, barbero y servicio habituales y cada cuánto vienes. Se calcula en el momento y no se guarda aparte", "Interés legítimo en facilitarte la reserva (art. 6.1.f RGPD)", "Mientras tengas cuenta"],
         ["Correos comerciales nuestros: «¿cuándo vuelves?», «te echamos de menos» (a veces con una oferta) y la petición de reseña", "Nombre, correo, fecha de tu último corte y tu barbero", "Eres cliente y son servicios como los que ya usas (art. 21.2 LSSI), y nuestro interés legítimo (art. 6.1.f RGPD). Cada correo trae un enlace para darte de baja", "Hasta que te des de baja. Guardamos la baja para no volver a escribirte"],
         ["Lista de interesados en la formación", "Lo que pones en el formulario: nombre, teléfono, correo, Instagram si lo das, nivel, preferencias y mensaje", "Tu consentimiento (art. 6.1.a RGPD)", "2 años desde el último contacto, o hasta que lo retires"],
@@ -967,7 +967,7 @@ const LEGAL = {
     <ul>
       <li>Es gratis y forma parte de tu cuenta. Sumas puntos por los servicios y por la ropa de NOVA Supply que pagas en el estudio, según la tabla que ves en la app. Los puntos llegan cuando el equipo te cobra, no al reservar.</li>
       <li>Los puntos, las ligas, las medallas, los premios y los descuentos no tienen valor en dinero, no se pueden cambiar por dinero ni pasar a otra persona.</li>
-      <li>El ranking ordena a los socios por los puntos que han ganado desde siempre (canjear premios no resta). En él sale el nombre o apodo que elijas, tu liga y tus puntos. Puedes dejar de salir en el ranking de todo el Club desde tu perfil; tus amigos te siguen viendo. El ranking no da premios por sí solo.</li>
+      <li>El ranking ordena a los socios por los puntos que han ganado desde siempre (canjear premios no resta). En él sale tu foto de perfil (si has puesto una), el nombre o apodo que elijas, tu liga y tus puntos. Puedes dejar de salir en el ranking de todo el Club desde tu perfil; tus amigos te siguen viendo. El ranking no da premios por sí solo.</li>
       <li>Los premios y ventajas pueden cambiar. Si cambian a peor o cerramos el Club, te avisaremos con al menos 30 días para que puedas canjear tus puntos.</li>
       <li>Si borras la cuenta o pasan 3 años sin usarla, se pierden los puntos.</li>
       <li>Si detectamos trampas (cuentas falsas para conseguir puntos por invitar, por ejemplo), anularemos los puntos conseguidos así.</li>
@@ -1028,7 +1028,7 @@ const LEGAL_EN = {
         ["Booking notices", "Your email and the booking details: confirmation, changes, reminders the day before and a few hours before, and waitlist alerts if you join one", "Contract (art. 6.1.b GDPR)", "For as long as the booking lasts. Waitlists are deleted once the day has passed"],
         cardOn() && ["Guarantee card and no-show charges", "Your card is stored by Stripe, not by us. We only see the brand, the last 4 digits and the expiry date, plus your no-shows, late cancellations and any charges or refunds", "Contract (art. 6.1.b) and our legitimate interest in not losing slots (art. 6.1.f)", "The card: until you remove it. Charges: 6 years"],
         ["NOVA Club", "Points, league, medals, redeemed rewards, the NOVA Supply clothing purchases the team adds to your account (date, amount, items), your friend code, who invited you, the friends you add to the ranking and whether you tapped “Leave my review”", "Contract: the Club terms (art. 6.1.b GDPR)", "While you have an account"],
-        ["Club ranking", "The name or nickname you choose, your league and the points you've earned. Other members who have logged in to the app can see them. Your friends always see you; you can stop appearing in the whole-Club ranking from your profile at any time", "Contract: the Club terms (art. 6.1.b GDPR)", "While you have an account"],
+        ["Club ranking", "Your profile photo (if you've added one), the name or nickname you choose, your league and the points you've earned. Other members who have logged in to the app can see them. Your friends always see you; you can stop appearing in the whole-Club ranking from your profile at any time", "Contract: the Club terms (art. 6.1.b GDPR)", "While you have an account"],
         ["Offering “your usual booking”", "From your history we work out your usual day, time, barber and service, and how often you come. It is computed on the spot and not stored separately", "Legitimate interest in making booking easier (art. 6.1.f GDPR)", "While you have an account"],
         ["Our own marketing emails: “when are you coming back?”, “we miss you” (sometimes with an offer) and review requests", "Name, email, date of your last cut and your barber", "You are a client and these are for similar services (art. 21.2 LSSI), plus our legitimate interest (art. 6.1.f GDPR). Every email has an unsubscribe link", "Until you unsubscribe. We keep the unsubscribe so we don't write to you again"],
         ["Training interest list", "What you enter in the form: name, phone, email, Instagram if given, level, preferences and message", "Your consent (art. 6.1.a GDPR)", "2 years from the last contact, or until you withdraw consent"],
@@ -1178,7 +1178,7 @@ const LEGAL_EN = {
     <ul>
       <li>It's free and part of your account. You earn points for services and for NOVA Supply clothing paid for at the studio, as shown in the app. Points arrive when the team charges you, not when you book.</li>
       <li>Points, leagues, medals, rewards and discounts have no cash value, can't be exchanged for money and can't be transferred to anyone else.</li>
-      <li>The ranking orders members by the points they've earned since they joined (redeeming rewards doesn't subtract). It shows the name or nickname you choose, your league and your points. You can stop appearing in the whole-Club ranking from your profile; your friends still see you. The ranking doesn't give prizes on its own.</li>
+      <li>The ranking orders members by the points they've earned since they joined (redeeming rewards doesn't subtract). It shows your profile photo (if you've added one), the name or nickname you choose, your league and your points. You can stop appearing in the whole-Club ranking from your profile; your friends still see you. The ranking doesn't give prizes on its own.</li>
       <li>Rewards and perks may change. If they get worse or we close the Club, we'll give you at least 30 days' notice so you can redeem your points.</li>
       <li>If you delete your account or don't use it for 3 years, your points are lost.</li>
       <li>If we detect cheating (for example, fake accounts to earn referral points), we'll cancel the points earned that way.</li>
@@ -1694,8 +1694,8 @@ const pages = {
       <p class="section-label">Ranking</p>
       <div class="card rk-pref">
         <label class="check"><input type="checkbox" id="rk-show" ${user.rank !== false ? "checked" : ""}><span>${tl("Salir en el ranking de todo el Club", "Appear in the whole-Club ranking")}<small>${tl(
-          `Se ve <b>${esc(user.rankName || rankName(user.name))}</b>, tu liga y tus puntos. Tus amigos te ven siempre.`,
-          `It shows <b>${esc(user.rankName || rankName(user.name))}</b>, your league and your points. Your friends always see you.`,
+          `Se ve ${user.photo ? "tu foto, " : ""}<b>${esc(user.rankName || rankName(user.name))}</b>, tu liga y tus puntos. Tus amigos te ven siempre.`,
+          `It shows ${user.photo ? "your photo, " : ""}<b>${esc(user.rankName || rankName(user.name))}</b>, your league and your points. Your friends always see you.`,
         )}</small></span></label>
         <a class="btn wide secondary" href="#ranking" style="margin-top:12px">${svg(ICONS.trophy)} ${tl("Ver el ranking", "See the ranking")}</a>
       </div>
@@ -2477,11 +2477,14 @@ function rkMe(r) {
     return `<div class="rk-me rk-off"><p>${L("No sales en el ranking de todo el Club. Tus amigos sí te ven.", "You're hidden from the whole-Club ranking. Your friends can still see you.")}</p><button type="button" class="btn secondary" id="rk-unhide">${L("Volver a salir", "Show me again")}</button></div>`;
   return `<div class="rk-me rk-off"><p>${L("Aún no sales en el ranking. Apareces en cuanto sumes tus primeros puntos.", "You're not on the ranking yet. You'll appear once you earn your first points.")}</p></div>`;
 }
+// La cara de cada socio: su foto de perfil o su inicial, con la insignia de su liga.
+const rkFace = (x, lg, cls = "rk-av") =>
+  `<span class="${cls}">${x.ph ? `<img src="/api/ranking/photo/${esc(x.k)}?v=${esc(x.ph)}" alt="" loading="lazy" decoding="async">` : `<b>${initial(x.n)}</b>`}<i class="rk-lgb">${leagueArt(lg.league)}</i></span>`;
 const rkRow = (x, friends) => {
   const lg = leagueOf(x.a || 0),
     tap = friends && !x.me;
   return `${x.out ? `<li class="rk-skip" aria-hidden="true">···</li>` : ""}<li class="rk-row${x.me ? " me" : ""}${x.r <= 3 ? " podium" : ""}" data-k="${esc(x.k)}" data-p="${x.p}" style="${leagueVars(lg.league)}"${tap ? ` data-friend role="button" tabindex="0"` : ""}>
-    <span class="rk-r">${x.r}</span><span class="rk-lg">${leagueArt(lg.league)}</span>
+    <span class="rk-r">${x.r}</span>${rkFace(x, lg)}
     <span class="rk-n"><strong>${esc(x.n)}${x.me ? ` <em>${L("Tú", "You")}</em>` : ""}</strong><small>${esc(lg.label)}</small></span>
     <b class="rk-p">${nf(x.p)}</b></li>`;
 };
@@ -2546,7 +2549,7 @@ function rkFriendSheet(x) {
   if (!x) return;
   const lg = leagueOf(x.a || 0);
   const sh = sheet(
-    `<div class="rk-sheet" style="${leagueVars(lg.league)}">${leagueArt(lg.league)}<div><h2>${esc(x.n)}</h2><p class="muted">${esc(lg.label)} · ${nf(x.a || 0)} ${L("puntos ganados", "points earned")}</p></div></div>
+    `<div class="rk-sheet" style="${leagueVars(lg.league)}">${rkFace(x, lg, "rk-av big")}<div><h2>${esc(x.n)}</h2><p class="muted">${esc(lg.label)} · ${nf(x.a || 0)} ${L("puntos ganados", "points earned")}</p></div></div>
      <button type="button" class="btn wide danger" id="rk-rm">${L("Quitar de mis amigos", "Remove from my friends")}</button>`,
   );
   sh.el.querySelector("#rk-rm").onclick = async (e) => {

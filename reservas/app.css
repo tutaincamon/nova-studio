@@ -1864,14 +1864,22 @@ body[data-page="equipo"] #lang-btn { display: none; }
 
 .rk-list { list-style: none; margin: 14px 0 0; padding: 0; border: 1px solid var(--ink); background: var(--bg); }
 .rk-row {
-  position: relative; display: grid; grid-template-columns: 30px 28px minmax(0, 1fr) auto; align-items: center; gap: 10px;
+  position: relative; display: grid; grid-template-columns: 30px 42px minmax(0, 1fr) auto; align-items: center; gap: 10px;
   min-height: 58px; padding: 8px 14px 8px 8px; border-top: 1px solid var(--line); background: var(--bg);
   transition: transform .6s var(--ease), background-color .3s;
 }
 .rk-list > :first-child { border-top: 0; }
 .rk-r { font-family: var(--serif); font-weight: 800; font-size: 14px; text-align: center; font-variant-numeric: tabular-nums; }
 .rk-row.podium .rk-r { font-size: 20px; }
-.rk-lg .lg-art { width: 26px; }
+/* La cara de cada socio: su foto (o su inicial) con la insignia de su liga */
+.rk-av { position: relative; display: block; width: 40px; height: 40px; }
+.rk-av > img, .rk-av > b { display: grid; place-items: center; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; background: var(--line); color: var(--ink); font-family: var(--serif); font-weight: 800; font-size: 16px; }
+.rk-row.me .rk-av > img, .rk-row.me .rk-av > b { box-shadow: 0 0 0 2px var(--ink); }
+.rk-lgb { position: absolute; right: -5px; bottom: -4px; width: 20px; line-height: 0; }
+.rk-lgb .lg-art { width: 20px; }
+.rk-av.big { flex: none; width: 64px; height: 64px; }
+.rk-av.big > b { font-size: 26px; }
+.rk-av.big .rk-lgb, .rk-av.big .rk-lgb .lg-art { width: 28px; }
 .rk-n { min-width: 0; }
 .rk-n strong { display: block; overflow: hidden; font-size: 15px; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; }
 .rk-n strong em {

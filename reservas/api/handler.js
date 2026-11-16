@@ -306,7 +306,7 @@ async function bookingsByIds2(prefix, ids) {
 // y no es del equipo. Las cuentas que crea el equipo al apuntar una cita no
 // salen hasta que su dueño entra. Sale el nombre o apodo que eligió el socio.
 const RANK_TOP = 50;
-const RANK_V = 3; // subir si cambia cómo se calcula: el ranking se rehace solo
+const RANK_V = 4; // subir si cambia cómo se calcula: el ranking se rehace solo
 const rankCfg = () => sha(JSON.stringify([RANK_V, POINTS, MEDALS.map((m) => [m.id, m.metric, m.goal, m.bonus])])).slice(0, 12);
 // Tal cual lo escribió el socio (su nombre o un apodo), hasta 20 letras.
 // Si pasa de 20, se corta en la última palabra entera.
@@ -343,11 +343,13 @@ async function syncRank(email, team) {
     c: dayOf(u.created),
     ...(c.metrics.year ? { y: 1 } : {}),
     ...(u.rankHidden ? { h: 1 } : {}),
+    ...(u.photo ? { ph: sha(u.photo).slice(0, 8) } : {}), // cambia con la foto: el móvil la vuelve a pedir
   };
   const s = JSON.stringify(e);
   if (s === old) return u;
   const ops = [
     ["HSET", "lb:u", email, s],
+    ["HSET", "lb:id", e.id, email], // para dar la foto sin enseñar el correo
     ["INCR", "lb:ver"],
   ];
   ops.push(e.h ? ["ZREM", "lb:all", email] : ["ZADD", "lb:all", e.a, email]);
@@ -355,7 +357,8 @@ async function syncRank(email, team) {
   return u;
 }
 async function rankDrop(email) {
-  await pipe([["HDEL", "lb:u", email], ["ZREM", "lb:all", email], ["INCR", "lb:ver"]]);
+  const id = rankEntry(await cmd("HGET", "lb:u", email))?.id;
+  await pipe([["HDEL", "lb:u", email], ["ZREM", "lb:all", email], ...(id ? [["HDEL", "lb:id", id]] : []), ["INCR", "lb:ver"]]);
 }
 // Tras algo que cambia puntos (un cobro, una compra, «Vino»…): se recalcula al
 // socio y a quien le invitó (sus puntos por amigo dependen de esa primera cita).
@@ -1952,6 +1955,17 @@ const routes = {
   // El ranking. El móvil lo pide cada pocos segundos con la versión que tiene
   // (`v`): si nada ha cambiado se contesta con una sola lectura y sin datos.
   // scope = global | friends. Siempre por los puntos ganados desde siempre.
+  // La foto de perfil de un socio del ranking, por su id del ranking (nunca
+  // por su correo). Solo para quien ha entrado, como el ranking.
+  "GET ranking/photo/:id": async ({ req, params }) => {
+    if (!(await currentUser(req))) fail(401, "Entra para ver el ranking.");
+    const email = await cmd("HGET", "lb:id", String(params.id).replace(/[^a-f0-9]/g, "").slice(0, 20));
+    const u = email && (await getJSON("user:" + email));
+    const m = u?.photo && /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(u.photo);
+    if (!m) fail(404, "Sin foto.");
+    return { raw: Buffer.from(m[2], "base64"), type: m[1], cache: "private, max-age=31536000, immutable" };
+  },
+
   "GET ranking": async ({ req, q }) => {
     const [ver, cfg] = await cmd("MGET", "lb:ver", "lb:cfg");
     const ready = cfg === rankCfg();
@@ -1970,7 +1984,7 @@ const routes = {
       const rows = all
         .map((email, i) => {
           const e = rankEntry(raws[i]);
-          return e && { k: e.id, n: e.n, p: e.a, a: e.a, ...(email === u.email ? { me: 1 } : {}) };
+          return e && { k: e.id, n: e.n, p: e.a, a: e.a, ...(e.ph ? { ph: e.ph } : {}), ...(email === u.email ? { me: 1 } : {}) };
         })
         .filter(Boolean)
         .sort((x, y) => y.p - x.p || (x.me ? -1 : y.me ? 1 : x.n.localeCompare(y.n)));
@@ -1996,7 +2010,7 @@ const routes = {
       emails
         .map(([email, p], i) => {
           const e = rankEntry(raws[i]);
-          return e && { k: e.id, n: e.n, p, a: e.a, ...(email === u.email ? { me: 1 } : {}) };
+          return e && { k: e.id, n: e.n, p, a: e.a, ...(e.ph ? { ph: e.ph } : {}), ...(email === u.email ? { me: 1 } : {}) };
         })
         .filter(Boolean),
     );
@@ -2010,7 +2024,7 @@ const routes = {
       const aheadE = next?.length ? rankEntry(await cmd("HGET", "lb:u", next[0])) : null;
       me = { r: Number(above) + 1, p, ahead: aheadE && { n: aheadE.n, gap: Number(next[1]) - p } };
       // Si estás fuera de la lista, tu fila va al final, con tu puesto.
-      if (!rows.some((x) => x.me) && mine) rows.push({ k: mine.id, n: mine.n, p, a: mine.a, me: 1, r: me.r, out: 1 });
+      if (!rows.some((x) => x.me) && mine) rows.push({ k: mine.id, n: mine.n, p, a: mine.a, ...(mine.ph ? { ph: mine.ph } : {}), me: 1, r: me.r, out: 1 });
     }
     return { ...out, rows, total: Number(total) || 0, me };
   },
