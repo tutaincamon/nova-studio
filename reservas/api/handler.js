@@ -56,8 +56,14 @@ function cookies(req) {
   return out;
 }
 function cookie(res, req, name, value, maxAge) {
-  const secure = ON_VERCEL || req.headers["x-forwarded-proto"] === "https";
-  const c = `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure ? "; Secure" : ""}`;
+  const proto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+  const secure = ON_VERCEL || proto === "https";
+  // Expires además de Max-Age: la PWA de iOS a veces ignora Max-Age solo.
+  // SameSite=Lax y Secure: es cookie de primera parte, la guarda Safari, la
+  // app de la pantalla de inicio (iOS) y Chrome instalada (Android), y el
+  // service worker no la intercepta. Cada visita la renueva (/api/me).
+  const exp = new Date(Date.now() + Math.max(0, maxAge) * 1000).toUTCString();
+  const c = `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}; Expires=${exp}${secure ? "; Secure" : ""}`;
   const prev = res.getHeader("Set-Cookie");
   res.setHeader("Set-Cookie", prev ? [].concat(prev, c) : c);
 }
@@ -129,6 +135,9 @@ const pinOf = (p) =>
 const pinHash = (id, pin) => sha("pin:" + id + ":" + pin);
 const pinOk = (p, pin) => (p.pinHash ? same(pinHash(p.id, pin), p.pinHash) : !!pinOf(p) && same(pin, pinOf(p)));
 async function startSession(req, res, email) {
+  // Una clave nueva. No borra las otras de ese correo: entrar en otro móvil,
+  // o pedir otro código, no cierra la sesión que ya estaba abierta. Solo
+  // «Cerrar sesión» borra la de este dispositivo.
   const t = token();
   await cmd("SET", "sess:" + sha(t), email, "EX", YEAR);
   cookie(res, req, SESSION, t, YEAR);
@@ -2270,6 +2279,8 @@ const routes = {
     if (!u) fail(401, "Entra en tu cuenta.");
     const name = clean(body.name, 60);
     if (name.length < 2) fail(400, "Falta tu nombre.");
+    const phone = body.phone === undefined ? u.phone || "" : clean(body.phone, 30);
+    if (phone && !PHONE.test(phone)) fail(400, "Revisa tu teléfono.");
     const code = String(body.ref || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
     let by = null;
     if (code && !u.referredBy) {
@@ -2279,7 +2290,7 @@ const routes = {
       if (referrer !== u.email && !(await cmd("SMEMBERS", "ubk:" + u.email)).length) by = referrer;
     }
     const first = !u.name;
-    u = { ...u, name, ...(by ? { referredBy: by } : {}) };
+    u = { ...u, name, phone, ...(by ? { referredBy: by } : {}) };
     // La cuenta se creó sin nombre (código NOVA123): ahora que lo hay, uno con su nombre (CARLOS482).
     const oldRef = first && /^NOVA/.test(u.ref || "") ? u.ref : "";
     if (oldRef) u.ref = await makeRefCode(u.email, name);
@@ -2867,7 +2878,7 @@ const routes = {
       email = normEmail(body.email),
       insta = clean(body.instagram, 40).replace(/^@/, "");
     if (!name) fail(400, "Falta tu nombre.");
-    if (!PHONE.test(phone)) fail(400, "Revisa tu teléfono.");
+    if (phone && !PHONE.test(phone)) fail(400, "Revisa tu teléfono.");
     if (email && !EMAIL.test(email)) fail(400, "Revisa tu correo.");
     if (body.consent !== true) fail(400, "Tienes que aceptar que te contactemos.");
     const pick = (v, list) => (list.some((x) => (x.id || x) === v) ? v : "");
@@ -2876,8 +2887,9 @@ const routes = {
       format = pick(body.format, TRAINING.formats);
     if (!level) fail(400, "Dinos tu nivel.");
     await limit("train:" + ip(req), 6, 3600);
-    const key = "trphone:" + phone.replace(/\D/g, "");
-    const prevId = await cmd("GET", key);
+    const digits = phone.replace(/\D/g, "");
+    const key = digits ? "trphone:" + digits : "";
+    const prevId = key && (await cmd("GET", key));
     const prev = prevId && (await getJSON("tr:" + prevId));
     const now = T.nowLocal().stamp;
     const t = {
@@ -2896,11 +2908,7 @@ const routes = {
       status: prev?.status || "new",
       note: prev?.note || "",
     };
-    await pipe([
-      ["SET", "tr:" + t.id, JSON.stringify(t)],
-      ["SET", key, t.id],
-      ["SADD", "trall", t.id],
-    ]);
+    await pipe([["SET", "tr:" + t.id, JSON.stringify(t)], ...(key ? [["SET", key, t.id]] : []), ["SADD", "trall", t.id]]);
     if (!prev) {
       const H = htmlEsc;
       const lv = TRAINING.levels.find((x) => x.id === level)?.name || level;

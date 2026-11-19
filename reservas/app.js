@@ -181,7 +181,8 @@ async function api(path, body, { timeout = 15000 } = {}) {
       method: body ? "POST" : "GET",
       headers: body ? { "Content-Type": "application/json" } : {},
       body: body ? JSON.stringify(body) : undefined,
-      credentials: "same-origin",
+      // include: la PWA instalada (iOS y Android) manda y guarda la cookie de sesión.
+      credentials: "include",
       signal: ctl.signal,
     });
     j = await r.json().catch(() => ({}));
@@ -1517,20 +1518,10 @@ const pages = {
             }</div>`
           : "") +
         calButtons({ ...b, end: addMin(b.start, b.service.duration) }) +
-        `<a class="btn wide" style="margin-top:10px" href="#booking/${esc(b.id)}">Ver, cambiar o cancelar mi cita</a>` +
-        (user && !user.phone
-          ? `<form id="bk-phone" class="card complete"><strong>Completa tu perfil</strong><span>Déjanos tu teléfono por si hay algún cambio con tu cita. Solo te lo pedimos esta vez.</span>
-              <div class="form-actions" style="margin-top:10px"><input name="phone" type="tel" inputmode="tel" required maxlength="25" autocomplete="tel" placeholder="+34 600 000 000" aria-label="Teléfono"><button class="btn" type="submit">Guardar</button></div></form>`
-          : ""),
+        `<a class="btn wide" style="margin-top:10px" href="#booking/${esc(b.id)}">Ver, cambiar o cancelar mi cita</a>`,
     );
     confetti();
     installAfterBooking();
-    if ($("#bk-phone"))
-      onForm("bk-phone", async (d, f) => {
-        await api("profile", { name: user.name, phone: d.phone });
-        await refreshMe();
-        f.outerHTML = `<p class="charge-note ok">Teléfono guardado. Gracias.</p>`;
-      });
   },
 
   async bookings() {
@@ -1711,8 +1702,8 @@ const pages = {
       </div>
       <p class="section-label">Tus datos</p>
       <form id="profile" class="card">
-        <label for="p-name" style="margin-top:0">${tl("Nombre o apodo", "Name or nickname")} <small class="opt">${tl("(así sales en el ranking)", "(shown in the ranking)")}</small></label><input id="p-name" name="name" required maxlength="60" autocomplete="name" value="${esc(user.name || "")}">
-        <label for="p-phone">Teléfono</label><input id="p-phone" name="phone" type="tel" maxlength="30" autocomplete="tel" value="${esc(user.phone || "")}">
+        <label for="p-name" style="margin-top:0">${tl("Nombre o apodo", "Name or nickname")} <small class="opt">${tl("(la reserva y el ranking)", "(your booking and the ranking)")}</small></label><input id="p-name" name="name" required maxlength="60" autocomplete="name" value="${esc(user.name || "")}">
+        <label for="p-phone">${tl("Teléfono", "Phone")} <small class="opt">${tl("(opcional, por si el estudio necesita contactarte)", "(optional, in case the studio needs to reach you)")}</small></label><input id="p-phone" name="phone" type="tel" inputmode="tel" maxlength="30" autocomplete="tel" value="${esc(user.phone || "")}">
         <label for="p-email">Correo</label><input id="p-email" value="${esc(user.email)}" readonly>
         <button class="btn wide" style="margin-top:18px" type="submit">Guardar</button>
       </form>
@@ -2846,9 +2837,12 @@ function authFlow(host, { step = "", onDone, onStep } = {}) {
     draw(
       `<form id="au-name" class="auth-step" novalidate>
         ${st.fresh ? `<p class="auth-welcome">${L(`¡Ya eres del Club! Tienes <b>${catalog.points.welcome} puntos</b> de regalo.`, `You're in the Club! You've got <b>${catalog.points.welcome} points</b> as a gift.`)}</p>` : ""}
-        <label for="au-n">${L("¿Cómo quieres que te llamemos?", "What should we call you?")}</label>
+        <label for="au-n">${L("Tu nombre", "Your name")}</label>
         <input id="au-n" name="name" required minlength="2" maxlength="60" autocomplete="name" autocapitalize="words" placeholder="${L("Tu nombre o un apodo", "Your name or a nickname")}" value="${esc(user?.name || "")}">
+        <p class="auth-note">${L("Solo te lo pedimos esta vez. Es el nombre de tu reserva y el que sale en el ranking del Club.", "We only ask once. It's the name on your booking and in the Club ranking.")}</p>
         <p class="auth-note" id="au-prev"></p>
+        <label for="au-p">${L("Teléfono", "Phone")} <small class="opt">${L("(opcional, por si el estudio necesita contactarte)", "(optional, in case the studio needs to reach you)")}</small></label>
+        <input id="au-p" name="phone" type="tel" inputmode="tel" maxlength="30" autocomplete="tel" placeholder="+34 600 000 000" value="${esc(user?.phone || "")}">
         ${st.fresh || step === "name" ? refBoxHtml() : ""}
         <button class="btn wide" type="submit">${L("Continuar", "Continue")}</button>
       </form>`,
@@ -2867,7 +2861,7 @@ function authFlow(host, { step = "", onDone, onStep } = {}) {
       if (!n.reportValidity()) return;
       const code = await ref.value();
       if (code === false) return toast(L("Ese código de amigo no existe. Revísalo o bórralo.", "That friend code doesn't exist. Check it or clear it."));
-      await api("auth/name", { name: String(d.name || "").trim(), ref: code || "" });
+      await api("auth/name", { name: String(d.name || "").trim(), ref: code || "", phone: String(d.phone || "").trim() });
       try {
         localStorage.removeItem("nova_ref");
       } catch {}
@@ -3088,6 +3082,16 @@ async function initHabit(h) {
 
 // ── Aviso temporal, logo y galería (lo que Airam cambia en «Web») ──────────
 function siteChrome() {
+  let flag = $("#demo-flag");
+  if (authCh.demo) {
+    if (!flag) {
+      flag = document.createElement("div");
+      flag.id = "demo-flag";
+      flag.className = "demo-flag";
+      flag.textContent = "Modo demo";
+      document.body.prepend(flag);
+    }
+  } else flag?.remove();
   const n = catalog?.site?.notice;
   let bar = $("#site-notice");
   if (n && !document.body.dataset.page?.startsWith("equipo")) {
@@ -3181,7 +3185,7 @@ function trainForm(T) {
   return `<form id="train" class="card tr-form" novalidate>
     <p class="eyebrow">Lista de interesados</p><h2>Apúntate <em class="serif">sin compromiso.</em></h2>
     <label for="t-name">Nombre</label><input id="t-name" name="name" required maxlength="120" autocomplete="name" value="${esc(user?.name || "")}">
-    <label for="t-phone">Teléfono <small>(te escribiremos por WhatsApp)</small></label><input id="t-phone" name="phone" type="tel" inputmode="tel" required maxlength="25" autocomplete="tel" value="${esc(user?.phone || "+34 ")}">
+    <label for="t-phone">Teléfono <small>(opcional, por si el estudio necesita contactarte)</small></label><input id="t-phone" name="phone" type="tel" inputmode="tel" maxlength="25" autocomplete="tel" value="${esc(user?.phone || "")}">
     <label for="t-email">Correo <small>(opcional)</small></label><input id="t-email" name="email" type="email" autocomplete="email" value="${esc(user?.email || "")}">
     <label for="t-insta">Instagram <small>(opcional, para ver tus cortes)</small></label><input id="t-insta" name="instagram" maxlength="40" autocapitalize="off" placeholder="@tuusuario">
     <fieldset class="tr-field"><legend>¿Cuál es tu nivel?</legend><div class="tr-levels pick">${T.levels

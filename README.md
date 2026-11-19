@@ -17,6 +17,8 @@ y abrir http://localhost:5180
 
 Sin variables de entorno, los datos se quedan en memoria (se borran al cerrar) y el código de acceso de 6 cifras sale por la consola. No se abre sesión solo con el correo.
 
+El cliente escribe el correo una vez, recibe el código y la sesión queda en ese dispositivo un año. Cada vez que abre la app se renueva. Pedir otro código (otro móvil, u otro navegador) no cierra las sesiones que ya estaban abiertas. Solo «Cerrar sesión» borra la de ese aparato. La cookie es `HttpOnly`, `SameSite=Lax`, con `Max-Age` y `Expires`, y `Secure` en HTTPS, para que la conserve la PWA instalada en iOS y en Android. El nombre se pide una sola vez (reserva y ranking). El teléfono es opcional.
+
 ---
 
 ## Qué hace
@@ -45,7 +47,8 @@ Solo los nombres. Los valores van en Vercel, nunca en el repo.
 | `STORE_PREFIX` | Prefijo de las claves. Si no se pone, es `bnova:` |
 | `RESEND_API_KEY` | Enviar correos (código de acceso, confirmaciones, recordatorios) |
 | `MAIL_FROM` | Remitente, con un dominio verificado en Resend |
-| `LOGIN_CON_CODIGO` | En Vercel no cambia nada: siempre hace falta el código. En local, `0` entra sin código (solo para pruebas) |
+| `LOGIN_CON_CODIGO` | En Vercel no cambia nada. En local, `0` entra sin código (solo para pruebas) |
+| `MODO_DEMO` | Si vale `1`, se entra solo con el correo también en producción y la app muestra «Modo demo». Sin esta variable, en producción hace falta el código |
 | `CRON_SECRET` | El cron de Vercel lo manda como `Authorization: Bearer …` |
 | `STRIPE_SECRET_KEY` | Cobro de faltas y tarjeta en garantía. Sin las dos claves, no se pide tarjeta |
 | `STRIPE_PUBLISHABLE_KEY` | La clave pública que carga el móvil |
@@ -63,12 +66,14 @@ Solo los nombres. Los valores van en Vercel, nunca en el repo.
 
 ## Activar Resend y el código de acceso
 
-En producción no se puede entrar solo con el correo. Si falta el correo, la app no abre sesión y dice que hay que escribir por WhatsApp.
+En producción no se puede entrar solo con el correo, salvo que pongas `MODO_DEMO=1`. Si falta el correo y no hay modo demo, la app no abre sesión y dice que hay que escribir por WhatsApp.
+
+Mientras la demo no tenga Resend, en Vercel puedes poner `MODO_DEMO` a `1`. El cliente entra con el correo, ve un aviso discreto de «Modo demo» y la sesión queda guardada igual. Cuando actives Resend, quita `MODO_DEMO`: vuelve el código y el aviso desaparece.
 
 1. En [Resend](https://resend.com) verifica el dominio desde el que quieres escribir (por ejemplo `novastudio.es`) y crea una API key.
 2. En Vercel → Settings → Environment Variables, añade `RESEND_API_KEY` y `MAIL_FROM`. `MAIL_FROM` tiene esta forma: `NOVA Studio <hola@tudominio>`.
 3. Añade `CRON_SECRET` (una cadena larga aleatoria). Vercel Cron la envía solo en la llamada horaria.
-4. No hace falta `LOGIN_CON_CODIGO`. El código de 6 cifras es el camino normal. Caduca a los 10 minutos.
+4. No hace falta `LOGIN_CON_CODIGO`. El código de 6 cifras es el camino normal. Caduca a los 10 minutos y solo se pide una vez por dispositivo. Quita `MODO_DEMO` si lo habías puesto para la demo.
 5. Vuelve a desplegar. En `#login` debe decir que se manda un código, no que el correo basta.
 6. Prueba con un correo tuyo. Si Resend rechaza el envío, la sesión no se abre.
 
