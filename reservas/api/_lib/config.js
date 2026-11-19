@@ -243,10 +243,18 @@ export const TRAINING = {
   availability: ["Mañanas entre semana", "Tardes entre semana", "Domingo o lunes", "Sábados"],
 };
 
+// Lo que ve cualquiera en /api/catalog. El nombre y el NIF del titular no van
+// aquí: el aviso legal los pide a /api/legal. El teléfono y el correo sí,
+// porque son el contacto del estudio (WhatsApp, mapa, ficha).
+export function publicBusiness() {
+  const { nif, holder, ...rest } = BUSINESS;
+  return { ...rest, week: SALON };
+}
+
 export function publicCatalog() {
   return {
     training: TRAINING,
-    business: { ...BUSINESS, week: SALON }, // `week` = horario por día, para el «Abierto ahora»
+    business: publicBusiness(), // `week` = horario por día, para el «Abierto ahora»
     rules: { cancelHours: RULES.cancelHours, daysAhead: RULES.daysAhead },
     services: SERVICES,
     providers: PROVIDERS.map(({ hours, ...p }) => p),

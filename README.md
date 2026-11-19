@@ -1,196 +1,86 @@
-# NOVA Studio · web
+# NOVA Studio · app de reservas
 
 Barbería NOVA Studio — Av. del Atlántico, 317 · Vecindario, Gran Canaria.
 
-Arrancar en local:
+La app de citas está en `reservas/`. Es una sola página (`index.html`, `app.js`, `app.css`) y una función de Vercel (`reservas/api/handler.js`) con Redis (Vercel KV o Upstash). La demo vive en el proyecto de Vercel que publica esa carpeta.
+
+En la raíz del repo siguen los archivos de la tienda de ropa NOVA Supply (otra web, otro despliegue). Esta guía es la de las reservas.
+
+Arrancar en local, desde `reservas/`:
 
 ```bash
-node server.js
+npm test
+npm run dev
 ```
 
-y abrir http://localhost:5173
+y abrir http://localhost:5180
+
+Sin variables de entorno, los datos se quedan en memoria (se borran al cerrar) y el código de acceso de 6 cifras sale por la consola. No se abre sesión solo con el correo.
 
 ---
 
-## Publicada en GitHub Pages
+## Qué hace
 
-La web funciona **sin servidor**. Cuando no hay backend detrás (que es el caso
-en GitHub Pages), las llamadas a `/api/...` devuelven 404 y la página lo detecta
-sola: en vez de dar error, prepara el mensaje de la reserva y lo cierra por
-**WhatsApp**; las candidaturas se cierran por **email**. El cliente no se queda
-tirado en ningún caso.
-
-| | En local con `node server.js` | En GitHub Pages |
-|---|---|---|
-| Intro, secciones, fotos | ✅ | ✅ |
-| Reserva de citas | Se guarda en `reservas.json` | Se cierra por WhatsApp |
-| Google Calendar | ✅ si hay credenciales | ❌ (no hay servidor) |
-| Candidaturas | Se guardan en `candidaturas.json` | Se cierran por email |
-
-Para tener **la agenda automática en Google Calendar** hace falta un alojamiento
-que ejecute Node (Render, Railway, Fly…), no Pages. Los pasos de las credenciales
-están más abajo.
-
-> `google-credentials.json`, `reservas.json` y `candidaturas.json` están en
-> `.gitignore`: nunca se suben. Contienen la clave del calendario y datos
-> personales de clientes.
-
----
-
-## Qué hay que personalizar
-
-| Dónde | Qué |
+| Pieza | Dónde |
 |---|---|
-| `barberia.html` → `TEL_WHATSAPP` | número de WhatsApp del salón (formato `34XXXXXXXXX`) |
-| `barberia.html` → enlaces `tel:` y `mailto:` | teléfono y correo reales |
-| `barberia.html` → sección Servicios | precios y servicios definitivos |
-| `barberia.html` → `<select id="pro">` | nombres del equipo |
-| `config.json` | duración de cada servicio (minutos) |
+| Reserva, cuenta, club, lista de espera, formación | `reservas/app.js` y `reservas/api/handler.js` |
+| Panel del equipo (agenda, caja, ropa, clientes) | `reservas/panel.js`, se descarga al entrar en `#equipo` |
+| Servicios, equipo, horario, puntos, textos legales de negocio | `reservas/api/_lib/config.js` |
+| Correo | `reservas/api/_lib/mail.js` (Resend) |
+| Tarjeta en garantía | `reservas/api/_lib/stripe.js` |
+| Stock compartido con la tienda | claves `supply:*` y `preventa:*` en la misma base |
 
-La dirección ya está puesta: Av. del Atlántico, 317 · 35110 Vecindario · Las Palmas.
-
----
-
-## Conectar Google Calendar
-
-Sin configurar, la web **ya funciona**: guarda cada cita en `reservas.json` y ofrece
-al cliente un enlace para añadirla a su propio calendario. Para que además entre
-sola en la agenda del salón:
-
-1. En [Google Cloud Console](https://console.cloud.google.com) crea un proyecto
-   y activa **Google Calendar API**.
-2. Crea una **cuenta de servicio** y descarga su clave en JSON.
-3. Guarda ese archivo en esta carpeta como **`google-credentials.json`**.
-4. Abre Google Calendar → el calendario del salón → *Configuración y uso compartido*
-   → **Compartir con determinadas personas** → añade el `client_email` que aparece
-   dentro del JSON, con permiso **«Hacer cambios en los eventos»**.
-5. En esa misma pantalla, copia el **ID del calendario** y pégalo en
-   `config.json` → `calendarId`.
-6. Reinicia el servidor. Al arrancar debe decir `Google Calendar: activo`.
-
-A partir de ahí cada reserva crea el evento con el cliente, el teléfono, el
-servicio y las notas, con la duración que indique `config.json`.
-
-El evento **no invita al cliente por email**: una cuenta de servicio no puede
-hacerlo en un calendario normal (Google devuelve *«Service accounts cannot
-invite attendees»*) y eso tumbaría la reserva. Su email queda en la descripción
-del evento. Si tienes Google Workspace con delegación en todo el dominio,
-puedes activarlo con `"invitarCliente": true` en `config.json`.
-
-> `google-credentials.json`, `reservas.json` y `candidaturas.json` nunca se
-> sirven por HTTP: el servidor los bloquea con un 403.
+El cron horario (`/api/cron/tick`) manda recordatorios, reseñas, reactivación y la copia de los lunes. Hace falta `CRON_SECRET` y el correo configurado. Sin correo, el cron no escribe a nadie.
 
 ---
 
-## Cómo está montada la intro
+## Variables de entorno
 
-La supernova **se genera por código** (`supernova.js`), no son imágenes. Todo se
-dibuja en función de un único número `t ∈ [0,1]` que marca la posición del
-scroll, con inercia para suavizar los saltos de rueda.
+Solo los nombres. Los valores van en Vercel, nunca en el repo.
 
-El guion está en la constante `T`, al principio de `supernova.js`:
-
-| Tramo | Qué ocurre |
+| Nombre | Para qué |
 |---|---|
-| 0 – 10 % | la estrella, latiendo tranquila |
-| 9 – 22 % | colapso: se contrae y se calienta |
-| 21 – 30 % | detonación y destello |
-| 22 – 80 % | filamentos, ondas expansivas, brasas y nubes de gas |
-| 46 – 70 % | el logo **nace** del núcleo: primero es luz blanca y luego enfría hasta su color |
-| 74 – 100 % | el logo sube y se ancla en la cabecera |
+| `KV_REST_API_URL` | Base Redis (o `UPSTASH_REDIS_REST_URL`) |
+| `KV_REST_API_TOKEN` | Token de esa base (o `UPSTASH_REDIS_REST_TOKEN`) |
+| `STORE_PREFIX` | Prefijo de las claves. Si no se pone, es `bnova:` |
+| `RESEND_API_KEY` | Enviar correos (código de acceso, confirmaciones, recordatorios) |
+| `MAIL_FROM` | Remitente, con un dominio verificado en Resend |
+| `LOGIN_CON_CODIGO` | En Vercel no cambia nada: siempre hace falta el código. En local, `0` entra sin código (solo para pruebas) |
+| `CRON_SECRET` | El cron de Vercel lo manda como `Authorization: Bearer …` |
+| `STRIPE_SECRET_KEY` | Cobro de faltas y tarjeta en garantía. Sin las dos claves, no se pide tarjeta |
+| `STRIPE_PUBLISHABLE_KEY` | La clave pública que carga el móvil |
+| `STAFF_PIN` | Clave del dueño, si no tiene una puesta desde el panel |
+| `STAFF_PIN_AIRAM` | Clave del panel de Airam (y `STAFF_PIN_` + el id en mayúsculas de cada barbero) |
+| `STAFF_PIN_EHEDEY` | Clave de Ehedey |
+| `STAFF_PIN_NOA` | Clave de Noah |
+| `GOOGLE_PLACES_KEY` | Leer la ficha y las reseñas de Google |
+| `AVISO_CORREO` | Correo que recibe los avisos del salón, si no es el del titular |
+| `PUBLIC_HOST` | Dominio de los enlaces de los correos, si no vale el de la petición |
 
-Ventajas frente a los 300 fotogramas:
-
-- **164 KB en vez de 121 MB.** Ya se puede publicar en cualquier hosting.
-- Se dibuja a la medida exacta del viewport: llena igual de bien un móvil en
-  vertical que un monitor panorámico, sin recortes ni bandas.
-- ~1 ms por fotograma, sin descargas ni tirones.
-- El movimiento no está cuantizado a 300 pasos.
-
-Para que no cante que hay un ordenador detrás se evitan las formas exactas:
-
-- **Filamentos, no rayos.** Cada jirón es una cadena de nodos cuyo ángulo va
-  derivando en un paseo aleatorio, así que serpentea. Se dibuja por tramos, cada
-  uno más fino y tenue, para que se afile hasta desaparecer en la punta.
-- **Frentes de choque abollados.** Las ondas no son `arc()`: el radio se modula
-  con varias sinusoides de frecuencia alta y se pintan como una banda difusa,
-  no como un contorno.
-- **Brasas con vaivén**, no en línea recta desde el centro.
-- **Núcleo con bultos descentrados**: un degradado perfectamente redondo parece
-  una lámpara, no materia ardiendo.
-
-Para retocarlo: los colores del halo del logo están en `prepararLogo()`, y el
-número y comportamiento de cada elemento en las constantes `FILAMENTOS`,
-`BRASAS`, `NUBES` y `GRUMOS`.
-
-> El dibujo es **determinista**: como el scroll puede saltar hacia atrás, nada
-> depende del fotograma anterior. El azar sale de una semilla fija.
-
-`logo-nova.png` se extrajo de `nova sin fondo.jpeg` — que traía el damero de
-transparencia grabado en los píxeles — recuperando solo las letras.
+`VERCEL` la pone la plataforma. No hay que crearla.
 
 ---
 
-## El fondo de estrellas (`cielo.js`)
+## Activar Resend y el código de acceso
 
-No depende del scroll sino del reloj: la página respira aunque nadie la toque.
-Tres capas, de más quieta a más viva:
+En producción no se puede entrar solo con el correo. Si falta el correo, la app no abre sesión y dice que hay que escribir por WhatsApp.
 
-1. **base** — cientos de estrellas fijas, pintadas *una* vez en un lienzo
-   aparte. Cada fotograma sólo se copia, no se recalculan.
-2. **vivas** — unas decenas que laten, y una de cada cinco que **destella** de
-   tarde en tarde con un brillo en cruz. El destello es raro y breve porque la
-   onda va elevada a la 16.ª potencia: sólo asoma en el pico.
-3. **cometas** — un haz corto que cruza en diagonal cada 5–13 s.
+1. En [Resend](https://resend.com) verifica el dominio desde el que quieres escribir (por ejemplo `novastudio.es`) y crea una API key.
+2. En Vercel → Settings → Environment Variables, añade `RESEND_API_KEY` y `MAIL_FROM`. `MAIL_FROM` tiene esta forma: `NOVA Studio <hola@tudominio>`.
+3. Añade `CRON_SECRET` (una cadena larga aleatoria). Vercel Cron la envía solo en la llamada horaria.
+4. No hace falta `LOGIN_CON_CODIGO`. El código de 6 cifras es el camino normal. Caduca a los 10 minutos.
+5. Vuelve a desplegar. En `#login` debe decir que se manda un código, no que el correo basta.
+6. Prueba con un correo tuyo. Si Resend rechaza el envío, la sesión no se abre.
 
-Cuesta 0,15 ms por fotograma. Frecuencia y brillo de los cometas, en
-`lanzarCometa()`; densidad de las que laten, en `sembrarVivas()`.
+En el ordenador, sin `RESEND_API_KEY`, el mismo código se imprime en la terminal donde corre `npm run dev`.
 
 ---
 
-## Las fotos
+## Probar
 
-`supernova_im.jpg` ilustra la sección **Origen**, con los bordes difuminados por
-una máscara radial para que se funda con el campo de estrellas.
+```bash
+cd reservas
+npm test
+```
 
-Las cuatro del salón (`im1`, `im4`, `im3`, `Im2`) van dentro de **Servicios**,
-en una tira intercalada entre las dos filas de tarjetas: tres tarjetas, las
-cuatro fotos, tres tarjetas.
-
-Van en **tiles cuadrados**, no estirados. Las cuatro son verticales o cuadradas
-(proporciones de 0,56 a 0,94), así que al alargarlas en horizontal se perdía
-medio encuadre. Cuadradas conservan el 90–94 % de la imagen (la vertical, un
-66 %), y cada una lleva su propio `object-position` para que no se quede fuera
-lo que importa: el carro entero de herramientas, el barbero y el cliente, el
-espejo con el bordado. Están en las reglas `.foto.f-oficio`, `.f-cabina`,
-`.f-acabado` y `.f-casa`.
-
-Ninguna es una foto pegada: cada una tiene tres movimientos independientes,
-anidados para que no se pisen entre sí.
-
-| Capa | Qué hace |
-|---|---|
-| `.foto` | se descubre de abajo arriba al entrar en pantalla (`clip-path`) |
-| `.lente` | paralaje: se desplaza según dónde esté en la pantalla (JS) |
-| `img` | respira sola con un zoom lentísimo de 26 s |
-
-Como venían con luz fría de salón y cada una de su padre y de su madre, se pasan
-a blanco y negro y se tiñen con un **duotono**: `multiply` con oro (`#ffc470`)
-baja las luces a dorado y `screen` con violeta oscuro (`#0f0d1e`) sube las
-sombras. El tinte depende del brillo de cada píxel, no de su posición, y por eso
-las cuatro casan entre sí y con el fondo. Al pasar el ratón recuperan su color
-real.
-
-Para cambiar el tono, esos dos colores están en `.foto .velo` y `.foto::after`.
-Para sustituir una foto basta con dejar otra con el mismo nombre; el recorte lo
-resuelve `object-fit: cover`.
-
----
-
-### Volver a la versión con el vídeo
-
-La anterior sigue guardada en **`index-frames.html`** (usa la carpeta
-`frames/`). Para recuperarla basta con renombrarla a `barberia.html`.
-
-Si te quedas con la versión generada por código, puedes **borrar la carpeta
-`frames/` y liberar 121 MB**.
+Cubre el acceso (código obligatorio, y que en producción sin correo no hay sesión) y que `/api/catalog` no devuelve el NIF ni el nombre del titular. Esos dos datos siguen en `/api/legal`, que es lo que pinta el aviso legal.

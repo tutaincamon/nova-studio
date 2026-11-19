@@ -10,7 +10,7 @@ import handler from "./api/handler.js";
 const root = fileURLToPath(new URL(".", import.meta.url));
 const port = Number(process.argv.find((a) => /^\d+$/.test(a)) || process.env.PORT || 5180);
 if (process.argv.includes("--demo")) await (await import("./dev-seed.js")).seed();
-const types = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json" };
+const types = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json" };
 
 http
   .createServer(async (req, res) => {
