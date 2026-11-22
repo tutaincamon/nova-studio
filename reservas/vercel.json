@@ -12,6 +12,14 @@
       "destination": "/api/handler?route=:path*"
     },
     {
+      "source": "/llms.txt",
+      "destination": "/api/handler?route=llms.txt"
+    },
+    {
+      "source": "/.well-known/mcp.json",
+      "destination": "/api/handler?route=well-known/mcp.json"
+    },
+    {
       "source": "/(acceder|mis-citas|perfil|equipo|reservar|formacion|productos|privacidad|cookies|condiciones|aviso-legal)",
       "destination": "/index.html"
     }

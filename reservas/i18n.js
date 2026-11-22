@@ -575,6 +575,26 @@ const EN = {
   "Tu tarjeta no se pudo cobrar. Prueba otra vez o usa otra tarjeta.": "Your card couldn't be charged. Try again or use another card.",
   "Al pulsar el botón, tu banco te pedirá la confirmación.": "When you press the button, your bank will ask you to confirm.",
   "Pago completado. Gracias.": "Payment complete. Thank you.",
+
+  // ── Conectar mi asistente de IA ──
+  "Conectar mi asistente de IA": "Connect my AI assistant",
+  "Pídele cita a tu asistente de IA (Claude, ChatGPT, Grok…) sin abrir la app.": "Ask your AI assistant (Claude, ChatGPT, Grok…) to book for you, without opening the app.",
+  "Añade este servidor MCP en tu asistente:": "Add this MCP server to your assistant:",
+  "Genera aquí tu token y ponlo como cabecera": "Generate your token here and set it as the header",
+  ". También puede pedirlo tu asistente con tu correo y el código que te llega.": ". Your assistant can also get one with your email and the code we send you.",
+  "Generar token": "Generate token",
+  "Copiar dirección": "Copy address",
+  "Copiar token": "Copy token",
+  "Dirección copiada.": "Address copied.",
+  "Token copiado.": "Token copied.",
+  "Cópialo ahora: no lo volveremos a enseñar. Quien lo tenga puede reservar y cancelar a tu nombre. Si lo pierdes o ya no lo usas, revócalo.": "Copy it now: we won't show it again. Whoever has it can book and cancel in your name. If you lose it or stop using it, revoke it.",
+  "Tokens activos": "Active tokens",
+  "Revocar": "Revoke",
+  "¿Seguro?": "Sure?",
+  "Aún no has conectado ningún asistente.": "You haven't connected any assistant yet.",
+  "Token revocado. Ese asistente ya no puede reservar por ti.": "Token revoked. That assistant can no longer book for you.",
+  "Ese token ya no existe.": "That token no longer exists.",
+  "Asistente de IA": "AI assistant",
 };
 
 // Frases que llegan del servidor con datos dentro.

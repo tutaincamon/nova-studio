@@ -16,6 +16,12 @@ http
   .createServer(async (req, res) => {
     const path = decodeURIComponent(new URL(req.url, "http://x").pathname);
     if (path.startsWith("/api/")) return handler(req, res);
+    // Igual que los rewrites de vercel.json.
+    const routed = { "/llms.txt": "llms.txt", "/.well-known/mcp.json": "well-known/mcp.json" }[path];
+    if (routed) {
+      req.url = "/api/handler?route=" + routed;
+      return handler(req, res);
+    }
     let file = normalize(join(root, path === "/" ? "index.html" : path));
     if (!file.startsWith(root) || /[\\/](api|\.vercel)[\\/]|dev-(server|seed)|\.env|package\.json/.test(file.slice(root.length - 1))) {
       res.statusCode = 404;

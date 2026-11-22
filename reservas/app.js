@@ -1707,6 +1707,7 @@ const pages = {
         <label for="p-email">Correo</label><input id="p-email" value="${esc(user.email)}" readonly>
         <button class="btn wide" style="margin-top:18px" type="submit">Guardar</button>
       </form>
+      ${aiBlock()}
       <button class="btn wide secondary" type="button" id="logout">${svg(ICONS.logout)} Cerrar sesión</button>` + legalLinks(),
     );
     $$("[data-scroll]").forEach((b) => (b.onclick = () => document.getElementById(b.dataset.scroll)?.scrollIntoView({ behavior: "smooth", block: "start" })));
@@ -1725,6 +1726,7 @@ const pages = {
       }
     };
     bindInvite();
+    bindAi();
     $("#rk-show").onchange = async (e) => {
       const box = e.currentTarget;
       box.disabled = true;
@@ -2357,6 +2359,97 @@ function inviteBlock(m) {
         : ""
     }
   </section>`;
+}
+// ── Conectar mi asistente de IA ───────────────────────────────────────────
+// El cliente genera un token para que su asistente (Claude, ChatGPT, Grok…)
+// reserve por él en /api/mcp. El token se enseña una sola vez; luego solo se
+// ven sus datos (nombre, cuándo se creó y se usó) para poder revocarlo.
+const mcpUrl = () => `${location.origin}/api/mcp`;
+function aiBlock() {
+  return `<p class="section-label" id="asistente">Conectar mi asistente de IA</p>
+    <div class="card ai-box">
+      <p class="ai-lead">Pídele cita a tu asistente de IA (Claude, ChatGPT, Grok…) sin abrir la app.</p>
+      <p class="muted ai-example">${L("«Pídeme cita con Airam el jueves por la tarde»", "“Book me in with Airam on Thursday afternoon”")}</p>
+      <ol class="ai-steps">
+        <li><span>Añade este servidor MCP en tu asistente:</span><span class="ai-copy-row"><code id="ai-url">${esc(mcpUrl())}</code><button type="button" class="ai-copy" id="ai-url-copy" aria-label="Copiar dirección">${svg(ICONS.copy)}</button></span></li>
+        <li><span>Genera aquí tu token y ponlo como cabecera</span> <code class="ai-hdr">Authorization: Bearer &lt;token&gt;</code><span>. También puede pedirlo tu asistente con tu correo y el código que te llega.</span></li>
+      </ol>
+      <div id="ai-new" aria-live="polite"></div>
+      <button type="button" class="btn wide secondary" id="ai-gen">${svg(ICONS.link)} Generar token</button>
+      <div id="ai-list" class="ai-list"></div>
+    </div>`;
+}
+async function copyText(text, done) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(done);
+  } catch {
+    toast(text);
+  }
+}
+async function loadAiTokens() {
+  const box = $("#ai-list");
+  if (!box) return;
+  let r;
+  try {
+    r = await api("assistant/tokens");
+  } catch {
+    box.innerHTML = "";
+    return;
+  }
+  const when = (iso) => (iso ? new Date(iso).toLocaleDateString(LOC(), { day: "numeric", month: "short", year: "numeric" }) : "");
+  box.innerHTML = r.tokens.length
+    ? `<p class="ai-list-h">Tokens activos</p>` +
+      r.tokens
+        .map(
+          (t) => `<div class="ai-tok"><div><strong>${esc(t.label)}</strong><span>${esc(
+            L(`Creado el ${when(t.created)}`, `Created ${when(t.created)}`) + " · " + (t.used ? L(`último uso el ${when(t.used)}`, `last used ${when(t.used)}`) : L("sin usar todavía", "not used yet")),
+          )}</span></div><button type="button" class="btn small danger" data-revoke="${esc(t.id)}">Revocar</button></div>`,
+        )
+        .join("") +
+      `<p class="muted ai-note">${L(
+        `Caducan a los ${r.days} días sin uso. Como mucho ${r.max}: al crear otro se revoca el más antiguo.`,
+        `They expire after ${r.days} days without use. ${r.max} at most: creating another revokes the oldest.`,
+      )}</p>`
+    : `<p class="muted ai-note">Aún no has conectado ningún asistente.</p>`;
+  box.querySelectorAll("[data-revoke]").forEach((b) => {
+    b.onclick = async () => {
+      if (b.dataset.sure !== "1") {
+        b.dataset.sure = "1";
+        b.textContent = "¿Seguro?";
+        return;
+      }
+      b.disabled = true;
+      try {
+        await api(`assistant/tokens/${encodeURIComponent(b.dataset.revoke)}/revoke`, {});
+        toast("Token revocado. Ese asistente ya no puede reservar por ti.");
+        loadAiTokens();
+      } catch (e) {
+        b.disabled = false;
+        toast(e.message);
+      }
+    };
+  });
+}
+function bindAi() {
+  const gen = $("#ai-gen");
+  if (!gen) return;
+  $("#ai-url-copy").onclick = () => copyText(mcpUrl(), "Dirección copiada.");
+  gen.onclick = async () => {
+    gen.disabled = true;
+    try {
+      const t = await api("assistant/tokens", {});
+      $("#ai-new").innerHTML = `<div class="ai-token"><code id="ai-token">${esc(t.token)}</code><button type="button" class="ai-copy" id="ai-token-copy" aria-label="Copiar token">${svg(ICONS.copy)}</button></div>
+        <p class="warning">Cópialo ahora: no lo volveremos a enseñar. Quien lo tenga puede reservar y cancelar a tu nombre. Si lo pierdes o ya no lo usas, revócalo.</p>`;
+      $("#ai-token-copy").onclick = () => copyText(t.token, "Token copiado.");
+      loadAiTokens();
+    } catch (e) {
+      toast(e.message);
+    } finally {
+      gen.disabled = false;
+    }
+  };
+  loadAiTokens();
 }
 function bindInvite() {
   const code = user?.ref;

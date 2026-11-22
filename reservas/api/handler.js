@@ -7,6 +7,8 @@ import { codeMail, send, bookingLines, mailReady } from "./_lib/mail.js";
 import * as Card from "./_lib/stripe.js";
 import * as Sup from "./_lib/supply.js";
 import { accessPolicy, MAIL_NOT_READY } from "./_lib/access.js";
+import * as Tokens from "./_lib/assistant.js";
+import { serveMcp } from "./_lib/mcp.js";
 
 const ON_VERCEL = !!process.env.VERCEL;
 // Para entrar hace falta el código de 6 cifras del correo. En Vercel no hay
@@ -177,6 +179,87 @@ async function ensureUser(email, name, phone, extra = {}) {
   }
   return u;
 }
+// ── Entrar con el código del correo ──────────────────────────────────────
+// Lo mismo para la web y para el asistente de IA (MCP). Entrar o darse de alta
+// es lo mismo: se pone el correo, llega un código de 6 cifras y con él se entra.
+// La cuenta se crea al acertar el código, nunca antes: así no hay cuentas con
+// correos de otros. (El teléfono, ver authChannels.)
+// Devuelve { email, direct: true } si se entra sin código (LOGIN_CON_CODIGO=0
+// en local o MODO_DEMO=1) o { email, challenge, dev? } con el código ya enviado.
+async function codeRequest(rawEmail, from) {
+  const email = normEmail(rawEmail);
+  if (!EMAIL.test(email)) fail(400, "Revisa tu correo.");
+  const policy = accessPolicy();
+  // En producción, sin correo configurado, no se abre sesión ni se guarda el código.
+  if (policy.code && process.env.VERCEL && !mailReady()) fail(503, MAIL_NOT_READY);
+  await limit("auth:" + email, 5, 900);
+  await limit("authip:" + from, 20, 900);
+  if (policy.direct) return { email, direct: true };
+  const code = String(crypto.randomInt(0, 1e6)).padStart(6, "0"),
+    challenge = token();
+  await setJSON("code:" + challenge, { email, h: sha(code + challenge), tries: 0 }, "EX", 600);
+  if (mailReady()) {
+    if (!(await codeMail(email, code))) fail(502, "No hemos podido enviar el correo. Prueba otra vez en un rato.");
+    return { email, challenge };
+  }
+  if (ON_VERCEL) fail(503, "Ahora mismo no podemos enviar el código por correo. Escríbenos por WhatsApp y te ayudamos.");
+  console.log(`\n  Código de acceso para ${email}: ${code}\n`);
+  return { email, challenge, dev: true };
+}
+// Comprueba el código (5 intentos). Si es bueno devuelve el correo y `consume`,
+// que lo gasta: quien llama decide cuándo (el asistente no lo gasta si aún
+// falta el nombre de una cuenta nueva).
+async function codeCheck(challenge, code) {
+  const key = "code:" + String(challenge || "").slice(0, 64);
+  const c = await getJSON(key);
+  if (!c) fail(400, "El código ha caducado. Pide otro.");
+  if (c.tries >= 5) {
+    await cmd("DEL", key);
+    fail(400, "Demasiados intentos. Pide otro código.");
+  }
+  if (!same(c.h, sha(String(code || "").trim() + challenge))) {
+    await setJSON(key, { ...c, tries: c.tries + 1 }, "EX", 600);
+    fail(400, "Ese código no es correcto.");
+  }
+  return { email: c.email, consume: () => cmd("DEL", key) };
+}
+// Abre (o crea) la cuenta de un correo ya comprobado.
+async function enterAccount(email, { verified = false } = {}) {
+  const fresh = !(await getJSON("user:" + email));
+  let u = await ensureUser(email);
+  if (verified && !u.verified) {
+    u = { ...u, verified: T.nowLocal().stamp };
+    await setJSON("user:" + u.email, u);
+  }
+  await rankTouch(email);
+  return { u, fresh };
+}
+// Nombre (el del ranking), teléfono opcional y código del amigo que te invitó.
+async function saveName(u, body) {
+  const name = clean(body.name, 60);
+  if (name.length < 2) fail(400, "Falta tu nombre.");
+  const phone = body.phone === undefined ? u.phone || "" : clean(body.phone, 30);
+  if (phone && !PHONE.test(phone)) fail(400, "Revisa tu teléfono.");
+  const code = String(body.ref || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
+  let by = null;
+  if (code && !u.referredBy) {
+    const referrer = await cmd("GET", "refcode:" + code);
+    if (!referrer) fail(400, "Ese código de amigo no existe. Revísalo o bórralo.");
+    // Solo cuenta como invitación en una cuenta recién hecha (sin citas aún).
+    if (referrer !== u.email && !(await cmd("SMEMBERS", "ubk:" + u.email)).length) by = referrer;
+  }
+  const first = !u.name;
+  u = { ...u, name, phone, ...(by ? { referredBy: by } : {}) };
+  // La cuenta se creó sin nombre (código NOVA123): ahora que lo hay, uno con su nombre (CARLOS482).
+  const oldRef = first && /^NOVA/.test(u.ref || "") ? u.ref : "";
+  if (oldRef) u.ref = await makeRefCode(u.email, name);
+  await setJSON("user:" + u.email, u);
+  if (oldRef && (await cmd("GET", "refcode:" + oldRef)) === u.email) await cmd("DEL", "refcode:" + oldRef);
+  await pipe([...(by ? [["SADD", "refs:" + by, u.email]] : []), ["DEL", "contacts:list"]]);
+  await rankTouch(u.email, by);
+  return u;
+}
+
 // De la tarjeta solo se enseña la marca, los 4 últimos números y la caducidad.
 const publicCard = (c) => (c ? { brand: c.brand, last4: c.last4, exp: c.exp } : null);
 const publicUser = (u) =>
@@ -762,6 +845,30 @@ function freeTimes(p, s, date, busy, now, horizon = RULES.daysAhead, staff = fal
   return out;
 }
 
+// Quién puede hacer el servicio `s`: un barbero concreto o, con "any", todo el
+// equipo en activo que lo hace.
+const teamFor = (s, pid) =>
+  !s ? [] : pid === "any" ? activeTeam().filter((p) => canDo(s, p)) : [provider(pid)].filter((p) => p && p.active !== false && canDo(s, p));
+
+// Horas libres de unos días seguidos, con quién está libre a cada hora. Mismas
+// reglas que el calendario de la web (freeTimes): antelación, días vista,
+// vacaciones, apertura y citas ya puestas. Lo usa el asistente de IA (MCP).
+async function freeSlots(s, team, from, days) {
+  const now = T.nowLocal(),
+    memo = {},
+    out = [];
+  for (let i = 0; i < days; i++) {
+    const date = T.addDays(from, i),
+      at = {};
+    for (const p of team) {
+      const busy = (memo[p.id + monthOf(date)] ||= await busyOf(p.id, monthOf(date)));
+      for (const t of freeTimes(p, s, date, busy, now)) (at[t] ||= []).push({ id: p.id, name: p.name });
+    }
+    out.push({ date, slots: Object.keys(at).sort().map((time) => ({ time, barbers: at[time] })) });
+  }
+  return out;
+}
+
 // ── Apartar, mover y soltar horas ───────────────────────────────────────────
 // Cada tramo de 15 min de la cita tiene un cerrojo `lock:<barbero>:<día>:<hora>`
 // con el id de la cita. `claim` (store.js) comprueba los tramos, los aparta y
@@ -848,7 +955,9 @@ async function notifyOne(to, b, title) {
     title,
     bookingLines(b, T.niceDate(b.date)) +
       `<hr style="border:0;border-top:1px solid #dcdad3;margin:14px 0">
-       <p style="margin:0">${htmlEsc(b.name)}${b.phone ? " · " + htmlEsc(b.phone) : ""}${b.email ? " · " + htmlEsc(b.email) : ""}</p>`,
+       <p style="margin:0">${htmlEsc(b.name)}${b.phone ? " · " + htmlEsc(b.phone) : ""}${b.email ? " · " + htmlEsc(b.email) : ""}</p>` +
+      (b.note ? `<p style="margin:8px 0 0">Nota del cliente: ${htmlEsc(b.note)}</p>` : "") +
+      (b.via === "asistente" ? `<p style="margin:8px 0 0;color:#64645e;font-size:13px">Reservada por su asistente de IA.</p>` : ""),
     b.email || undefined,
   );
 }
@@ -866,6 +975,13 @@ const shuffle = (a) => {
 // Con barbero elegido o «sin preferencia» (provider = "any"): entonces se le da
 // al que tenga esa hora libre y menos trabajo ese día.
 async function bookNow(req, res, body) {
+  return bookFor(await currentUser(req), body, { from: ip(req) });
+}
+// La reserva de verdad, la misma para la web y para el asistente de IA (MCP):
+// `user` es la cuenta ya comprobada (sesión o token de asistente) y `from`, la
+// clave del límite de reservas (la IP en la web; el token en el asistente).
+// `via` apunta de dónde vino la cita; `body.note`, una nota opcional del cliente.
+async function bookFor(user, body, { from, via } = {}) {
   const s = service(body.service);
   if (!s || s.consult || s.active === false) fail(400, "Ese servicio no se reserva por aquí.");
   const anyone = body.provider === "any",
@@ -874,7 +990,6 @@ async function bookNow(req, res, body) {
   if (!T.isDate(body.date) || !T.isTime(body.start)) fail(400, "Elige día y hora.");
   // Para reservar hay que haber entrado con el código: la cita queda a nombre de
   // una cuenta comprobada, y se usan su nombre y su teléfono (si lo tiene).
-  const user = await currentUser(req);
   if (!user) fail(401, "Entra con tu correo para reservar. Te mandamos un código.");
   const email = user.email,
     name = clean(user.name),
@@ -883,7 +998,8 @@ async function bookNow(req, res, body) {
   if (body.terms !== true) fail(400, "Tienes que aceptar las condiciones.");
   // Con Stripe activado, toda cita online queda garantizada con una tarjeta.
   if (Card.cardEnabled() && !user?.card) fail(402, "Añade una tarjeta para garantizar la cita.", { card: true });
-  await limit("book:" + ip(req), 12, 3600);
+  await limit("book:" + from, 12, 3600);
+  const note = clean(body.note, 200);
   // Una reserva a la vez por persona: dos pestañas pulsando a la vez no se saltan el máximo de citas.
   if ((await cmd("SET", "booking:" + email, "1", "NX", "EX", 20)) !== "OK") fail(429, "Ya estamos guardando otra reserva tuya. Un momento…");
   try {
@@ -903,6 +1019,8 @@ async function bookNow(req, res, body) {
       name,
       phone,
       by: "client",
+      ...(via ? { via } : {}),
+      ...(note ? { note } : {}),
       ...(anyone ? { anyBarber: true } : {}),
       ...(user?.card ? { guarantee: { brand: user.card.brand, last4: user.card.last4, at: now.stamp } } : {}),
     };
@@ -935,10 +1053,56 @@ async function bookNow(req, res, body) {
       ),
       notifySalon(b, "Nueva cita"),
     ]);
-    return { out: { id: b.id, series, provider: { id: b.provider.id, name: b.provider.name } } };
+    return { out: { id: b.id, series, provider: { id: b.provider.id, name: b.provider.name } }, booking: b };
   } finally {
     await cmd("DEL", "booking:" + email);
   }
+}
+
+// Cancelar una cita ya comprobada (es del cliente o la lleva ese barbero). La
+// misma regla para la web y para el asistente de IA: el cliente no cancela una
+// cita que ya ha pasado y, con menos de `cancelHours` horas, cancela igual pero
+// queda como tardía (su barbero decide si se cobra).
+async function cancelFor(b, { staff = false, series = false, host = "" } = {}) {
+  if (b.status !== "confirmed") return { ok: true };
+  if (!staff && T.minutesUntil(b.date, b.start) <= 0) fail(400, "La hora de la cita ya ha pasado.");
+  // Con menos de X horas el cliente puede cancelar igual (la hora queda libre
+  // para otro), pero se marca como tardía y su barbero decide si se cobra.
+  const late = !staff && b.kind === "booking" && lateCancel(b);
+  const done = {
+    ...b,
+    status: "canceled",
+    canceledBy: staff ? "staff" : "client",
+    canceledAt: T.nowLocal().stamp,
+    ...(late ? { late: true, hoursLeft: Math.max(0, Math.round(T.minutesUntil(b.date, b.start) / 6) / 10) } : {}),
+  };
+  await unplace(b, done);
+  if (b.pay) await rankTouch(b.email); // una cita cobrada que se anula deja de sumar
+  // «Cancelar también las siguientes» de una cita que se repite.
+  let more = 0;
+  const freed = new Set([b.date]);
+  if (series && b.series) {
+    const ids = await cmd("SMEMBERS", "series:" + b.series);
+    for (const x of await bookingsByIds(ids)) {
+      if (x.id === b.id || x.status !== "confirmed" || x.date + x.start <= b.date + b.start) continue;
+      await unplace(x, { ...x, status: "canceled", canceledBy: staff ? "staff" : "client", canceledAt: T.nowLocal().stamp, seriesCancel: true });
+      freed.add(x.date);
+      more++;
+    }
+  }
+  if (!staff && b.kind === "booking") await notifySalon(b, late ? "Cancelación tardía" : more ? `Cita cancelada (y ${more} más de la serie)` : "Cita cancelada");
+  for (const d of freed) await waitlistPing(d, host);
+  return { ok: true, late, fee: late ? feeFor(b, "late") : 0 };
+}
+
+// Las citas de un cliente: las próximas (de la más cercana a la más lejana) y las pasadas.
+async function bookingsOf(email) {
+  const now = T.nowLocal();
+  const list = await bookingsByIds(await cmd("SMEMBERS", "ubk:" + email));
+  const key = (b) => b.date + " " + b.start;
+  const upcoming = list.filter((b) => isActive(b, now)).sort((a, b) => key(a).localeCompare(key(b)));
+  const past = list.filter((b) => !isActive(b, now)).sort((a, b) => key(b).localeCompare(key(a)));
+  return { upcoming, past, list, now };
 }
 
 // Cuando la hora elegida ya no está: la misma hora con otro barbero y las horas
@@ -1424,6 +1588,7 @@ async function eraseAccount(a, now) {
   ops.push(["SREM", "users", email], ["DEL", "contacts:list"]);
   await pipe(ops);
   await rankDrop(email);
+  await Tokens.revokeAll(email); // los tokens de asistente de IA dejan de valer
   if (u.card?.pm) await Card.removeCard(u.card.pm).catch(() => {});
 }
 
@@ -1644,6 +1809,438 @@ async function clubPurchase(u, amount, items, by) {
   return p;
 }
 
+// ── Asistente de IA (MCP) ──────────────────────────────────────────────────
+// Un asistente (Claude, ChatGPT, Grok…) reserva por orden del cliente en
+// /api/mcp. El protocolo está en _lib/mcp.js y los tokens en _lib/assistant.js;
+// aquí solo se enchufan las herramientas a las MISMAS funciones que usa la web
+// (freeSlots/freeTimes, codeRequest/codeCheck, bookFor, bookingsOf, cancelFor):
+// ni una regla de la agenda está repetida.
+const DEFAULT_HOST = "nova.appflu.es";
+const publicBase = (req) => {
+  const h = hostOf(req) || DEFAULT_HOST;
+  return (/^(localhost|127\.|\[::1\])/.test(h) ? "http://" : "https://") + h;
+};
+// Navegadores: solo la propia web y los orígenes de MCP_ALLOWED_ORIGINS (separados por comas).
+function mcpOriginOk(origin, req) {
+  let o;
+  try {
+    o = new URL(origin);
+  } catch {
+    return false;
+  }
+  const extra = String(process.env.MCP_ALLOWED_ORIGINS || "").split(",").map((x) => x.trim().replace(/\/$/, "")).filter(Boolean);
+  if (extra.includes("*") || extra.includes(o.origin)) return true;
+  const own = String(process.env.PUBLIC_HOST || req.headers.host || "").toLowerCase();
+  return !!own && o.host.toLowerCase() === own;
+}
+const euros = (n) => (n == null ? "precio a consultar" : `${n} €`);
+const svcOut = (s) => ({ id: s.id, name: s.name, duration_min: s.duration ?? null, price_eur: s.price ?? null });
+const bookingOut = (b) => {
+  const late = lateCancel(b);
+  return {
+    id: b.id,
+    service: svcOut(b.service),
+    barber: { id: b.provider.id, name: b.provider.name },
+    date: b.date,
+    day: T.niceDate(b.date),
+    start: b.start,
+    end: b.end,
+    status: b.status,
+    pay: "En el local",
+    free_cancellation: !late,
+    late_cancel_fee_eur: late ? feeFor(b, "late") : 0,
+    ...(b.note ? { note: b.note } : {}),
+    ...(b.guarantee ? { guarantee: `Tarjeta ${b.guarantee.brand || ""} ···· ${b.guarantee.last4}`.replace(/\s+/g, " ") } : {}),
+  };
+};
+const S_DATE = { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: "Fecha en formato AAAA-MM-DD (hora de Canarias).", examples: ["2026-12-03"] };
+const S_TIME = { type: "string", pattern: "^([01]\\d|2[0-3]):[0-5]\\d$", description: "Hora de inicio HH:MM tal como la devuelve get_availability.", examples: ["17:30"] };
+const S_SERVICE = { type: "string", minLength: 1, maxLength: 40, description: "Id del servicio (de list_services), p. ej. «corte»." };
+const S_BARBER = { type: "string", minLength: 1, maxLength: 40, description: "Id del barbero (de list_barbers) o «any» para el primero que esté libre. Por defecto, «any»." };
+const S_TOKEN = { type: "string", maxLength: 100, description: "Solo si tu cliente MCP no permite enviar la cabecera «Authorization: Bearer …»: el token de asistente (nova_ast_…)." };
+const S_EMAIL = { type: "string", minLength: 5, maxLength: 120, description: "Correo del cliente." };
+
+const MCP_TOOLS = [
+  {
+    name: "list_services",
+    title: "Servicios y precios",
+    description: "Lista los servicios de NOVA Studio con su id, nombre, duración en minutos y precio en euros. Los que tienen bookable=false no se reservan online (se piden por WhatsApp). No necesita token.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+    run: async () => {
+      const list = activeSvcs().map((s) => ({
+        ...svcOut(s),
+        description: s.desc || "",
+        bookable: !s.consult,
+        ...(s.consult ? { how_to_book: `Por WhatsApp: https://wa.me/${BUSINESS.whatsapp}` } : { barbers: teamFor(s, "any").map((p) => p.id) }),
+      }));
+      const text =
+        "Servicios de NOVA Studio (se paga en el local):\n" +
+        list.map((s) => `- ${s.name} (id «${s.id}»): ${euros(s.price_eur)}${s.duration_min ? ` · ${s.duration_min} min` : ""}${s.bookable ? "" : " · no se reserva online, por WhatsApp"}`).join("\n");
+      return { text, data: { currency: "EUR", services: list } };
+    },
+  },
+  {
+    name: "list_barbers",
+    title: "Equipo",
+    description: "Lista los barberos de NOVA Studio con su id, nombre, puesto, los servicios que hacen y sus próximos días libres. No necesita token.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+    run: async () => {
+      const today = T.nowLocal().date;
+      const list = activeTeam().map((p) => ({
+        id: p.id,
+        name: p.name,
+        role: p.role || "",
+        services: activeSvcs().filter((s) => !s.consult && canDo(s, p)).map((s) => s.id),
+        days_off: (p.off || []).filter((r) => r.to >= today).map(({ from, to }) => ({ from, to })),
+      }));
+      return { text: "Equipo de NOVA Studio:\n" + list.map((p) => `- ${p.name} (id «${p.id}»)${p.role ? ", " + p.role : ""}: ${p.services.join(", ")}`).join("\n"), data: { barbers: list } };
+    },
+  },
+  {
+    name: "get_availability",
+    title: "Huecos libres",
+    description: `Devuelve las horas libres (hora de Canarias) para un servicio desde una fecha y durante «days» días (1-14), con qué barberos están libres a cada hora. Respeta la antelación mínima (${RULES.leadMinutes} min), los días vista (${RULES.daysAhead}), las vacaciones y las citas ya puestas. No necesita token.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        service_id: S_SERVICE,
+        date: { ...S_DATE, description: "Primer día a consultar (AAAA-MM-DD, hora de Canarias)." },
+        days: { type: "integer", minimum: 1, maximum: 14, description: "Cuántos días seguidos mirar desde «date» (1-14). Por defecto, 1." },
+        barber_id: S_BARBER,
+      },
+      required: ["service_id", "date"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+    run: async (a) => {
+      const s = service(a.service_id);
+      if (!s || s.active === false) fail(400, `No existe el servicio «${a.service_id}». Usa list_services para ver los ids.`);
+      if (s.consult) fail(400, `«${s.name}» no se reserva online: se pide por WhatsApp (https://wa.me/${BUSINESS.whatsapp}).`);
+      const pid = a.barber_id || "any",
+        team = teamFor(s, pid);
+      if (!team.length) fail(400, pid === "any" ? "Ahora mismo nadie del equipo hace este servicio." : `El barbero «${pid}» no existe o no hace «${s.name}». Usa list_barbers.`);
+      if (!T.isDate(a.date)) fail(400, "Esa fecha no es válida. Usa AAAA-MM-DD.");
+      const now = T.nowLocal(),
+        last = T.addDays(now.date, RULES.daysAhead);
+      if (a.date < now.date) fail(400, `Esa fecha ya ha pasado. Hoy es ${now.date} (hora de Canarias).`);
+      if (a.date > last) fail(400, `Solo se reserva hasta ${RULES.daysAhead} días vista (hasta el ${last}).`);
+      const days = (await freeSlots(s, team, a.date, a.days || 1)).map((d) => ({ date: d.date, day: T.niceDate(d.date), slots: d.slots }));
+      const text =
+        `Huecos libres para ${s.name} (${euros(s.price)}, ${s.duration} min) con ${pid === "any" ? "cualquier barbero" : team[0].name}:\n` +
+        days.map((d) => `- ${d.day} (${d.date}): ${d.slots.length ? d.slots.map((x) => x.time).join(", ") : "sin huecos"}`).join("\n") +
+        (NORMS.openFrom && a.date < NORMS.openFrom ? `\nAquí se reserva a partir del ${NORMS.openFrom}. Para antes: ${BUSINESS.booksy}` : "") +
+        `\n(${BUSINESS.closedText}.)`;
+      return {
+        text,
+        data: { timezone: BUSINESS.tz, today: now.date, bookable_until: last, service: svcOut(s), barber: pid, days },
+      };
+    },
+  },
+  {
+    name: "request_login_code",
+    title: "Pedir código de acceso",
+    description: "Primer paso para conseguir el token de asistente: envía un código de 6 cifras al correo del cliente (caduca en 10 minutos). Después pide al cliente el código y llama a verify_login_code. Si ya tienes token, no hace falta.",
+    inputSchema: { type: "object", properties: { email: S_EMAIL }, required: ["email"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    run: async (a, ctx) => {
+      const email = normEmail(a.email);
+      await limit("mcpcode:" + email, 5, 900);
+      await limit("mcpcodeip:" + ctx.ip, 10, 900);
+      const r = await codeRequest(email, ctx.ip);
+      if (r.direct) {
+        const demo = accessPolicy().demo;
+        return {
+          text: `${demo ? "Modo demo" : "Entorno de pruebas"}: no se envía ningún correo y se entra solo con el correo, igual que en la web. Llama ya a verify_login_code con este correo y cualquier código de 6 cifras (por ejemplo 000000).`,
+          data: { sent: false, demo, next: "verify_login_code" },
+        };
+      }
+      await cmd("SET", "mcpch:" + sha(r.email), r.challenge, "EX", 600);
+      if (r.dev) return { text: "Entorno local sin correo: el código de 6 cifras sale en la consola del servidor. Llama después a verify_login_code.", data: { sent: false, dev: true, expires_in_minutes: 10, next: "verify_login_code" } };
+      return {
+        text: `Hemos enviado un código de 6 cifras a ${r.email}. Caduca en 10 minutos. Pídeselo al cliente y llama a verify_login_code con el correo y el código (y su nombre si es su primera vez).`,
+        data: { sent: true, expires_in_minutes: 10, next: "verify_login_code" },
+      };
+    },
+  },
+  {
+    name: "verify_login_code",
+    title: "Confirmar código y obtener token",
+    description: "Segundo paso: comprueba el código que le ha llegado al cliente y, si es correcto, crea un token de asistente y lo devuelve UNA sola vez. «name» es obligatorio si el cliente es nuevo (es el nombre que sale en la reserva y en el ranking del Club). Guarda el token y envíalo después en la cabecera «Authorization: Bearer <token>».",
+    inputSchema: {
+      type: "object",
+      properties: {
+        email: S_EMAIL,
+        code: { type: "string", pattern: "^\\d{6}$", description: "Código de 6 cifras recibido por correo.", examples: ["123456"] },
+        name: { type: "string", minLength: 2, maxLength: 60, description: "Nombre o apodo del cliente. Obligatorio si es su primera vez." },
+        phone: { type: "string", maxLength: 30, description: "Teléfono del cliente (opcional)." },
+        client_name: { type: "string", maxLength: 60, description: "Nombre de tu asistente o app (p. ej. «Claude»), para que el cliente reconozca el token en su perfil." },
+      },
+      required: ["email", "code"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    run: async (a, ctx) => {
+      const email = normEmail(a.email);
+      if (!EMAIL.test(email)) fail(400, "Revisa tu correo.");
+      await limit("mcpverify:" + email, 10, 900);
+      await limit("mcpverifyip:" + ctx.ip, 30, 900);
+      const name = clean(a.name, 60),
+        phone = clean(a.phone, 30);
+      if (a.name !== undefined && name.length < 2) fail(400, "Falta tu nombre.");
+      if (phone && !PHONE.test(phone)) fail(400, "Revisa tu teléfono.");
+      const policy = accessPolicy();
+      let check = null;
+      if (!policy.direct) {
+        const challenge = await cmd("GET", "mcpch:" + sha(email));
+        if (!challenge) fail(400, "No hay ningún código pendiente para ese correo, o ha caducado. Pide uno con request_login_code.");
+        check = await codeCheck(challenge, a.code);
+      }
+      // El código es bueno; si la cuenta es nueva y falta el nombre, no se gasta: se puede repetir con «name».
+      const before = await getJSON("user:" + email);
+      if (!before?.name && !name) fail(400, "Es la primera vez de este cliente: falta su nombre (el que sale en la reserva y en el ranking). Vuelve a llamar a verify_login_code con el mismo código y «name».", { needName: true });
+      if (check) await Promise.all([check.consume(), cmd("DEL", "mcpch:" + sha(email))]);
+      let { u, fresh } = await enterAccount(email, { verified: !policy.direct });
+      if (!u.name) u = await saveName(u, { name, ...(phone ? { phone } : {}) });
+      else if (phone && !u.phone) {
+        u = { ...u, phone };
+        await setJSON("user:" + email, u);
+      }
+      const t = await Tokens.createToken(email, { label: clean(a.client_name, 60) || "Asistente de IA", via: "asistente" });
+      const base = publicBase(ctx.req);
+      return {
+        text:
+          `Listo, ${u.name}. Este es tu token de asistente. Guárdalo ahora: no se volverá a mostrar.\n\n${t.token}\n\n` +
+          `Envíalo en cada petición a este servidor MCP con la cabecera «Authorization: Bearer ${t.token}» (configúrala en tu cliente MCP). ` +
+          `Si tu cliente no permite cabeceras, pásalo en el argumento «assistant_token» de create_booking, list_my_bookings, cancel_booking y revoke_assistant_token. ` +
+          `Caduca a los ${Tokens.TOKEN_DAYS} días sin uso (cada uso lo renueva) y se puede revocar en ${base}/perfil o con revoke_assistant_token.`,
+        data: { token: t.token, token_type: "Bearer", token_id: t.id, expires_at: t.exp, mcp_url: base + "/api/mcp", account: { name: u.name, email, new: fresh } },
+      };
+    },
+  },
+  {
+    name: "create_booking",
+    title: "Reservar cita",
+    description: `Reserva una cita a nombre del cliente del token, con las mismas reglas que la web (huecos libres, antelación, máximo ${RULES.maxActive} citas pendientes, tarjeta en garantía si el estudio la pide). Confirma antes con el cliente servicio, barbero, día y hora, y que acepta las condiciones. Necesita token.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        service_id: S_SERVICE,
+        barber_id: S_BARBER,
+        date: S_DATE,
+        time: S_TIME,
+        accept_terms: { type: "boolean", description: "true solo si el cliente ha aceptado las condiciones de reserva y cancelación (enlace en la respuesta de error o en /condiciones)." },
+        note: { type: "string", maxLength: 200, description: "Nota opcional para el barbero." },
+        assistant_token: S_TOKEN,
+      },
+      required: ["service_id", "date", "time", "accept_terms"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    auth: true,
+    run: async (a, ctx) => {
+      const base = publicBase(ctx.req);
+      if (a.accept_terms !== true)
+        fail(400, `Antes de reservar, el cliente tiene que aceptar las condiciones (${base}/condiciones): cambio o cancelación gratis hasta ${NORMS.cancelHours} h antes; después, o si no viene, se puede cobrar según esas condiciones. Cuando las acepte, vuelve a llamar con accept_terms: true.`);
+      await limit("mcpbook:" + ctx.account.id, 10, 3600);
+      const user = await getJSON("user:" + ctx.account.email);
+      if (!user) fail(401, "Esa cuenta ya no existe.");
+      const r = await bookFor(
+        user,
+        { service: a.service_id, provider: a.barber_id || "any", date: a.date, start: a.time, terms: true, note: a.note },
+        { from: "ast:" + ctx.account.id, via: "asistente" },
+      );
+      const b = bookingOut(r.booking);
+      return {
+        text: `Cita reservada: ${b.service.name} con ${b.barber.name}, ${b.day} a las ${b.start} (hasta las ${b.end}). ${euros(b.service.price_eur)}, se paga en el local. Referencia ${b.id}. Cambio o cancelación gratis hasta ${NORMS.cancelHours} h antes (con cancel_booking o en ${base}/mis-citas). Le llega la confirmación por correo.`,
+        data: { booking: b, manage_url: base + "/mis-citas" },
+      };
+    },
+  },
+  {
+    name: "list_my_bookings",
+    title: "Mis próximas citas",
+    description: "Lista las próximas citas del cliente del token (de la más cercana a la más lejana), con su id para cancelarlas. Necesita token.",
+    inputSchema: { type: "object", properties: { assistant_token: S_TOKEN }, additionalProperties: false },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+    auth: true,
+    run: async (a, ctx) => {
+      const u = await getJSON("user:" + ctx.account.email);
+      if (!u) fail(401, "Esa cuenta ya no existe.");
+      const list = (await bookingsOf(u.email)).upcoming.map(bookingOut);
+      return {
+        text: list.length ? `Próximas citas de ${u.name || u.email}:\n` + list.map((b) => `- ${b.day} ${b.start}: ${b.service.name} con ${b.barber.name} (ref. ${b.id})`).join("\n") : `${u.name || u.email} no tiene citas pendientes.`,
+        data: { account: { name: u.name || "", email: u.email }, cancel_hours: NORMS.cancelHours, upcoming: list },
+      };
+    },
+  },
+  {
+    name: "cancel_booking",
+    title: "Cancelar cita",
+    description: `Cancela una cita propia del cliente del token. Gratis hasta ${RULES.cancelHours} h antes (o lo que marque el estudio); con menos tiempo se puede cancelar igual, pero puede haber cargo según las condiciones: entonces hay que repetir con accept_late_fee: true tras avisar al cliente. Necesita token.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        booking_id: { type: "string", pattern: "^[A-Za-z0-9]{1,20}$", description: "Id (referencia) de la cita, de list_my_bookings." },
+        accept_late_fee: { type: "boolean", description: "true si el cliente acepta que la cancelación tardía puede tener cargo." },
+        assistant_token: S_TOKEN,
+      },
+      required: ["booking_id"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    auth: true,
+    run: async (a, ctx) => {
+      await limit("mcpcancel:" + ctx.account.id, 10, 3600);
+      const b = await getJSON("bk:" + a.booking_id);
+      if (!b || b.kind !== "booking" || b.email !== ctx.account.email) fail(404, "No encontramos esa cita entre las del cliente. Usa list_my_bookings para ver los ids.");
+      if (b.status !== "confirmed") return { text: `La cita ${b.id} ya no estaba activa.`, data: { ok: true, id: b.id, already: true } };
+      const fee = feeFor(b, "late");
+      if (T.minutesUntil(b.date, b.start) > 0 && lateCancel(b) && fee > 0 && a.accept_late_fee !== true)
+        fail(400, `Quedan menos de ${NORMS.cancelHours} h para la cita. Se puede cancelar, pero según las condiciones se le pueden cobrar ${euros(fee)} (lo decide su barbero; si hay un motivo justificado, que escriba por WhatsApp). Si el cliente lo acepta, vuelve a llamar con accept_late_fee: true.`, { late: true, fee_eur: fee });
+      const r = await cancelFor(b, { staff: false, host: hostOf(ctx.req) });
+      return {
+        text: `Cita ${b.id} cancelada (${b.service.name}, ${T.niceDate(b.date)} a las ${b.start}). ${r.late ? `Ha sido una cancelación tardía: su barbero revisará si se cobran ${euros(r.fee)}.` : "Sin coste."} La hora queda libre para otra persona.`,
+        data: { ok: true, id: b.id, late: !!r.late, fee_eur: r.fee || 0 },
+      };
+    },
+  },
+  {
+    name: "revoke_assistant_token",
+    title: "Revocar este token",
+    description: "Revoca el token de asistente con el que se hace la llamada. Después ya no sirve para reservar ni ver citas. Necesita token.",
+    inputSchema: { type: "object", properties: { assistant_token: S_TOKEN }, additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    auth: true,
+    run: async (a, ctx) => {
+      await Tokens.revokeToken(ctx.account.email, ctx.account.id);
+      return { text: "Token revocado. Este asistente ya no puede reservar ni ver citas en nombre del cliente. Para volver a conectarlo hay que pedir otro token.", data: { ok: true, revoked: ctx.account.id } };
+    },
+  },
+];
+
+const MCP_OPTS = {
+  serverInfo: { name: "nova-studio-reservas", title: "NOVA Studio · Reservas", version: "1.0.0" },
+  instructions:
+    "Reservas de NOVA Studio, barbería en Vecindario (Gran Canaria). Las fechas y horas son de Canarias (Atlantic/Canary). " +
+    "Flujo: list_services y list_barbers → get_availability → si no tienes token, request_login_code y verify_login_code → create_booking. " +
+    "No inventes huecos: usa siempre get_availability. Antes de reservar o cancelar, confirma con el cliente servicio, barbero, día y hora. " +
+    "El token va en la cabecera «Authorization: Bearer nova_ast_…».",
+  tools: MCP_TOOLS,
+  ip,
+  originOk: mcpOriginOk,
+  resolveToken: async (t) => {
+    const rec = await Tokens.verifyToken(t);
+    return rec && (await cmd("GET", "user:" + rec.email)) ? rec : null;
+  },
+  before: async (ctx) => {
+    await limit("mcp:" + ctx.ip, 240, 60, "Demasiadas peticiones. Espera un minuto.");
+    await loadTeam();
+  },
+  needAuthText: (ctx) =>
+    `Esta acción necesita el token de asistente del cliente. Pídele su correo y usa request_login_code y después verify_login_code con el código que le llega; o que lo genere en su perfil (${publicBase(ctx.req)}/perfil → «Conectar mi asistente de IA»). Después envíalo en la cabecera «Authorization: Bearer <token>».`,
+  errorText: (e, ctx) => {
+    if (!(e instanceof HttpError)) return null;
+    if (e.card)
+      return {
+        text: `Para reservar online, NOVA Studio pide una tarjeta en garantía (no se cobra nada al reservar; solo si el cliente falta o cancela tarde). Eso no se puede hacer desde el asistente: el cliente tiene que añadirla una vez en ${publicBase(ctx.req)}/perfil («Tu tarjeta») y después puedes volver a pedir la cita.`,
+        data: { need_card: true, url: publicBase(ctx.req) + "/perfil" },
+      };
+    if (e.alternatives) return { text: e.message + " " + e.alternatives.map((x) => `${x.date} ${x.start}${x.provider ? " con " + x.provider.name : ""}`).join(" · "), data: { alternatives: e.alternatives } };
+    const { status, message, stack, ...extra } = e;
+    return { text: message, ...(Object.keys(extra).length ? { data: extra } : {}) };
+  },
+};
+
+async function mcpHttp(req, res) {
+  try {
+    await serveMcp(req, res, MCP_OPTS);
+  } catch (e) {
+    console.error("MCP", e);
+    res.statusCode = 500;
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.end(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32603, message: "Error interno del servidor." } }));
+  }
+}
+
+// llms.txt (llmstxt.org): qué es NOVA, precios, horario y cómo reservar, para
+// asistentes de IA. Sale de los mismos datos que la app (los servicios y el
+// equipo que edita el dueño en su panel), así que nunca se queda desfasado.
+async function llmsTxt(req) {
+  const base = publicBase(req),
+    site = await siteInfo(),
+    c = contactOut(site.contact),
+    svcs = activeSvcs(),
+    team = activeTeam();
+  const bookable = svcs.filter((s) => !s.consult);
+  const lines = [
+    `# ${BUSINESS.name}`,
+    "",
+    `> ${BUSINESS.tagline} (Gran Canaria, España): ${bookable.map((s) => s.name.toLowerCase()).join(", ")}. Se reserva online en ${base}/ o pidiéndoselo a un asistente de IA con nuestro servidor MCP, sin llamar.`,
+    "",
+    `- Dirección: ${c.street}, ${c.city}`,
+    `- Mapa: ${c.maps}`,
+    `- Teléfono: ${BUSINESS.phone} · WhatsApp: https://wa.me/${c.whatsapp}`,
+    `- Correo: ${BUSINESS.email}`,
+    `- Instagram: ${c.instagram}`,
+    `- Zona horaria: ${BUSINESS.tz} (hora de Canarias)`,
+    "",
+    "## Servicios y precios",
+    "",
+    ...svcs.map((s) => `- ${s.name} (id \`${s.id}\`): ${euros(s.price)}${s.duration ? ` · ${s.duration} min` : ""}${s.consult ? " · no se reserva online, se pide por WhatsApp" : ""}. ${s.desc || ""}`.trim()),
+    "",
+    `${BUSINESS.drink} Se paga en el local.`,
+    "",
+    "## Equipo",
+    "",
+    ...team.map((p) => `- ${p.name} (id \`${p.id}\`)${p.role ? ", " + p.role : ""}: ${svcs.filter((s) => !s.consult && canDo(s, p)).map((s) => s.name).join(", ")}`),
+    "",
+    "## Horario",
+    "",
+    ...BUSINESS.hoursText.map(([d, h]) => `- ${d}: ${h.replace(/\s*—\s*/, "–")}`),
+    `- ${BUSINESS.closedText}`,
+    "",
+    "## Normas de reserva",
+    "",
+    `- Antelación mínima: ${RULES.leadMinutes} minutos. Se reserva hasta ${RULES.daysAhead} días vista.`,
+    `- Como mucho ${RULES.maxActive} citas pendientes por cliente.`,
+    `- Cambio o cancelación gratis hasta ${NORMS.cancelHours} h antes. Después se puede cancelar igual, pero se puede cobrar según las condiciones (${base}/condiciones).`,
+    ...(Card.cardEnabled() ? ["- Para reservar online hace falta una tarjeta en garantía guardada en el perfil (no se cobra nada al reservar). Se añade en la web, no desde el asistente."] : []),
+    ...(NORMS.openFrom > T.nowLocal().date ? [`- Aquí se reserva a partir del ${NORMS.openFrom}. Para antes: ${BUSINESS.booksy}`] : []),
+    "",
+    "## Cómo reservar",
+    "",
+    `1. En la web: ${base}/reservar. Eliges servicio, barbero y hora, y entras con tu correo (te llega un código de 6 cifras${accessPolicy().demo ? "; ahora mismo la web está en modo demo y basta con el correo" : ""}).`,
+    "2. Con tu asistente de IA (Claude, ChatGPT, Grok…), conectándolo a nuestro servidor MCP. Ejemplo: «Pídeme cita con Airam el jueves por la tarde».",
+    "",
+    "## Reservar con un asistente de IA (MCP)",
+    "",
+    `- Servidor MCP (Streamable HTTP, JSON-RPC 2.0 por POST, respuestas JSON): ${base}/api/mcp`,
+    "- Sin token: `list_services`, `list_barbers`, `get_availability`.",
+    "- Con token: `create_booking`, `list_my_bookings`, `cancel_booking`, `revoke_assistant_token`.",
+    `- Token: \`request_login_code\` (manda un código al correo del cliente) y \`verify_login_code\` (lo devuelve una sola vez), o desde el perfil en ${base}/perfil → «Conectar mi asistente de IA».`,
+    "- Envía el token en la cabecera `Authorization: Bearer nova_ast_…` (o en el argumento `assistant_token` si tu cliente no permite cabeceras).",
+    `- Caduca a los ${Tokens.TOKEN_DAYS} días sin uso y el cliente lo puede revocar cuando quiera.`,
+    `- Descriptor: ${base}/.well-known/mcp.json`,
+    "",
+    "## Enlaces",
+    "",
+    `- [Reservar cita](${base}/reservar): servicios, barberos y horas libres`,
+    `- [Mis citas](${base}/mis-citas): cambiar o cancelar`,
+    `- [Condiciones](${base}/condiciones): reserva, cancelación y Club`,
+    `- [Privacidad](${base}/privacidad)`,
+    "",
+    "## Optional",
+    "",
+    `- [Productos](${base}/productos)`,
+    `- [Formación](${base}/formacion)`,
+    `- [${SHOP.name}](${SHOP.url}): la tienda de ropa de la casa`,
+    "",
+  ];
+  return lines.join("\n");
+}
+
 // ── Rutas ──────────────────────────────────────────────────────────────────
 const routes = {
   // Piezas del mapa de la portada (OpenStreetMap), servidas desde aquí: así el
@@ -1695,6 +2292,57 @@ const routes = {
       reviews: !!NORMS.reviewUrl,
       card: Card.cardPublic(),
     };
+  },
+
+  // Para asistentes de IA: /llms.txt y /.well-known/mcp.json (vercel.json los manda aquí).
+  "GET llms.txt": async ({ req }) => ({ raw: await llmsTxt(req), type: "text/plain; charset=utf-8", cache: "public, max-age=0, s-maxage=300, stale-while-revalidate=3600" }),
+  "GET well-known/mcp.json": async ({ req }) => {
+    const base = publicBase(req);
+    return {
+      raw: JSON.stringify(
+        {
+          name: MCP_OPTS.serverInfo.name,
+          title: MCP_OPTS.serverInfo.title,
+          version: MCP_OPTS.serverInfo.version,
+          description: `Reservas de ${BUSINESS.name} (${BUSINESS.tagline}) para asistentes de IA.`,
+          transport: { type: "streamable-http", url: base + "/api/mcp" },
+          protocolVersions: ["2025-06-18", "2025-03-26"],
+          authentication: {
+            type: "bearer",
+            required: false,
+            description: "Las herramientas de consulta no necesitan token. Para reservar: request_login_code + verify_login_code, o el token generado en el perfil. Cabecera Authorization: Bearer nova_ast_…",
+          },
+          tools: MCP_TOOLS.map((t) => ({ name: t.name, description: t.description, requiresToken: !!t.auth })),
+          documentation: base + "/llms.txt",
+        },
+        null,
+        2,
+      ),
+      type: "application/json; charset=utf-8",
+      cache: "public, max-age=0, s-maxage=300",
+    };
+  },
+
+  // ── Conectar mi asistente de IA (perfil) ─────────────────────────────────
+  // Con la sesión de la web: crear un token (se enseña una sola vez), ver los
+  // activos (sin el token) y revocarlos.
+  "GET assistant/tokens": async ({ req }) => {
+    const u = await currentUser(req);
+    if (!u) fail(401, "Entra en tu cuenta.");
+    return { tokens: await Tokens.listTokens(u.email), mcp: publicBase(req) + "/api/mcp", max: Tokens.MAX_TOKENS, days: Tokens.TOKEN_DAYS };
+  },
+  "POST assistant/tokens": async ({ req, body }) => {
+    const u = await currentUser(req);
+    if (!u) fail(401, "Entra en tu cuenta.");
+    await limit("asttok:" + u.email, 10, 3600);
+    const t = await Tokens.createToken(u.email, { label: clean(body.label, 60) || "Asistente de IA", via: "perfil" });
+    return { ...t, mcp: publicBase(req) + "/api/mcp" };
+  },
+  "POST assistant/tokens/:id/revoke": async ({ req, params }) => {
+    const u = await currentUser(req);
+    if (!u) fail(401, "Entra en tu cuenta.");
+    if (!(await Tokens.revokeToken(u.email, params.id))) fail(404, "Ese token ya no existe.");
+    return { ok: true };
   },
 
   // Aviso legal: nombre y NIF del titular. No van en /api/catalog.
@@ -1783,7 +2431,7 @@ const routes = {
     const s = service(q.get("service")),
       pid = q.get("provider"),
       month = q.get("month") || "";
-    const team = !s ? [] : pid === "any" ? activeTeam().filter((p) => canDo(s, p)) : [provider(pid)].filter((p) => p && p.active !== false && canDo(s, p));
+    const team = teamFor(s, pid);
     if (!s || s.consult || s.active === false || !team.length || !/^\d{4}-\d{2}$/.test(month)) fail(400, "Petición incorrecta.");
     const now = T.nowLocal(),
       busies = await Promise.all(team.map((p) => busyOf(p.id, month))),
@@ -1811,7 +2459,7 @@ const routes = {
     }
     try {
       const r = await bookNow(req, res, body);
-      if (idem) await setJSON(idem, r, "EX", 86400);
+      if (idem) await setJSON(idem, { out: r.out }, "EX", 86400);
       return r.out;
     } catch (e) {
       if (idem) await cmd("DEL", idem);
@@ -1869,11 +2517,7 @@ const routes = {
   "GET bookings": async ({ req }) => {
     const u = await currentUser(req);
     if (!u) fail(401, "Entra para ver tus citas.");
-    const now = T.nowLocal();
-    const list = await bookingsByIds(await cmd("SMEMBERS", "ubk:" + u.email));
-    const key = (b) => b.date + " " + b.start;
-    const upcoming = list.filter((b) => isActive(b, now)).sort((a, b) => key(a).localeCompare(key(b)));
-    const past = list.filter((b) => !isActive(b, now)).sort((a, b) => key(b).localeCompare(key(a)));
+    const { upcoming, past, list, now } = await bookingsOf(u.email);
     return { upcoming, past, now: now.stamp, habit: habitOf(list, now) };
   },
 
@@ -1898,35 +2542,7 @@ const routes = {
     const u = await currentUser(req),
       staff = canManage(await staffOf(req), b?.provider.id);
     if (!b || !((u && u.email === b.email) || staff)) fail(404, "No encontramos esa cita.");
-    if (b.status !== "confirmed") return { ok: true };
-    if (!staff && T.minutesUntil(b.date, b.start) <= 0) fail(400, "La hora de la cita ya ha pasado.");
-    // Con menos de X horas el cliente puede cancelar igual (la hora queda libre
-    // para otro), pero se marca como tardía y su barbero decide si se cobra.
-    const late = !staff && b.kind === "booking" && lateCancel(b);
-    const done = {
-      ...b,
-      status: "canceled",
-      canceledBy: staff ? "staff" : "client",
-      canceledAt: T.nowLocal().stamp,
-      ...(late ? { late: true, hoursLeft: Math.max(0, Math.round(T.minutesUntil(b.date, b.start) / 6) / 10) } : {}),
-    };
-    await unplace(b, done);
-    if (b.pay) await rankTouch(b.email); // una cita cobrada que se anula deja de sumar
-    // «Cancelar también las siguientes» de una cita que se repite.
-    let more = 0;
-    const freed = new Set([b.date]);
-    if (body?.series === true && b.series) {
-      const ids = await cmd("SMEMBERS", "series:" + b.series);
-      for (const x of await bookingsByIds(ids)) {
-        if (x.id === b.id || x.status !== "confirmed" || x.date + x.start <= b.date + b.start) continue;
-        await unplace(x, { ...x, status: "canceled", canceledBy: staff ? "staff" : "client", canceledAt: T.nowLocal().stamp, seriesCancel: true });
-        freed.add(x.date);
-        more++;
-      }
-    }
-    if (!staff && b.kind === "booking") await notifySalon(b, late ? "Cancelación tardía" : more ? `Cita cancelada (y ${more} más de la serie)` : "Cita cancelada");
-    for (const d of freed) await waitlistPing(d, hostOf(req));
-    return { ok: true, late, fee: late ? feeFor(b, "late") : 0 };
+    return cancelFor(b, { staff, series: body?.series === true, host: hostOf(req) });
   },
 
   "POST bookings/:id/move": async ({ req, params, body }) => {
@@ -2220,54 +2836,21 @@ const routes = {
     if (body.phone !== undefined && body.email === undefined) {
       if (!authChannels().phone) fail(400, "Por ahora solo se puede entrar con el correo.");
     }
-    const email = normEmail(body.email);
-    if (!EMAIL.test(email)) fail(400, "Revisa tu correo.");
-    const policy = accessPolicy();
-    // En producción, sin correo configurado, no se abre sesión ni se guarda el código.
-    if (policy.code && process.env.VERCEL && !mailReady()) fail(503, MAIL_NOT_READY);
-    await limit("auth:" + email, 5, 900);
-    await limit("authip:" + ip(req), 20, 900);
-    // LOGIN_CON_CODIGO=0 solo en local: se entra ya, sin comprobar el correo.
-    if (policy.direct) {
-      const fresh = !(await getJSON("user:" + email));
-      const u = await ensureUser(email);
-      await startSession(req, res, email);
-      await rankTouch(email);
+    const r = await codeRequest(body.email, ip(req));
+    // LOGIN_CON_CODIGO=0 solo en local (o MODO_DEMO=1): se entra ya, sin comprobar el correo.
+    if (r.direct) {
+      const { u, fresh } = await enterAccount(r.email);
+      await startSession(req, res, r.email);
       return { direct: true, fresh, needName: !u.name };
     }
-    const code = String(crypto.randomInt(0, 1e6)).padStart(6, "0"),
-      challenge = token();
-    await setJSON("code:" + challenge, { email, h: sha(code + challenge), tries: 0 }, "EX", 600);
-    if (mailReady()) {
-      if (!(await codeMail(email, code))) fail(502, "No hemos podido enviar el correo. Prueba otra vez en un rato.");
-      return { challenge };
-    }
-    if (ON_VERCEL) fail(503, "Ahora mismo no podemos enviar el código por correo. Escríbenos por WhatsApp y te ayudamos.");
-    console.log(`\n  Código de acceso para ${email}: ${code}\n`);
-    return { challenge, dev: true };
+    return r.dev ? { challenge: r.challenge, dev: true } : { challenge: r.challenge };
   },
 
   "POST auth/verify": async ({ req, res, body }) => {
-    const key = "code:" + String(body.challenge || "").slice(0, 64);
-    const c = await getJSON(key);
-    if (!c) fail(400, "El código ha caducado. Pide otro.");
-    if (c.tries >= 5) {
-      await cmd("DEL", key);
-      fail(400, "Demasiados intentos. Pide otro código.");
-    }
-    if (!same(c.h, sha(String(body.code || "").trim() + body.challenge))) {
-      await setJSON(key, { ...c, tries: c.tries + 1 }, "EX", 600);
-      fail(400, "Ese código no es correcto.");
-    }
-    await cmd("DEL", key);
-    const fresh = !(await getJSON("user:" + c.email));
-    let u = await ensureUser(c.email);
-    if (!u.verified) {
-      u = { ...u, verified: T.nowLocal().stamp };
-      await setJSON("user:" + u.email, u);
-    }
+    const c = await codeCheck(body.challenge, body.code);
+    await c.consume();
+    const { u, fresh } = await enterAccount(c.email, { verified: true });
     await startSession(req, res, c.email);
-    await rankTouch(c.email);
     // Falta el nombre (cuenta nueva o de antes): la app lo pide en el paso siguiente.
     return { ok: true, fresh, needName: !u.name };
   },
@@ -2275,30 +2858,9 @@ const routes = {
   // Último paso del alta: el nombre (el que sale en el ranking) y, si la cuenta
   // es nueva, el código del amigo que te invitó.
   "POST auth/name": async ({ req, body }) => {
-    let u = await currentUser(req);
+    const u = await currentUser(req);
     if (!u) fail(401, "Entra en tu cuenta.");
-    const name = clean(body.name, 60);
-    if (name.length < 2) fail(400, "Falta tu nombre.");
-    const phone = body.phone === undefined ? u.phone || "" : clean(body.phone, 30);
-    if (phone && !PHONE.test(phone)) fail(400, "Revisa tu teléfono.");
-    const code = String(body.ref || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
-    let by = null;
-    if (code && !u.referredBy) {
-      const referrer = await cmd("GET", "refcode:" + code);
-      if (!referrer) fail(400, "Ese código de amigo no existe. Revísalo o bórralo.");
-      // Solo cuenta como invitación en una cuenta recién hecha (sin citas aún).
-      if (referrer !== u.email && !(await cmd("SMEMBERS", "ubk:" + u.email)).length) by = referrer;
-    }
-    const first = !u.name;
-    u = { ...u, name, phone, ...(by ? { referredBy: by } : {}) };
-    // La cuenta se creó sin nombre (código NOVA123): ahora que lo hay, uno con su nombre (CARLOS482).
-    const oldRef = first && /^NOVA/.test(u.ref || "") ? u.ref : "";
-    if (oldRef) u.ref = await makeRefCode(u.email, name);
-    await setJSON("user:" + u.email, u);
-    if (oldRef && (await cmd("GET", "refcode:" + oldRef)) === u.email) await cmd("DEL", "refcode:" + oldRef);
-    await pipe([...(by ? [["SADD", "refs:" + by, u.email]] : []), ["DEL", "contacts:list"]]);
-    await rankTouch(u.email, by);
-    return { user: publicUser(u) };
+    return { user: publicUser(await saveName(u, body)) };
   },
 
   "POST auth/logout": async ({ req, res }) => {
@@ -4262,11 +4824,13 @@ function match(method, path) {
 }
 
 export default async function handler(req, res) {
-  res.setHeader("Cache-Control", "no-store");
-  res.setHeader("Content-Type", "application/json; charset=utf-8");
   const url = new URL(req.url, "http://local");
   const path = url.searchParams.get("route") ?? url.pathname.replace(/^\/api\/?/, "");
   url.searchParams.delete("route");
+  // El servidor MCP habla JSON-RPC, con sus propios códigos y cabeceras.
+  if (path === "mcp") return mcpHttp(req, res);
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
   try {
     const hit = match(req.method, path);
     if (!hit) fail(404, "No existe.");

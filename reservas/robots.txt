@@ -3,3 +3,6 @@ Allow: /
 Disallow: /equipo
 
 Sitemap: https://nova.appflu.es/sitemap.xml
+
+# Para asistentes de IA: https://nova.appflu.es/llms.txt
+# Servidor MCP de reservas: https://nova.appflu.es/api/mcp
