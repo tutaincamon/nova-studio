@@ -82,6 +82,11 @@ function avisaReserva(r) {
         ['Correo', r.correo],
         ['Cuándo', hora + ' (hora de Canarias)']
     ];
+    // el precio que se le cobra al recoger, con la oferta si la pilló
+    if (r.precio != null) {
+        const eur = n => Number(n).toFixed(2).replace('.', ',') + ' €';
+        datos.splice(2, 0, ['A cobrar', eur(r.precio) + (r.oferta ? ' (' + r.oferta + ', antes ' + eur(r.precioAntes) + ')' : '')]);
+    }
     const pie = 'Se paga y se recoge en la tienda. Si respondes a este correo, le escribes directamente al cliente.';
 
     const texto = 'Nueva reserva en la web\n\n' +

@@ -26,6 +26,8 @@
 // y en prendas.js, y nada más: el panel saca las tallas y colores de la base.
 const TALLAS  = ['L', 'XL', 'XXL'];
 const COLORES = ['rosa'];
+// El precio de cada prenda cuando la base no tiene catálogo (el de prendas.js).
+const PRECIOS = { 'camiseta-rosa': 47.5 };
 
 const ES_CORREO = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 // Teléfono español o internacional escrito como le dé la gana a cada uno
@@ -72,6 +74,8 @@ const limpia = (v, max) => String(v == null ? '' : v).trim().replace(/\s+/g, ' '
 const aviso = require('./_aviso');
 // El catálogo y el stock compartidos con el estudio (ver _supply.js).
 const supply = require('./_supply');
+// La oferta del momento (Black Friday…), la misma que enseña la web.
+const oferta = require('../oferta.js');
 
 module.exports = async (req, res) => {
     if (req.method !== 'POST') {
@@ -134,6 +138,17 @@ module.exports = async (req, res) => {
     const reserva = { ref, nombre, tel, correo, talla, color, fecha, estado: 'pendiente' };
     if (prenda) { reserva.prenda = prenda.id; reserva.apartada = true; }
 
+    // El precio queda apuntado en la reserva: si se hizo con oferta, el
+    // estudio la cobra rebajada aunque la recojan cuando ya haya acabado.
+    const idPrenda = prenda ? prenda.id : (prendaPedida || (color === 'rosa' ? 'camiseta-rosa' : ''));
+    let precio = prenda ? oferta.numero(prenda.precioNum) : (PRECIOS[idPrenda] ?? null);
+    if (precio != null && oferta.aplica(idPrenda)) {
+        reserva.precioAntes = precio;
+        precio = oferta.rebajado(precio);
+        reserva.oferta = oferta.datos.nombre + ' -' + oferta.datos.descuento + '%';
+    }
+    if (precio != null) reserva.precio = precio;
+
     try {
         await redis(cred, [
             ['LPUSH',  'preventa:pedidos', JSON.stringify(reserva)],
@@ -159,5 +174,5 @@ module.exports = async (req, res) => {
         else console.error('No se pudo mandar el aviso por correo:', a.estado || a.motivo, a.detalle || '');
     } catch (e) { console.error('No se pudo mandar el aviso por correo:', e.message); }
 
-    return res.status(200).json({ ok: true, ref });
+    return res.status(200).json({ ok: true, ref, precio: precio != null ? oferta.texto(precio) : '', oferta: reserva.oferta || '' });
 };

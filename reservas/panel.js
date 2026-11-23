@@ -1540,7 +1540,7 @@ function ropaRecogidas(r) {
       r.pendientes.length
         ? r.pendientes
             .map(
-              (x) => `<div class="card rp-ped"><div class="tr-item-top"><div><strong>${esc(x.nombre || "")}</strong><span>${esc(x.prendaNombre)} · talla ${esc(x.talla)} · ref. <b>${esc(x.ref)}</b></span></div><span class="appt-state st-wait">${esc(shortDate(String(x.fecha || "").slice(0, 10)))}</span></div>
+              (x) => `<div class="card rp-ped"><div class="tr-item-top"><div><strong>${esc(x.nombre || "")}</strong><span>${esc(x.prendaNombre)} · talla ${esc(x.talla)} · ref. <b>${esc(x.ref)}</b>${x.oferta ? ` · ${esc(x.oferta)}` : ""}</span></div><span class="appt-state st-wait">${esc(shortDate(String(x.fecha || "").slice(0, 10)))}</span></div>
                 ${x.tel ? `<p class="tr-line muted">${esc(x.tel)}${x.correo ? " · " + esc(x.correo) : ""}</p>` : ""}
                 <div class="form-actions" style="margin-top:10px"><input class="rp-imp" inputmode="decimal" aria-label="Importe cobrado" value="${x.precio != null ? Number(x.precio).toFixed(2).replace(".", ",") : ""}"><button type="button" class="btn" data-entrega="${esc(x.ref)}">Entregada y cobrada</button></div>
                 ${r.owner ? `<button type="button" class="tr-del" data-anula="${esc(x.ref)}">Anular reserva (no viene)</button>` : ""}

@@ -20,6 +20,8 @@
     --linea:rgba(14,14,16,.14);
     --acento:#b08968;
     --gris-ficha:#ebebeb;
+    --rosa:#a4525f;        /* el de la portada, sacado de la propia camiseta */
+    --rosa-claro:#f0a8c4;  /* el del cartel del Black Friday */
     --alto-fijo:72px;
     --titulo:Georgia,'Times New Roman',Times,serif;
     --caja:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
@@ -120,6 +122,15 @@ h1.nombre{
 }
 .variante{margin:6px 0 0;font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--gris)}
 .precio{margin:18px 0 0;font-family:var(--titulo);font-size:clamp(24px,4vw,32px)}
+/* con oferta: el de siempre tachado y pequeño, el rebajado en rosa */
+.precio s{margin-right:12px;font-size:.62em;color:var(--gris);text-decoration-thickness:1px}
+.precio .rebaja{color:var(--rosa)}
+.oferta-linea{
+    display:inline-block;margin:10px 0 0;padding:6px 10px;
+    background:var(--tinta);color:var(--blanco);
+    font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;
+}
+.oferta-linea b{color:var(--rosa-claro);font-weight:700}
 .texto{margin:18px 0 0;font-size:14px;line-height:1.8;color:var(--gris);max-width:46ch}
 
 .aparta{margin-top:clamp(24px,4vw,34px);padding-top:clamp(22px,4vw,30px);border-top:1px solid var(--linea)}
@@ -263,6 +274,7 @@ footer .pie-insta:hover{color:var(--acento)}
             <h1 class="nombre" id="nombre"></h1>
             <p class="variante" id="variante" hidden></p>
             <p class="precio" id="precio" hidden></p>
+            <p class="oferta-linea" id="oferta-linea" hidden></p>
             <p class="texto" id="texto"></p>
 
             <!-- Si se puede apartar sale el formulario; si no, un aviso -->
@@ -306,6 +318,7 @@ footer .pie-insta:hover{color:var(--acento)}
     <div class="hecho" id="hecho" hidden>
         <h2>Reservada</h2>
         <p class="ref">Tu referencia: <b id="ref"></b></p>
+        <p class="ref" id="hecho-precio" hidden></p>
         <p class="detalle">Te la guardamos <b>siete días</b>. Pásate por Av. del Atlántico 317,
             Vecindario, di tu referencia y la pagas allí mismo. Si no puedes venir en ese plazo,
             escríbenos y la guardamos más tiempo.</p>
@@ -348,6 +361,7 @@ footer .pie-insta:hover{color:var(--acento)}
     <a href="condiciones.html">Condiciones</a>
 </footer>
 
+<script src="oferta.js"></script>
 <script src="prendas.js"></script>
 <script src="ficha.js"></script>
 </body>

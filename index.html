@@ -767,6 +767,67 @@ html.con-ventana{overflow:hidden}
     font-weight:700;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--acento);
 }
 
+/* ══════════════════════════════════════════════════════════════
+   LA OFERTA (oferta.js) · Black Friday
+   Todo esto arranca oculto y solo lo enseña el script mientras la
+   oferta está en fechas; después la portada vuelve a ser la de siempre.
+   ══════════════════════════════════════════════════════════════ */
+:root{--rosa-bf:#f0a8c4}                       /* el rosa del cartel */
+
+/* la línea de aviso, debajo de «Drop 01» */
+.bf-aviso{
+    margin:14px 0 0;padding-left:.28em;
+    font-family:var(--mono);font-size:clamp(9.5px,2.2vw,11px);line-height:1.8;
+    letter-spacing:.28em;text-transform:uppercase;color:var(--gris);
+    animation:rise .85s .46s cubic-bezier(.2,.8,.2,1) both;
+}
+.bf-aviso b{font-weight:700;color:var(--acento)}
+
+/* en la rejilla: el «−30 %» abajo de la foto, lejos del sello de las tallas */
+.visor .sello-oferta{top:auto;bottom:0;left:0;background:var(--tinta);color:var(--blanco);font-weight:500}
+.art-precio s{margin-right:7px;color:var(--gris);text-decoration-thickness:1px}
+.art-precio .rebaja{color:var(--acento);font-weight:500}
+
+/* la ventana de entrada: la misma caja que la de la lista, en noche */
+.bf-ventana{color:var(--noche-texto)}
+.bf-ventana::backdrop{background:rgba(7,7,10,.74)}
+.bf-ventana .unete-caja{background:var(--noche);border:1px solid var(--noche-linea)}
+.bf-ventana .unete-foto{background:#2a2826}
+.bf-ventana .unete-foto img{object-position:50% 50%}
+.bf-ventana .unete-antetitulo{color:var(--noche-gris)}
+.bf-titulo{
+    margin:14px 0 0;font-family:var(--caja);font-weight:700;
+    font-size:clamp(30px,5.4vw,44px);line-height:1;letter-spacing:.04em;text-transform:uppercase;
+}
+.bf-titulo span{display:block;color:var(--rosa-bf)}
+.bf-titulo:focus{outline:none}
+.bf-linea{margin:0}
+.bf-pct{
+    display:inline-block;margin:18px auto 0;padding:8px 16px 8px calc(16px + .2em);
+    border:1px solid var(--noche-texto);border-radius:100px;
+    font-family:var(--caja);font-weight:700;font-size:11px;letter-spacing:.2em;text-transform:uppercase;
+}
+.bf-ventana .unete-texto{color:var(--noche-gris)}
+.bf-precio{
+    display:flex;align-items:baseline;justify-content:center;gap:14px;
+    margin:20px 0 0;font-family:var(--caja);
+}
+.bf-precio s{font-weight:600;font-size:15px;color:var(--noche-gris);text-decoration-thickness:1px}
+.bf-precio b{font-weight:700;font-size:clamp(30px,5vw,38px);line-height:1;color:var(--rosa-bf)}
+.bf-tallas{
+    margin:10px 0 0;font-family:var(--mono);font-size:10px;letter-spacing:.24em;text-transform:uppercase;
+    color:var(--noche-gris);
+}
+.bf-tallas:empty{display:none}
+.bf-ventana .unete-si{
+    margin-top:24px;text-decoration:none;text-align:center;
+    background:var(--noche-texto);border-color:var(--noche-texto);color:var(--noche);
+}
+.bf-ventana .unete-si:hover{background:var(--rosa-bf);border-color:var(--rosa-bf)}
+.bf-ventana .unete-si:focus-visible,.bf-ventana .unete-no:focus-visible{outline-color:var(--rosa-bf)}
+.bf-ventana .unete-no{color:var(--noche-gris)}
+.bf-ventana .unete-no:hover{color:var(--noche-texto)}
+
 /* Ahora el pie viene detrás del bucle, así que se despega de él por arriba. */
 footer{
     background:var(--noche);
@@ -832,6 +893,7 @@ footer{
 
     <section class="intro">
         <p class="drop">Drop 01</p>
+        <p class="bf-aviso" id="bf-aviso" hidden></p>
     </section>
 
     <!-- ══════════════════════════════════════════════════════════════
@@ -990,6 +1052,41 @@ footer{
     </div>
 </dialog>
 
+<!-- ---------- la ventana de la oferta ----------
+     Mientras hay oferta (oferta.js), sale esta al entrar en lugar de la de
+     la lista. Las cifras y las fechas las pone el script con los datos de
+     oferta.js, así que aquí no hay que tocar nada para la próxima. -->
+<dialog class="unete bf-ventana" id="oferta" aria-labelledby="oferta-titulo" aria-describedby="oferta-texto">
+    <div class="unete-caja">
+        <div class="unete-foto">
+            <img data-src="reel1.jpg" width="1080" height="720" alt="">
+        </div>
+        <div class="unete-cuerpo">
+            <p class="unete-antetitulo" id="oferta-fechas"></p>
+            <h2 class="bf-titulo" id="oferta-titulo" tabindex="-1"></h2>
+            <p class="bf-linea"><span class="bf-pct" id="oferta-pct"></span></p>
+            <p class="unete-texto" id="oferta-texto">Últimas unidades del Drop&nbsp;01. Un diseño que ya no se va a fabricar más.</p>
+            <p class="bf-precio" id="oferta-precio"></p>
+            <p class="bf-tallas" id="oferta-tallas"></p>
+            <a class="unete-si" id="oferta-ver" href="prenda.html">Ver la camiseta</a>
+            <button type="button" class="unete-no" id="oferta-no">Ahora no</button>
+        </div>
+    </div>
+</dialog>
+
+<script src="oferta.js"></script>
+<script>
+/* ---------- el catálogo de verdad ----------
+   Lo lleva el estudio (nova.appflu.es). Se pide una vez y lo usan los
+   sellos y precios de la rejilla y la ventana de la oferta. Si no contesta
+   en 2,5 s, null: se sigue con lo que hay escrito en la página. */
+window.NOVA_CAT = Promise.race([
+    fetch('/api/catalogo').then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(d){ return d && d.ok ? d.prendas : null; }),
+    new Promise(function(ok){ setTimeout(function(){ ok(null); }, 2500); })
+]).catch(function(){ return null; });
+</script>
+
 <script>
 /* ---------- la marca de arriba ----------
    Está siempre fija en lo alto. Lo único que cambia es el color: cuando lo
@@ -1083,6 +1180,8 @@ footer{
 
     function abre(){
         if(caja.open) return;
+        var otra = document.getElementById('oferta');
+        if(otra && otra.open) otra.close();
         caja.showModal();
         document.documentElement.classList.add('con-ventana');
         // el foco al título y no al campo: en el móvil no salta el teclado de golpe
@@ -1111,8 +1210,13 @@ footer{
             setTimeout(ya, 3500);                            // si tarda, sale igual
         }, espera);
     }
+    // mientras hay oferta, al entrar sale la suya (ver el último script) y no esta
     if(location.hash === '#unete') lanza(0);
-    else if(esEntrada()) lanza(1200);
+    // (se decide con la página ya leída: la de la oferta se define más abajo)
+    else if(esEntrada()) document.addEventListener('DOMContentLoaded', function(){
+        (window.NOVA_OFERTA_ENTRADA ? window.NOVA_OFERTA_ENTRADA() : Promise.resolve(false))
+            .then(function(salio){ if(!salio) lanza(1200); });
+    });
     addEventListener('hashchange', function(){ if(location.hash === '#unete') lanza(0); });
 
     function fallo(mensaje){
@@ -1181,24 +1285,141 @@ footer{
 </script>
 
 <!-- Los sellos («Quedan L · XL», «Sold out») y los precios salen del stock
-     que lleva el estudio. Si no contesta, se quedan los que hay escritos. -->
+     que lleva el estudio. Si no contesta, se quedan los que hay escritos.
+     Encima va la oferta de oferta.js: el precio tachado, el «−30 %» y la
+     línea de aviso, y la ventana que sale al entrar. -->
 <script>
 (function(){
-    fetch('/api/catalogo').then(function(r){ return r.ok ? r.json() : null; }).then(function(d){
-        if(!d || !d.ok) return;
-        d.prendas.forEach(function(p){
+    var O = window.OFERTA;
+    var hay = !!(O && O.activa());
+
+    function estadoEscrito(art){
+        var s = art.querySelector('.sello:not(.sello-oferta)');
+        return !s ? '' : s.classList.contains('sello--fin') ? 'agotado'
+             : /pr[oó]ximamente/i.test(s.textContent) ? 'proximamente' : 'disponible';
+    }
+    // El precio de siempre se guarda en data-base la primera vez, para poder
+    // repintar sin perderlo cuando llega el del estudio.
+    function pinta(art, estado, precio){
+        var el = art.querySelector('.art-precio');
+        if(!el) return;
+        if(!el.hasAttribute('data-base')) el.setAttribute('data-base', el.textContent.trim());
+        if(precio) el.setAttribute('data-base', precio);
+        var base = el.getAttribute('data-base');
+        var vieja = art.querySelector('.sello-oferta');
+        if(vieja) vieja.parentNode.removeChild(vieja);
+
+        if(!(hay && estado === 'disponible' && O.aplica(art.id) && O.numero(base) != null)){
+            el.textContent = base;
+            return;
+        }
+        var s = document.createElement('s'), r = document.createElement('span');
+        s.textContent = base;
+        r.className = 'rebaja';
+        r.textContent = O.texto(O.rebajado(base));
+        el.textContent = '';
+        el.appendChild(s); el.appendChild(r);
+
+        var tag = document.createElement('p');
+        tag.className = 'sello sello-oferta';
+        tag.textContent = '−' + O.datos.descuento + ' %';
+        (art.querySelector('.visor') || art).appendChild(tag);
+    }
+
+    // primero con lo que hay escrito, para que no parpadee
+    Array.prototype.forEach.call(document.querySelectorAll('.art'), function(art){ pinta(art, estadoEscrito(art)); });
+
+    if(hay){
+        var aviso = document.getElementById('bf-aviso'), d = O.datos, b = document.createElement('b');
+        b.textContent = '−' + d.descuento + ' %';
+        aviso.appendChild(document.createTextNode(d.nombre + ' · '));
+        aviso.appendChild(b);
+        aviso.appendChild(document.createTextNode(' en las últimas unidades · ' + d.fechas.toLowerCase()));
+        aviso.hidden = false;
+    }
+
+    // y luego con el stock de verdad
+    window.NOVA_CAT.then(function(prendas){
+        if(!prendas) return;
+        prendas.forEach(function(p){
             var art = document.getElementById(p.id);
             if(!art) return;
-            var sello = art.querySelector('.sello'), precio = art.querySelector('.art-precio');
+            var sello = art.querySelector('.sello:not(.sello-oferta)');
             if(sello){
                 sello.textContent = p.estado === 'agotado' ? 'Sold out'
                     : p.estado === 'disponible' ? (p.tallas.length ? 'Quedan ' + p.tallas.join(' · ') : 'Disponible')
                     : 'Próximamente';
                 sello.classList.toggle('sello--fin', p.estado === 'agotado');
             }
-            if(precio && p.precio) precio.textContent = p.precio;
+            pinta(art, p.estado, p.precio);
         });
-    }).catch(function(){});
+    });
+
+    /* ---------- la ventana de la oferta ----------
+       La llama la de la lista al entrar en la web y contesta si sale (true)
+       o no (false). No sale fuera de fechas ni si la camiseta de la oferta
+       se ha agotado: entonces sale la de la lista, como siempre. */
+    var caja = document.getElementById('oferta');
+    window.NOVA_OFERTA_ENTRADA = function(){
+        if(!hay || !caja || typeof caja.showModal !== 'function') return Promise.resolve(false);
+        return window.NOVA_CAT.then(function(prendas){
+            var id = O.datos.destacada, p = null;
+            (prendas || []).forEach(function(x){ if(x.id === id) p = x; });
+            var art = document.getElementById(id);
+            var precioEl = art && art.querySelector('.art-precio');
+            var estado = p ? p.estado : (art ? estadoEscrito(art) : '');
+            var base = (p && p.precio) || (precioEl && precioEl.getAttribute('data-base'));
+            if(estado !== 'disponible' || O.numero(base) == null) return false;
+            prepara(id, base, p ? p.tallas : null);
+            lanza();
+            return true;
+        });
+    };
+
+    function prepara(id, base, tallas){
+        var d = O.datos;
+        document.getElementById('oferta-fechas').textContent = d.fechas;
+        // «Black Friday» en dos renglones: la última palabra en rosa
+        var t = document.getElementById('oferta-titulo'), pal = d.nombre.split(' ');
+        t.textContent = pal.length > 1 ? pal.slice(0, -1).join(' ') : d.nombre;
+        if(pal.length > 1){ var sp = document.createElement('span'); sp.textContent = pal[pal.length - 1]; t.appendChild(sp); }
+        document.getElementById('oferta-pct').textContent = d.descuento + ' % de descuento';
+        var pr = document.getElementById('oferta-precio'), s = document.createElement('s'), b = document.createElement('b');
+        s.textContent = base; b.textContent = O.texto(O.rebajado(base));
+        pr.textContent = '';
+        pr.appendChild(s); pr.appendChild(b);
+        if(tallas && tallas.length) document.getElementById('oferta-tallas').textContent = 'Quedan ' + tallas.join(' · ');
+        document.getElementById('oferta-ver').href = 'prenda.html?id=' + encodeURIComponent(id);
+    }
+
+    function suelta(){ document.documentElement.classList.remove('con-ventana'); }
+    // como la de la lista: la foto se pide solo ahora y se abre cuando ya está
+    function lanza(){
+        var foto = caja.querySelector('img'), hecho = false;
+        function ya(){
+            if(hecho) return;
+            hecho = true;
+            if(document.querySelector('dialog[open]')) return;   // ya hay otra abierta
+            caja.showModal();
+            document.documentElement.classList.add('con-ventana');
+            // el foco al título: en el móvil no salta nada de golpe
+            document.getElementById('oferta-titulo').focus({ preventScroll:true });
+        }
+        setTimeout(function(){
+            if(!foto.getAttribute('src')) foto.src = foto.getAttribute('data-src');
+            if(foto.complete && foto.naturalWidth) return ya();
+            foto.addEventListener('load', ya);
+            foto.addEventListener('error', ya);
+            setTimeout(ya, 3500);                                // si tarda, sale igual
+        }, 900);
+    }
+    if(caja){
+        caja.addEventListener('cancel', suelta);
+        caja.addEventListener('close', suelta);
+        document.getElementById('oferta-no').addEventListener('click', function(){ if(caja.open) caja.close(); suelta(); });
+        // pulsar en lo oscuro de fuera también la cierra
+        caja.addEventListener('click', function(e){ if(e.target === caja){ caja.close(); suelta(); } });
+    }
 })();
 </script>
 

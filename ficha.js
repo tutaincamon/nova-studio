@@ -113,6 +113,27 @@
     $('nombre').textContent = p.nombre;
     if (p.variante) { $('variante').textContent = p.variante; $('variante').hidden = false; }
     if (p.precio)   { $('precio').textContent   = p.precio;   $('precio').hidden   = false; }
+
+    /* ---------- la oferta (oferta.js) ----------
+       Solo en las prendas que entran y mientras se pueden apartar: en una
+       agotada no tiene sentido anunciar un precio. */
+    var O = window.OFERTA;
+    if (p.precio && p.estado === 'disponible' && O && O.aplica(p.id)) {
+        var antes = document.createElement('s'), ahora = document.createElement('span');
+        antes.textContent = p.precio;
+        ahora.className = 'rebaja';
+        ahora.textContent = O.texto(O.rebajado(p.precio));
+        $('precio').textContent = '';
+        $('precio').appendChild(antes);
+        $('precio').appendChild(ahora);
+        var linea = $('oferta-linea'), d = O.datos;
+        linea.textContent = d.nombre + ' · ';
+        var b = document.createElement('b');
+        b.textContent = '−' + d.descuento + ' %';
+        linea.appendChild(b);
+        linea.appendChild(document.createTextNode(' · ' + d.fechas.toLowerCase()));
+        linea.hidden = false;
+    }
     $('texto').textContent = p.texto;
 
     $('ficha').hidden = false;
@@ -180,6 +201,14 @@
         .then(function (res) {
             if (res.ok && res.datos && res.datos.ok) {
                 $('ref').textContent = res.datos.ref;
+                if (res.datos.precio) {
+                    var hp = $('hecho-precio'), pb = document.createElement('b');
+                    hp.textContent = 'A pagar en tienda: ';
+                    pb.textContent = res.datos.precio;
+                    hp.appendChild(pb);
+                    if (res.datos.oferta && O) hp.appendChild(document.createTextNode(' · ' + O.datos.nombre));
+                    hp.hidden = false;
+                }
                 $('ficha').hidden = true;
                 $('hecho').hidden = false;
                 window.scrollTo({ top: 0, behavior: 'smooth' });

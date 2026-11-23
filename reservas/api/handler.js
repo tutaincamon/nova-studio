@@ -2398,7 +2398,7 @@ const routes = {
       .filter((x) => !x.estado || x.estado === "pendiente")
       .map(({ _raw, _i, ...x }) => {
         const p = Sup.prendaDePedido(r.prendas, x);
-        return { ...x, prendaId: p?.id || "", prendaNombre: p ? p.nombre + (p.variante ? " · " + p.variante : "") : x.color, precio: p?.precio ?? null };
+        return { ...x, prendaId: p?.id || "", prendaNombre: p ? p.nombre + (p.variante ? " · " + p.variante : "") : x.color, precio: x.precio ?? p?.precio ?? null };
       });
     const mes = T.nowLocal().date.slice(0, 7);
     const delMes = r.ventas.filter((v) => String(v.fecha || "").startsWith(mes));
@@ -2488,7 +2488,8 @@ const routes = {
     const ped0 = r.pedidos.find((x) => x.ref === ref);
     if (!ped0) fail(404, "No encontramos esa reserva.");
     const p = Sup.prendaDePedido(r.prendas, ped0);
-    const importe = body.importe === undefined || body.importe === "" ? (p?.precio ?? 0) : Math.round(Number(String(body.importe).replace(",", ".")) * 100) / 100;
+    // Si la reserva se hizo con oferta (Black Friday…), lleva su precio apuntado y manda ese.
+    const importe = body.importe === undefined || body.importe === "" ? (ped0.precio ?? p?.precio ?? 0) : Math.round(Number(String(body.importe).replace(",", ".")) * 100) / 100;
     if (!(importe >= 0 && importe <= 5000)) fail(400, "Revisa el importe.");
     const now = T.nowLocal();
     const ped = await Sup.marcarPedido(ref, { estado: "recogida", recogida: now.stamp, por: me.id });
