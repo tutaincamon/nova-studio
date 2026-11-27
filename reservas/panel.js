@@ -2406,6 +2406,39 @@ async function staffClients() {
   );
 }
 
+// Vista previa de un correo sin scripts ni iframes (respeta la CSP): se lee con DOMParser (no ejecuta nada)
+// y solo se copian etiquetas y atributos de una lista permitida.
+const MAIL_TAGS = new Set(["DIV", "P", "H1", "B", "STRONG", "I", "EM", "U", "A", "SPAN", "BR"]);
+function mailPreview(html) {
+  const doc = new DOMParser().parseFromString(String(html), "text/html");
+  const copy = (src) => {
+    const out = document.createDocumentFragment();
+    for (const n of src.childNodes) {
+      if (n.nodeType === 3) out.append(document.createTextNode(n.nodeValue));
+      else if (n.nodeType === 1 && MAIL_TAGS.has(n.tagName)) {
+        const el = document.createElement(n.tagName.toLowerCase());
+        const style = n.getAttribute("style");
+        if (style && !/url\s*\(|expression|@import/i.test(style)) el.setAttribute("style", style);
+        if (n.tagName === "A") {
+          const href = n.getAttribute("href") || "";
+          if (/^https?:\/\//i.test(href)) {
+            el.setAttribute("href", href);
+            el.setAttribute("target", "_blank");
+            el.setAttribute("rel", "noopener noreferrer");
+          }
+        }
+        el.append(copy(n));
+        out.append(el);
+      }
+    }
+    return out;
+  };
+  const wrap = document.createElement("div");
+  wrap.className = "mail-preview";
+  wrap.append(copy(doc.body));
+  return wrap;
+}
+
 // ── Avisos y reseñas (solo el dueño) ───────────────────────────────────────
 // Clientes dormidos, peticiones de reseña de Google y registro de envíos. Sin
 // correo activo (o en demo) los avisos no salen: quedan «simulados» en el registro.
@@ -2419,7 +2452,7 @@ async function staffAvisos() {
     const [t, cls] = NOTICE_ST[x] || NOTICE_ST.enviado;
     return `<span class="appt-state ${cls}">${t}</span>`;
   };
-  const noticeTxt = (x) => `${esc(shortDate(x.at.slice(0, 10)))} · ${x.type === "resena" ? "Reseña" : "Dormido"}`;
+  const noticeTxt = (x) => `${esc(shortDate(x.at.slice(0, 10)))} · ${x.test ? "Prueba · " : ""}${x.type === "resena" ? "Reseña" : "Dormido"}`;
   show(
     staffTop("avisos") +
       (r.sim ? `<p class="warning">${r.mail ? "Modo demo" : "El correo no está activado"}: los avisos NO se envían, se anotan como «simulado» en el historial.</p>` : "") +
@@ -2466,6 +2499,21 @@ async function staffAvisos() {
         <div class="pct-field"><input id="av-g" name="reviewGapDays" inputmode="numeric" value="${c.reviewGapDays}"><span>días</span></div>
         <button class="btn wide" style="margin-top:14px" type="submit">Guardar</button>
       </form>
+      <p class="section-label">Enviarme una prueba</p>
+      <form id="av-test" class="card norms">
+        <p class="muted" style="font-size:13px;margin:0 0 10px">Te mando el correo con datos de ejemplo («Carlos (ejemplo)», última visita hace 7 semanas) y con el enlace de reserva real. No toca a ningún cliente, no cuenta para no repetir avisos y queda en el historial como «prueba». Como mucho ${r.testLimit} pruebas por hora.</p>
+        <label for="avt-e">Mandar a este correo</label>
+        <input id="avt-e" name="email" type="email" inputmode="email" maxlength="120" required value="${esc(r.testEmail || "")}">
+        <label for="avt-k">Qué probar</label>
+        <select id="avt-k" name="kind"><option value="ambos">Los dos</option><option value="dormido">Aviso de cliente dormido</option><option value="resena">Petición de reseña</option></select>
+        <button class="btn wide" style="margin-top:14px" type="submit">Enviarme una prueba</button>
+        <p class="muted" style="font-size:12px;margin:10px 0 0">${
+          r.sim
+            ? `<b>Ahora mismo no saldría ningún correo</b> (${r.mail ? "modo demo" : "correo sin activar"}): verás una vista previa y quedará «Simulado». `
+            : "El correo está activo: la prueba se envía de verdad. "
+        }Para que llegue de verdad hace falta <code>RESEND_API_KEY</code>, <code>MAIL_FROM</code> con un dominio verificado en Resend (registros DNS SPF y DKIM) y quitar <code>MODO_DEMO</code>.</p>
+        <div id="av-prev"></div>
+      </form>
       <p class="section-label">Historial de envíos</p>
       ${
         r.log.length
@@ -2487,6 +2535,26 @@ async function staffAvisos() {
     });
   $$("[data-notice]").forEach((b) => run(b, "staff/clients/contact", (x) => ({ email: x.dataset.notice, channel: "email" }), "Aviso enviado."));
   $$("[data-resend]").forEach((b) => run(b, "staff/avisos/resena", (x) => ({ bookingId: x.dataset.resend }), "Petición reenviada."));
+  onForm("av-test", async (d) => {
+    const x = await api("staff/avisos/prueba", { email: d.email, kind: d.kind });
+    const box = $("#av-prev");
+    box.textContent = "";
+    for (const m of x.sent) {
+      const head = document.createElement("p");
+      head.className = "tr-line";
+      head.innerHTML = `${st(m.status)} <b></b>`;
+      head.querySelector("b").textContent = m.subject;
+      box.append(head);
+      if (m.error) {
+        const er = document.createElement("p");
+        er.className = "warning";
+        er.textContent = m.error;
+        box.append(er);
+      }
+      box.append(mailPreview(m.html));
+    }
+    toast(x.sim ? "Simulado: no se ha enviado, mira la vista previa." : x.ok ? "Prueba enviada." : "No se ha podido enviar.");
+  });
   onForm("av", async (d) => {
     await api("staff/rules", {
       dormantWeeks: d.dormantWeeks,

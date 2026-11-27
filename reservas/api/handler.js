@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { cmd, pipe, getJSON, setJSON, hgetall, usingMemory, scanKeys, dumpKeys, claim, hit } from "./_lib/store.js";
 import { SERVICES, PROVIDERS, RULES, BUSINESS, POINTS, MEDALS, REWARDS, COMMISSION, TRAINING, EXTRAS, PAY_METHODS, SHOP, MEMBERSHIP, publicCatalog } from "./_lib/config.js";
 import * as T from "./_lib/time.js";
-import { codeMail, send, bookingLines, mailReady } from "./_lib/mail.js";
+import { codeMail, send, sendDetailed, shell, bookingLines, mailReady } from "./_lib/mail.js";
 import * as Card from "./_lib/stripe.js";
 import * as Sup from "./_lib/supply.js";
 import { accessPolicy, MAIL_NOT_READY } from "./_lib/access.js";
@@ -1810,6 +1810,7 @@ async function unsubFoot(email, host) {
   return `<p style="margin:12px 0 0;color:#64645e;font-size:12px">¿No quieres más correos así? ${host ? `<a href="https://${host}/api/unsub/${encodeURIComponent(email)}/${t}">Darte de baja</a>` : "Respóndenos y te quitamos."}</p>`;
 }
 // ¿Se manda de verdad? En MODO_DEMO o sin RESEND_API_KEY no: el aviso se registra como «simulado».
+const TEST_MAX = 10; // pruebas de «Enviarme una prueba» por hora
 const simMail = () => !mailReady() || process.env.MODO_DEMO === "1";
 // Registro de avisos (dormidos y reseñas) para el panel del dueño.
 async function logNotice(e) {
@@ -1817,6 +1818,30 @@ async function logNotice(e) {
   const entry = { id: newId(), at: now.stamp, ...e };
   await setJSON("avisos:log", R.pushLog(await getJSON("avisos:log"), entry));
   return entry;
+}
+// Plantilla del aviso a un cliente dormido: la usan el envío real y «Enviarme una prueba».
+function winbackContent(c, host, foot, test = false) {
+  const base = host ? `https://${host}` : "";
+  const off = NORMS.winbackOffer ? `<p style="margin:0 0 12px;padding:12px;border:1px solid #dcdad3;background:#f5f4f0"><b>${htmlEsc(NORMS.winbackOffer)}</b></p>` : "";
+  const link = R.bookLink(host, c.habit, { service: (id) => !!service(id) && service(id).active !== false, provider: (id) => !!provider(id) && provider(id).active !== false });
+  return {
+    subject: `${test ? "[Prueba] " : ""}Publi · ${c.name ? c.name.split(" ")[0] + ", t" : "T"}e echamos de menos en ${BUSINESS.short}`,
+    title: "Te echamos de menos",
+    html: `<p style="margin:0 0 12px">${c.name ? "Hola " + htmlEsc(c.name.split(" ")[0]) + ": " : ""}${htmlEsc(NORMS.winbackText)}</p>${off}
+       ${base ? `<p style="margin:0 0 12px"><a href="${htmlEsc(link)}" style="display:inline-block;background:#171717;color:#fff;padding:12px 18px;text-decoration:none">Reservar cita</a></p>` : ""}` + foot,
+  };
+}
+// Plantilla de la petición de reseña (`href` = a dónde lleva el botón).
+function reviewContent(b, href, foot, test = false) {
+  const first = b.name ? String(b.name).split(" ")[0] : "";
+  return {
+    subject: `${test ? "[Prueba] " : ""}¿Qué tal tu ${b.service.name.toLowerCase()}?`,
+    title: `Gracias por venir${first ? ", " + first : ""}`,
+    html: `<p style="margin:0 0 12px">Esperamos que ${htmlEsc(b.provider.name.split(" ")[0])} te haya dejado como querías.</p>
+       <p style="margin:0 0 14px">Si te ha gustado, nos ayudas muchísimo contándolo. Es un minuto:</p>
+       <p style="margin:0 0 12px"><a href="${htmlEsc(href)}" style="display:inline-block;background:#171717;color:#fff;padding:12px 18px;text-decoration:none">Dejar mi reseña</a></p>
+       <p style="margin:0;color:#64645e;font-size:13px">Y si algo no fue bien, responde a este correo: lo lee el equipo.</p>` + foot,
+  };
 }
 // Aviso a un cliente dormido, con enlace de reserva directa (su barbero y servicio de siempre).
 // Devuelve "enviado" | "simulado" | "fallido". Anota el aviso en `winback:` (que es lo que
@@ -1826,18 +1851,8 @@ async function winbackMail(c, host, by = "auto") {
   const sim = simMail();
   let status = "simulado";
   if (!sim) {
-    const t = await unsubToken(c.email);
-    const base = host ? `https://${host}` : "";
-    const off = NORMS.winbackOffer ? `<p style="margin:0 0 12px;padding:12px;border:1px solid #dcdad3;background:#f5f4f0"><b>${htmlEsc(NORMS.winbackOffer)}</b></p>` : "";
-    const link = R.bookLink(host, c.habit, { service: (id) => !!service(id) && service(id).active !== false, provider: (id) => !!provider(id) && provider(id).active !== false });
-    const ok = await send(
-      c.email,
-      `Publi · ${c.name ? c.name.split(" ")[0] + ", t" : "T"}e echamos de menos en ${BUSINESS.short}`,
-      "Te echamos de menos",
-      `<p style="margin:0 0 12px">${c.name ? "Hola " + htmlEsc(c.name.split(" ")[0]) + ": " : ""}${htmlEsc(NORMS.winbackText)}</p>${off}
-       ${base ? `<p style="margin:0 0 12px"><a href="${htmlEsc(link)}" style="display:inline-block;background:#171717;color:#fff;padding:12px 18px;text-decoration:none">Reservar cita</a></p>` : ""}
-       <p style="margin:12px 0 0;color:#64645e;font-size:12px">¿No quieres más correos así? ${base ? `<a href="${base}/api/unsub/${encodeURIComponent(c.email)}/${t}">Darte de baja</a>` : "Respóndenos y te quitamos."}</p>`,
-    );
+    const m = winbackContent(c, host, await unsubFoot(c.email, host));
+    const ok = await send(c.email, m.subject, m.title, m.html);
     status = ok ? "enviado" : "fallido";
   }
   await logNotice({ type: "dormido", email: c.email, name: c.name || "", status, by });
@@ -1868,18 +1883,9 @@ async function reviewRequest(b, host, { by = "auto", force = false } = {}) {
   await cmd("SET", "revmail:" + b.email, JSON.stringify({ at: T.nowLocal().stamp, booking: b.id }), "EX", Math.max(NORMS.reviewGapDays, 1) * 86400);
   let status = "simulado";
   if (!sim) {
-    const first = b.name ? String(b.name).split(" ")[0] : "";
     const href = `https://${host}/api/resena/${encodeURIComponent(b.email)}/${await reviewToken(b.email)}`;
-    const ok = await send(
-      b.email,
-      `¿Qué tal tu ${b.service.name.toLowerCase()}?`,
-      `Gracias por venir${first ? ", " + first : ""}`,
-      `<p style="margin:0 0 12px">Esperamos que ${htmlEsc(b.provider.name.split(" ")[0])} te haya dejado como querías.</p>
-       <p style="margin:0 0 14px">Si te ha gustado, nos ayudas muchísimo contándolo. Es un minuto:</p>
-       <p style="margin:0 0 12px"><a href="${htmlEsc(href)}" style="display:inline-block;background:#171717;color:#fff;padding:12px 18px;text-decoration:none">Dejar mi reseña</a></p>
-       <p style="margin:0;color:#64645e;font-size:13px">Y si algo no fue bien, responde a este correo: lo lee el equipo.</p>` + (await unsubFoot(b.email, host)),
-      await ownerMail(),
-    );
+    const m = reviewContent(b, href, await unsubFoot(b.email, host));
+    const ok = await send(b.email, m.subject, m.title, m.html, await ownerMail());
     status = ok ? "enviado" : "fallido";
   }
   await logNotice({ type: "resena", email: b.email, name: b.name || "", status, by, bookingId: b.id, service: b.service.name, date: b.date });
@@ -4328,7 +4334,7 @@ const routes = {
     const reviews = [];
     const seen = new Set();
     for (const e of entries) {
-      if (e.type !== "resena" || seen.has(e.bookingId)) continue;
+      if (e.type !== "resena" || e.test || seen.has(e.bookingId)) continue;
       seen.add(e.bookingId);
       reviews.push(e);
       if (reviews.length >= 20) break;
@@ -4341,6 +4347,52 @@ const routes = {
       log: entries.slice(0, 100),
       mail: mailReady(),
       sim: simMail(),
+      testEmail: await ownerMail(),
+      testLimit: TEST_MAX,
+    };
+  },
+  // «Enviarme una prueba»: los mismos correos con datos de ejemplo, solo al correo escrito.
+  // No toca a ningún cliente ni la deduplicación (winback:, revreq:, revmail:); queda en el historial como prueba.
+  "POST staff/avisos/prueba": async ({ req, body }) => {
+    const me = await needStaff(req);
+    if (!me.owner) fail(403, "Los avisos los lleva el dueño.");
+    const email = normEmail(body.email);
+    if (!EMAIL.test(email) || email.length > 120) fail(400, "Escribe un correo válido para la prueba.");
+    const kind = String(body.kind || "ambos");
+    if (!["dormido", "resena", "ambos"].includes(kind)) fail(400, "Elige qué quieres probar.");
+    const host = hostOf(req);
+    const link = (await reviewLink()).url;
+    if (kind !== "dormido" && !link) fail(400, "Falta el enlace de reseñas: ponlo en «Avisos y reseñas» o define GOOGLE_REVIEW_URL.");
+    await limit("avisotest:" + me.id, TEST_MAX, 3600, `Has mandado ${TEST_MAX} pruebas en la última hora. Espera un rato.`);
+    // Servicio y barbero reales del catálogo (los primeros activos).
+    const svc = SVCS.find((x) => x.active !== false) || SVCS[0];
+    const pro = TEAM.find((x) => x.active !== false && !x.owner) || TEAM.find((x) => x.active !== false) || TEAM[0];
+    const name = "Carlos (ejemplo)";
+    const now = T.nowLocal();
+    const foot = `<p style="margin:12px 0 0;color:#64645e;font-size:12px">¿No quieres más correos así? <u>Darte de baja</u> <i>(en los envíos reales, aquí va el enlace de baja)</i></p>`;
+    const sim = simMail();
+    const out = [];
+    for (const k of kind === "ambos" ? ["dormido", "resena"] : [kind]) {
+      const m =
+        k === "dormido"
+          ? winbackContent({ email, name, habit: { service: svc.id, provider: pro.id } }, host, foot, true)
+          : reviewContent({ name, service: { name: svc.name }, provider: { name: pro.name } }, link, foot, true);
+      let status = "simulado",
+        error = "";
+      if (!sim) {
+        const r = await sendDetailed(email, m.subject, m.title, m.html, k === "resena" ? await ownerMail() : undefined);
+        status = r.ok ? "enviado" : "fallido";
+        error = r.error || "";
+      }
+      await logNotice({ type: k, email, name, status, by: me.id, test: true });
+      out.push({ kind: k, status, error, subject: m.subject, title: m.title, html: shell(m.title, m.html), link: k === "dormido" ? R.bookLink(host, { service: svc.id, provider: pro.id }) : link });
+    }
+    return {
+      ok: out.every((x) => x.status !== "fallido"),
+      sim,
+      mail: mailReady(),
+      example: { name, lastVisit: T.addDays(now.date, -49), weeks: 7, service: svc.name, provider: pro.name },
+      sent: out,
     };
   },
   // Reenviar la petición de reseña de una cita (aunque ya se pidiera).
