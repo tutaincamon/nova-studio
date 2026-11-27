@@ -6,6 +6,7 @@ import * as T from "./_lib/time.js";
 import { codeMail, send, bookingLines, mailReady } from "./_lib/mail.js";
 import * as Card from "./_lib/stripe.js";
 import * as Sup from "./_lib/supply.js";
+import * as Shop from "./_lib/shop.js";
 import { accessPolicy, MAIL_NOT_READY } from "./_lib/access.js";
 import * as Tokens from "./_lib/assistant.js";
 import * as E from "./_lib/earnings.js";
@@ -1050,18 +1051,29 @@ async function bookFor(user, body, { from, via } = {}) {
       ...(cover.included ? { membership: { included: true, plan: sub.plan.id, planName: sub.plan.name, from: cover.window.start, to: cover.window.end } } : {}),
       ...(user?.card ? { guarantee: { brand: user.card.brand, last4: user.card.last4, at: now.stamp } } : {}),
     };
+    // «Añade algo para recoger en el local»: se aparta antes de guardar la cita (si no hay unidades, no se reserva nada).
+    let merch = await merchForBooking(user, body.merch);
     let b = null;
-    for (const { p } of cands) {
-      const x = makeBooking(s, p, body.date, body.start, extra);
-      try {
-        await place(x);
-        b = x;
-        break;
-      } catch (e) {
-        if (e.status !== 409) throw e;
+    try {
+      for (const { p } of cands) {
+        const x = makeBooking(s, p, body.date, body.start, extra);
+        try {
+          await place(x);
+          b = x;
+          break;
+        } catch (e) {
+          if (e.status !== 409) throw e;
+        }
       }
+    } catch (e) {
+      if (merch) await Shop.cancel(merch.id, { by: "auto", reason: "No se pudo guardar la cita." }).catch(() => {});
+      throw e;
     }
-    if (!b) fail(409, "Esa hora ya no está libre. Mira estas otras:", { alternatives: await alternativesFor(s, fixed, body.date, body.start) });
+    if (!b) {
+      if (merch) await Shop.cancel(merch.id, { by: "auto", reason: "No se pudo guardar la cita." }).catch(() => {});
+      fail(409, "Esa hora ya no está libre. Mira estas otras:", { alternatives: await alternativesFor(s, fixed, body.date, body.start) });
+    }
+    if (merch) merch = await Shop.attachBooking(merch, b.id).catch(() => merch);
     const p = provider(b.provider.id);
     // Cita que se repite (si el dueño lo permite): cada 1-4 semanas, hasta recurringMax veces.
     let series = null;
@@ -1076,11 +1088,12 @@ async function bookFor(user, body, { from, via } = {}) {
         "Tu cita está reservada",
         bookingLines(b, T.niceDate(b.date)) +
           (b.membership ? `<p style="margin:14px 0 0;font-size:14px"><b>Incluida en tu membresía ${htmlEsc(b.membership.planName)}</b>: no pagas nada en el local.</p>` : "") +
+          (merch ? `<p style="margin:14px 0 0;font-size:14px"><b>NOVA Supply:</b> te lo guardamos para que lo recojas en la cita (${merch.items.map((l) => `${htmlEsc(l.nombre)} · ${htmlEsc(l.talla)}${l.cantidad > 1 ? " × " + l.cantidad : ""}`).join(", ")}). Total ${merch.total.toFixed(2).replace(".", ",")} € a pagar en el local.</p>` : "") +
           `<p style="margin:14px 0 0;color:#64645e;font-size:13px">Puedes cambiarla o cancelarla desde la app hasta ${NORMS.cancelHours} h antes. Referencia ${b.id}.</p>`,
       ),
       notifySalon(b, "Nueva cita"),
     ]);
-    return { out: { id: b.id, series, provider: { id: b.provider.id, name: b.provider.name }, ...(b.membership ? { membership: { included: true, plan: b.membership.planName, left: cover.left - 1 } } : {}) }, booking: b };
+    return { out: { id: b.id, series, provider: { id: b.provider.id, name: b.provider.name }, ...(merch ? { merch: Shop.viewFor(merch) } : {}), ...(b.membership ? { membership: { included: true, plan: b.membership.planName, left: cover.left - 1 } } : {}) }, booking: b };
   } finally {
     await cmd("DEL", "booking:" + email);
   }
@@ -1104,6 +1117,8 @@ async function cancelFor(b, { staff = false, series = false, host = "" } = {}) {
     ...(late ? { late: true, hoursLeft: Math.max(0, Math.round(T.minutesUntil(b.date, b.start) / 6) / 10) } : {}),
   };
   await unplace(b, done);
+  // Lo que había pedido para recoger en esa cita (y no se ha cobrado) vuelve a estar libre.
+  for (const o of await Shop.ofBooking(b.id)) if (o.estado === "pendiente") await Shop.cancel(o.id, { by: staff ? "equipo" : "cliente", reason: "La cita se canceló." }).catch(() => {});
   if (b.pay) await rankTouch(b.email); // una cita cobrada que se anula deja de sumar
   // «Cancelar también las siguientes» de una cita que se repite.
   let more = 0;
@@ -1363,6 +1378,14 @@ async function cronTick(req) {
       if (n) out.membership = { demoRenewed: n };
     } catch (e) {
       out.membership = { error: String(e.message || e) };
+    }
+    // Pedidos de NOVA Supply: soltar lo que nadie va a recoger o pagar, y dar los puntos de los cobrados por Stripe.
+    try {
+      const m = await Shop.maintain({ bookingState, club: shopClub });
+      const pts = await Shop.grantClubs(shopClub);
+      if (m.released || m.paid || pts) out.shop = { ...m, points: pts };
+    } catch (e) {
+      out.shop = { error: String(e.message || e) };
     }
     // Sin correo (o en demo) los avisos de dormidos y reseñas no salen: se anotan como «simulado».
     // Lo demás que necesita correo se salta; lo que no, se hace igual (p. ej. borrar cuentas sin uso).
@@ -1910,6 +1933,52 @@ async function clubPurchase(u, amount, items, by) {
   await rankTouch(u.email);
   return p;
 }
+
+// Quita los puntos de una compra de ropa (deshacer una venta o cancelar un pedido cobrado).
+async function dropClubPurchase(id) {
+  const sp = await getJSON("sh:" + id);
+  if (!sp) return;
+  await pipe([
+    ["DEL", "sh:" + sp.id],
+    ["SREM", "ush:" + sp.email, sp.id],
+  ]);
+  await rankTouch(sp.email);
+}
+
+// ── Pedidos de NOVA Supply (ver _lib/shop.js) ──────────────────────────────
+// Los puntos del Club de un pedido cobrado: la misma ficha que una venta de caja.
+async function shopClub(o) {
+  const u = o.email && (await getJSON("user:" + o.email));
+  const units = o.items.reduce((a, l) => a + l.cantidad, 0);
+  return u && o.total > 0 ? clubPurchase(u, o.total, units, o.paidBy || "app") : null;
+}
+const shopHooks = { club: shopClub, dropClub: dropClubPurchase };
+// Pago online: Stripe si hay clave; sin clave, simulado solo en demo/local; si no, no hay.
+const shopOnlineMode = () => (Card.shopOnline() ? "stripe" : process.env.MODO_DEMO === "1" || !ON_VERCEL ? "demo" : null);
+const shopErr = (e) => {
+  if (e instanceof Shop.ShopError) fail(e.status, e.message);
+  throw e;
+};
+// Descuento de socio NOVA+ en la ropa (el que el plan define para «el resto de servicios y la ropa»).
+async function shopDiscount(email) {
+  const sub = email ? await memberOf(email) : null;
+  return M.isLive(sub, T.nowLocal().date) ? sub.plan?.discountPct || 0 : 0;
+}
+// Pedido que se hace al reservar la cita: se paga en el local, en la cita.
+async function merchForBooking(user, raw) {
+  if (!Array.isArray(raw) || !raw.length) return null;
+  try {
+    const r = await Sup.leer({ ventas: 1 });
+    const pre = Shop.prepare(r.prendas, raw, await shopDiscount(user.email));
+    return await Shop.create({ user, ...pre, discountPct: await shopDiscount(user.email), pay: "local" });
+  } catch (e) {
+    return shopErr(e);
+  }
+}
+const bookingState = async (id) => {
+  const b = await getJSON("bk:" + id);
+  return b ? { canceled: b.status === "canceled", date: b.date } : null;
+};
 
 // ── Asistente de IA (MCP) ──────────────────────────────────────────────────
 // Un asistente (Claude, ChatGPT, Grok…) reserva por orden del cliente en
@@ -3251,11 +3320,155 @@ const routes = {
         stock[t] = n;
       }
     }
+    // Foto propia de la app (la misma mecánica que los productos del estudio): se guarda en `prodimg:sup-<id>`.
+    const photo = String(body.photo || "");
+    if (photo && (!PHOTO.test(photo) || photo.length > 280000)) fail(400, "Esa foto no vale. Prueba con otra.");
+    const descripcion = String(body.descripcion ?? prev?.descripcion ?? "").replace(/\s+/g, " ").trim().slice(0, 300);
     const item = await Sup.guardarPrenda(
-      { id: prev?.id, nombre, variante: clean(body.variante, 30), color: clean(body.color, 20).toLowerCase(), precio, estado: body.estado, tallas, foto: prev?.foto || clean(body.foto, 80), stock },
+      {
+        id: prev?.id,
+        nombre,
+        variante: clean(body.variante, 30),
+        color: clean(body.color, 20).toLowerCase(),
+        precio,
+        estado: body.estado,
+        tallas,
+        foto: prev?.foto || clean(body.foto, 80),
+        descripcion,
+        ...(photo ? { img: String(Date.now()) } : body.quitarFoto === true ? { img: "" } : {}),
+        stock,
+      },
       r.prendas,
     );
+    if (photo) await cmd("SET", "prodimg:sup-" + item.id, photo);
+    else if (body.quitarFoto === true) await cmd("DEL", "prodimg:sup-" + item.id);
     return { ok: true, prenda: item };
+  },
+
+  // Borrar una prenda del catálogo (solo el dueño, y solo si ningún pedido abierto la tiene apartada).
+  "POST staff/ropa/prenda/borrar": async ({ req, body }) => {
+    const me = await needStaff(req);
+    if (!me.owner) fail(403, "Las prendas las lleva el dueño.");
+    const r = await Sup.leer({ ventas: 1 });
+    const id = String(body.id || "");
+    if (!r.prendas.some((p) => p.id === id)) fail(404, "Esa prenda ya no existe.");
+    if ((await Shop.all()).some((o) => Shop.ABIERTOS.includes(o.estado) && o.items.some((l) => l.prenda === id))) fail(409, "Hay pedidos abiertos con esa prenda. Entrégalos o cancélalos antes, o mejor ponla como «Oculta».");
+    await Sup.borrarPrenda(id, r.prendas);
+    await cmd("DEL", "prodimg:sup-" + id);
+    return { ok: true };
+  },
+
+  // ── Tienda NOVA Supply en la app (clientes) ─────────────────────────────
+  // Catálogo con lo que se puede pedir ahora, sin números de stock (solo cuántas unidades por talla).
+  "GET shop": async ({ req }) => {
+    const u = await currentUser(req);
+    const disc = u ? await shopDiscount(u.email) : 0;
+    const r = await Sup.leer({ ventas: 1 });
+    return { name: SHOP.name, prendas: Shop.orderable(r.prendas).map((p) => Shop.publicItem(p, disc)), discountPct: disc, online: shopOnlineMode(), perEuro: POINTS.perEuro, demo: shopOnlineMode() === "demo" };
+  },
+  "GET supply/:id/photo": async ({ params }) => {
+    const data = await cmd("GET", "prodimg:sup-" + String(params.id).replace(/[^a-z0-9-]/g, ""));
+    const m = data && /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(data);
+    if (!m) fail(404, "Sin foto.");
+    return { raw: Buffer.from(m[2], "base64"), type: m[1], cache: "public, max-age=31536000, immutable" };
+  },
+  "GET shop/orders": async ({ req }) => {
+    const u = await currentUser(req);
+    if (!u) fail(401, "Entra para ver tus pedidos.");
+    return { orders: (await Shop.ofUser(u.email)).slice(0, 30).map(Shop.viewFor) };
+  },
+  "POST shop/orders": async ({ req, body }) => {
+    const u = await currentUser(req);
+    if (!u) fail(401, "Entra con tu correo para hacer un pedido. Te mandamos un código.");
+    if (!clean(u.name)) fail(400, "Falta tu nombre.");
+    await limit("shop:" + ip(req), 20, 3600);
+    const pay = body.pay === "online" ? shopOnlineMode() : "local";
+    if (!pay) fail(400, "El pago online no está activado. Puedes pagar en el local.");
+    const open = (await Shop.ofUser(u.email)).filter((o) => o.estado === "pendiente" && o.pay === "stripe");
+    if (open.length >= 3) fail(429, "Tienes varios pagos sin terminar. Complétalos o cancélalos antes de hacer otro pedido.");
+    const disc = await shopDiscount(u.email);
+    let o;
+    try {
+      const r = await Sup.leer({ ventas: 1 });
+      const pre = Shop.prepare(r.prendas, body.items, disc);
+      o = await Shop.create({ user: u, ...pre, discountPct: disc, pay: pay === "stripe" ? "stripe" : "local", note: clean(body.note, 200) });
+      if (pay === "stripe") {
+        try {
+          o = await Shop.startCheckout(o, { base: publicBase(req) });
+        } catch (e) {
+          await Shop.cancel(o.id, { by: "auto", reason: "No se pudo abrir el pago." }).catch(() => {});
+          console.error("Checkout de pedido:", e.message);
+          fail(502, "No hemos podido abrir el pago online. Prueba otra vez o paga en el local.");
+        }
+      } else if (pay === "demo") {
+        // Pago simulado (demo, sin Stripe): se cobra al momento, sin dinero real.
+        o = (await Shop.markPaid(o.id, { method: "demo", by: "demo", club: shopClub })) || o;
+      }
+    } catch (e) {
+      return shopErr(e);
+    }
+    return { order: Shop.viewFor(o), ...(o.stripe?.url && o.estado === "pendiente" ? { url: o.stripe.url } : {}), demo: o.pay === "demo" };
+  },
+  // Al volver de Stripe (el webhook puede tardar): se pregunta a Stripe y se pone al día el pedido.
+  "GET shop/orders/:id": async ({ req, params, q }) => {
+    const u = await currentUser(req);
+    let o = await Shop.get(params.id);
+    if (!u || !o || o.email !== u.email) fail(404, "No encontramos ese pedido.");
+    if (q.get("sync") === "1") o = await Shop.syncStripe(o, { club: shopClub });
+    return { order: Shop.viewFor(o) };
+  },
+  "POST shop/orders/:id/cancel": async ({ req, params }) => {
+    const u = await currentUser(req);
+    const o = await Shop.get(params.id);
+    if (!u || !o || o.email !== u.email) fail(404, "No encontramos ese pedido.");
+    if (o.estado !== "pendiente") fail(400, o.estado === "cancelado" ? "Ese pedido ya está cancelado." : "Ese pedido ya está cobrado. Habla con el estudio para cambiarlo.");
+    const done = await Shop.cancel(o.id, { by: "cliente" });
+    return { order: Shop.viewFor(done) };
+  },
+
+  // ── Pedidos de NOVA Supply (equipo) ─────────────────────────────────────
+  "GET staff/shop": async ({ req }) => {
+    const me = await needCaja(req);
+    await Shop.grantClubs(shopClub).catch(() => {});
+    const list = await Shop.all();
+    const mes = T.nowLocal().date.slice(0, 7);
+    const paid = list.filter((o) => (o.paidAt || "").startsWith(mes) && o.estado !== "cancelado");
+    return {
+      owner: !!me.owner,
+      orders: list.slice(0, 200).map(({ stripe, history, ...o }) => ({ ...o, online: !!stripe })),
+      open: list.filter((o) => Shop.ABIERTOS.includes(o.estado)).length,
+      mes: { pedidos: paid.length, importe: cents(paid.reduce((a, o) => a + o.total, 0)) },
+    };
+  },
+  "POST staff/shop/:id/estado": async ({ req, params, body }) => {
+    const me = await needCaja(req);
+    const o = await Shop.get(params.id);
+    if (!o) fail(404, "No encontramos ese pedido.");
+    let done;
+    try {
+      done = await Shop.setEstado(o, String(body.estado || ""), { by: me.id, owner: !!me.owner, ...shopHooks });
+    } catch (e) {
+      shopErr(e);
+    }
+    return { order: done };
+  },
+  // «Cobrado en el local»: entra en la caja como venta de ropa y suma los puntos del Club.
+  "POST staff/shop/:id/cobrar": async ({ req, params, body }) => {
+    const me = await needCaja(req);
+    const o = await Shop.get(params.id);
+    if (!o) fail(404, "No encontramos ese pedido.");
+    let importe;
+    if (body.importe !== undefined && body.importe !== "" && body.importe !== null) {
+      importe = Math.round(Number(String(body.importe).replace(",", ".")) * 100) / 100;
+      if (!(importe >= 0 && importe <= 5000)) fail(400, "Revisa el importe.");
+    }
+    let done;
+    try {
+      done = await Shop.cobrarLocal(o, { by: me.id, importe, club: shopClub });
+    } catch (e) {
+      shopErr(e);
+    }
+    return { order: done, puntos: done.puntos || 0 };
   },
 
   // Venta en el estudio: baja el stock, queda apuntada para las dos webs y, si
@@ -3347,19 +3560,11 @@ const routes = {
     const v = r.ventas.find((x) => x.id === params.id);
     if (!v) fail(404, "No encontramos esa venta.");
     if (v.canal === "web") fail(400, "Las recogidas de la web no se deshacen aquí: habla con el dueño.");
+    if (v.pedido) fail(400, "Es de un pedido de la app: cancélalo desde «Pedidos».");
     if (!me.owner && v.por !== me.id && !(me.caja && String(v.fecha).startsWith(T.nowLocal().date))) fail(403, "Solo la puede deshacer quien la apuntó o el dueño.");
     await Sup.quitarVenta(v.id);
     if (v.prenda) await Sup.subirStock(v.prenda, v.talla, v.cantidad || 1);
-    if (v.club) {
-      const sp = await getJSON("sh:" + v.club);
-      if (sp) {
-        await pipe([
-          ["DEL", "sh:" + sp.id],
-          ["SREM", "ush:" + sp.email, sp.id],
-        ]);
-        await rankTouch(sp.email);
-      }
-    }
+    if (v.club) await dropClubPurchase(v.club);
     return { ok: true };
   },
 
@@ -4961,7 +5166,20 @@ const INCOME_SOURCES = [
     label: "Ropa (NOVA Supply)",
     async get(month) {
       const r = await Sup.leer({ ventas: 5000 });
-      const v = r.ventas.filter((x) => String(x.fecha || "").startsWith(month));
+      // Sin los pedidos de la app: esos van en su propia línea (abajo), así nada se cuenta dos veces.
+      const v = r.ventas.filter((x) => String(x.fecha || "").startsWith(month) && !x.pedido);
+      return { amount: cents(v.reduce((a, x) => a + (Number(x.importe) || 0), 0)), count: v.reduce((a, x) => a + (Number(x.cantidad) || 1), 0) };
+    },
+  },
+  {
+    // Pedidos de NOVA Supply hechos en la app y ya cobrados (en el local, online o simulados).
+    // Cada uno ya está apuntado UNA vez en las ventas de ropa con su `pedido`; aquí se separan
+    // de las ventas de caja para verlos aparte. Un pedido cancelado deshace su venta y deja de contar.
+    id: "merch",
+    label: "Merch NOVA Supply",
+    async get(month) {
+      const r = await Sup.leer({ ventas: 5000 });
+      const v = r.ventas.filter((x) => String(x.fecha || "").startsWith(month) && x.pedido);
       return { amount: cents(v.reduce((a, x) => a + (Number(x.importe) || 0), 0)), count: v.reduce((a, x) => a + (Number(x.cantidad) || 1), 0) };
     },
   },

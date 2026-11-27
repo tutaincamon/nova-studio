@@ -214,3 +214,39 @@ export async function latestSubscription(customer) {
   const r = await call("GET", "subscriptions", { customer, status: "all", limit: 1 });
   return r.data?.[0] || null;
 }
+
+// ── Pedidos de NOVA Supply (Checkout en modo «payment») ──────────────────────
+// Solo con STRIPE_SECRET_KEY. Sin ella, la app ofrece «pagar en el local» y, en
+// MODO_DEMO, un pago simulado. Los productos no se crean en Stripe: cada línea
+// lleva su precio (price_data), ya con el descuento de socio aplicado.
+export const shopOnline = () => !!KEY;
+
+export async function shopCheckout({ order, email, base, lines, minutes = 35 }) {
+  const meta = { app: "nova-reservas", supply_order: order };
+  const s = await call(
+    "POST",
+    "checkout/sessions",
+    {
+      mode: "payment",
+      customer_email: email,
+      client_reference_id: order,
+      line_items: lines.map((l) => ({ quantity: l.qty, price_data: { currency: "eur", unit_amount: l.cents, product_data: { name: l.name } } })),
+      success_url: `${base}/supply?pedido=${order}&pago=ok`,
+      cancel_url: `${base}/supply?pedido=${order}&pago=cancel`,
+      expires_at: Math.floor(Date.now() / 1000) + minutes * 60,
+      metadata: meta,
+      payment_intent_data: { metadata: meta },
+    },
+    "supply-" + order,
+  );
+  return { id: s.id, url: s.url };
+}
+// Estado de una sesión de Checkout: pagada, caducada o abierta.
+export async function readCheckout(id) {
+  const s = await call("GET", "checkout/sessions/" + encodeURIComponent(id));
+  return { paid: s.payment_status === "paid", expired: s.status === "expired", amount: s.amount_total, pi: typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id || "" };
+}
+export async function expireCheckout(id) {
+  if (!KEY) return;
+  await call("POST", "checkout/sessions/" + encodeURIComponent(id) + "/expire");
+}

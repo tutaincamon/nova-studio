@@ -22,6 +22,7 @@
 import crypto from "node:crypto";
 import { cmd, pipe, getJSON, setJSON } from "./store.js";
 import { BUSINESS } from "./config.js";
+import * as Shop from "./shop.js";
 
 export const STATUSES = ["active", "past_due", "canceled", "incomplete"];
 const r2 = (n) => Math.round(n * 100) / 100;
@@ -237,6 +238,12 @@ export async function applyEvent(ev) {
   const o = ev?.data?.object;
   if (!ev?.id || !o) return "ignorado";
   if ((await cmd("SET", "stripeevt:" + ev.id, "1", "NX", "EX", 7 * 86400)) !== "OK") return "repetido";
+  // Pedidos de NOVA Supply: no dependen de la membresía (los reconoce su metadata).
+  if (o.metadata?.supply_order) {
+    if (ev.type === "checkout.session.completed" || ev.type === "checkout.session.async_payment_succeeded") return "pedido:" + (await Shop.stripePaid(o));
+    if (ev.type === "checkout.session.expired") return "pedido:" + (await Shop.stripeExpired(o));
+    return "ignorado";
+  }
   const today = new Date().toLocaleDateString("en-CA", { timeZone: BUSINESS.tz });
   const email = await emailFor(o);
   if (!email) return "sin-cliente";
