@@ -222,6 +222,33 @@ export const REWARDS = [
   { id: "camiseta", name: "Camiseta NOVA Supply", cost: 5500, desc: "La que elijas de la colección en tienda", icon: "shirt" },
 ];
 
+// ── Socio NOVA+ (membresía mensual de pago) ───────────────────────────────
+// Es una capa NUEVA y distinta del Club de puntos (que es gratis): el cliente
+// paga una cuota al mes (Stripe Subscriptions) y a cambio tiene cortes
+// incluidos, más días vista para reservar y un descuento. Los planes de aquí
+// son los de partida: el dueño los edita desde el panel («Más → Socios NOVA+»)
+// y lo que guarda manda sobre esto. PENDIENTE de cerrar con NOVA: el precio.
+//   cuts       cortes incluidos al mes (0 = solo ventajas)
+//   services   ids de los servicios que cubre la cuota
+//   daysAhead  hasta cuántos días vista puede reservar (los demás: RULES.daysAhead)
+//   discountPct  % de descuento en el resto de servicios y en la ropa
+export const MEMBERSHIP = {
+  name: "Socio NOVA+",
+  plans: [
+    {
+      id: "club-nova",
+      name: "Club NOVA",
+      price: 30,
+      cuts: 2,
+      services: ["corte", "corte-barba"],
+      daysAhead: 90,
+      discountPct: 10,
+      active: true,
+      desc: "2 cortes al mes incluidos, reserva con más antelación y un 10 % en el resto.",
+    },
+  ],
+};
+
 // ── Formación ──────────────────────────────────────────────────────────────
 // Fase 1: aún no hay fechas. La página explica la formación y recoge una lista
 // de interesados que solo ve el dueño en su panel. Cuando haya cursos con fecha,

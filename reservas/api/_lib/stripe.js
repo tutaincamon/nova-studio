@@ -152,3 +152,65 @@ export async function refund(pi) {
   }
   await call("POST", "refunds", { payment_intent: pi }, "refund-" + pi);
 }
+
+// ── Membresía mensual (Stripe Subscriptions) ─────────────────────────────────
+// Sin STRIPE_SECRET_KEY no se llama a Stripe: la membresía va en modo demo
+// (alta y baja al momento, sin cobro). Con la clave, Checkout en modo
+// «subscription»: el producto y el precio se crean solos la primera vez, con
+// un lookup_key que incluye el importe (si el dueño cambia el precio, se crea
+// otro precio nuevo y los socios de antes siguen con el suyo). Si prefieres
+// tu propio precio de Stripe, ponlo en STRIPE_MEMBERSHIP_PRICE_ID (se usa para
+// el primer plan).
+export const membershipDemo = () => !KEY;
+
+export async function ensureMembershipPrice(plan, first) {
+  const fixed = process.env.STRIPE_MEMBERSHIP_PRICE_ID;
+  if (fixed && first) return fixed;
+  const cents = Math.round(plan.price * 100);
+  const lookup = `nova_socio_${plan.id}_${cents}`;
+  const found = await call("GET", "prices", { lookup_keys: [lookup], limit: 1 });
+  if (found.data?.[0]) return found.data[0].id;
+  const product = await call("POST", "products", { name: `Socio NOVA+ · ${plan.name}`, metadata: { app: "nova-reservas", plan: plan.id } }, "prod-" + lookup);
+  const price = await call(
+    "POST",
+    "prices",
+    { product: product.id, currency: "eur", unit_amount: cents, recurring: { interval: "month" }, lookup_key: lookup, metadata: { app: "nova-reservas", plan: plan.id } },
+    "price-" + lookup,
+  );
+  return price.id;
+}
+
+// Checkout (redirección a checkout.stripe.com). Devuelve la URL a la que mandar al cliente.
+export async function membershipCheckout({ customer, price, email, plan, base }) {
+  const meta = { app: "nova-reservas", email, plan };
+  const s = await call(
+    "POST",
+    "checkout/sessions",
+    {
+      mode: "subscription",
+      customer,
+      client_reference_id: email,
+      line_items: [{ price, quantity: 1 }],
+      success_url: `${base}/perfil?socio=ok`,
+      cancel_url: `${base}/perfil?socio=cancel`,
+      metadata: meta,
+      subscription_data: { metadata: meta },
+      allow_promotion_codes: false,
+    },
+  );
+  return { id: s.id, url: s.url };
+}
+
+export async function membershipPortal(customer, base) {
+  const s = await call("POST", "billing_portal/sessions", { customer, return_url: `${base}/perfil` });
+  return s.url;
+}
+
+// Baja (o deshacer la baja) al final del periodo ya pagado.
+export const membershipCancel = (subId, cancel) => call("POST", "subscriptions/" + encodeURIComponent(subId), { cancel_at_period_end: cancel ? "true" : "false" });
+
+// La suscripción más reciente de un cliente (para ponerse al día al volver de Checkout si el webhook tarda).
+export async function latestSubscription(customer) {
+  const r = await call("GET", "subscriptions", { customer, status: "all", limit: 1 });
+  return r.data?.[0] || null;
+}

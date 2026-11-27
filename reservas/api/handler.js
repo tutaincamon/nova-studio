@@ -1,7 +1,7 @@
 // Una sola función para toda la API: vercel.json manda aquí /api/<lo que sea>.
 import crypto from "node:crypto";
 import { cmd, pipe, getJSON, setJSON, hgetall, usingMemory, scanKeys, dumpKeys, claim, hit } from "./_lib/store.js";
-import { SERVICES, PROVIDERS, RULES, BUSINESS, POINTS, MEDALS, REWARDS, COMMISSION, TRAINING, EXTRAS, PAY_METHODS, SHOP, publicCatalog } from "./_lib/config.js";
+import { SERVICES, PROVIDERS, RULES, BUSINESS, POINTS, MEDALS, REWARDS, COMMISSION, TRAINING, EXTRAS, PAY_METHODS, SHOP, MEMBERSHIP, publicCatalog } from "./_lib/config.js";
 import * as T from "./_lib/time.js";
 import { codeMail, send, bookingLines, mailReady } from "./_lib/mail.js";
 import * as Card from "./_lib/stripe.js";
@@ -9,6 +9,7 @@ import * as Sup from "./_lib/supply.js";
 import { accessPolicy, MAIL_NOT_READY } from "./_lib/access.js";
 import * as Tokens from "./_lib/assistant.js";
 import * as E from "./_lib/earnings.js";
+import * as M from "./_lib/membership.js";
 import { serveMcp } from "./_lib/mcp.js";
 
 const ON_VERCEL = !!process.env.VERCEL;
@@ -371,7 +372,8 @@ async function clubOf(u) {
 }
 // Puntos de una cita cobrada: lo que se pagó en caja × puntos por euro.
 function pointsOf(b) {
-  const price = b.pay?.amount ?? b.service.price ?? SVCS.find((s) => s.id === b.service.id)?.price ?? 15;
+  // Una cita incluida en la membresía se cobra a 0 €, pero el socio sigue sumando puntos por el valor del servicio.
+  const price = b.membership?.included ? (b.service.price ?? 15) : (b.pay?.amount ?? b.service.price ?? SVCS.find((s) => s.id === b.service.id)?.price ?? 15);
   return Math.round(price * POINTS.perEuro);
 }
 async function bookingsByIds2(prefix, ids) {
@@ -768,7 +770,7 @@ const WEEK = [0, 1, 2, 3, 4, 5, 6];
 const NORMS0 = NORMS;
 async function loadTeam() {
   // Equipo y normas en un solo viaje a la base de datos.
-  const [rawTeam, rawNorms, rawSvcs] = await cmd("MGET", "team", "norms", "services");
+  const [rawTeam, rawNorms, rawSvcs, rawPlans] = await cmd("MGET", "team", "norms", "services", "memplans");
   // Servicios: los edita el dueño (pestaña «Servicios»); la primera vez, los de config.js.
   let sv = rawSvcs ? JSON.parse(rawSvcs) : null;
   if (!Array.isArray(sv) || !sv.length) {
@@ -776,6 +778,9 @@ async function loadTeam() {
     await setJSON("services", sv);
   }
   SVCS = sv;
+  // Planes de Socio NOVA+: los que guarda el dueño; si no hay, los de config.js.
+  const pl = rawPlans ? JSON.parse(rawPlans) : null;
+  PLANS = Array.isArray(pl) ? pl : MEMBERSHIP.plans;
   let t = rawTeam ? JSON.parse(rawTeam) : null;
   if (!Array.isArray(t) || !t.length) {
     t = PROVIDERS.map((p) => ({ ...p, active: true, commission: p.owner ? 0 : (COMMISSION[p.id] ?? 40) }));
@@ -786,6 +791,15 @@ async function loadTeam() {
 }
 const activeTeam = () => TEAM.filter((p) => p.active !== false);
 let SVCS = SERVICES;
+let PLANS = MEMBERSHIP.plans;
+// La suscripción de un cliente (Socio NOVA+), con los periodos de demo ya avanzados.
+const memberOf = async (email) => {
+  const sub = email ? await M.getSub(email) : null;
+  return sub ? M.advanceDemo(sub, T.nowLocal().date) : null;
+};
+// Hasta cuántos días vista puede reservar ese cliente: los normales, o más si es socio con ese plan.
+const horizonOf = (sub) => Math.max(RULES.daysAhead, M.isLive(sub, T.nowLocal().date) ? sub.plan?.daysAhead || 0 : 0);
+const activePlans = () => PLANS.filter((p) => p.active !== false);
 const activeSvcs = () => SVCS.filter((x) => x.active !== false);
 // Vacaciones o días libres de un barbero: [{ from, to, note }] con fechas AAAA-MM-DD.
 const isOff = (p, date) => (p.off || []).some((r) => date >= r.from && date <= r.to);
@@ -1009,10 +1023,14 @@ async function bookFor(user, body, { from, via } = {}) {
     if (mine.filter((b) => isActive(b, now) && !b.series).length >= RULES.maxActive)
       fail(400, `Ya tienes ${RULES.maxActive} citas pendientes. Cuando pase alguna podrás reservar otra.`);
 
+    // Socio NOVA+: más días vista y, si el servicio está cubierto y le quedan cortes de ese periodo, la cita sale incluida.
+    const sub = await memberOf(email);
+    const horizon = Math.max(RULES.daysAhead, M.isLive(sub, now.date) ? sub.plan?.daysAhead || 0 : 0);
+    const cover = M.coverage(sub, s.id, body.date, mine, now.date);
     const cands = [];
     for (const p of anyone ? shuffle(activeTeam().filter((p) => canDo(s, p))) : [fixed]) {
       const busy = await busyOf(p.id, monthOf(body.date));
-      if (freeTimes(p, s, body.date, busy, now).includes(body.start)) cands.push({ p, load: (busy[body.date] || []).reduce((a, [x, y]) => a + y - x, 0) });
+      if (freeTimes(p, s, body.date, busy, now, horizon).includes(body.start)) cands.push({ p, load: (busy[body.date] || []).reduce((a, [x, y]) => a + y - x, 0) });
     }
     cands.sort((a, b) => a.load - b.load);
     const extra = {
@@ -1023,6 +1041,7 @@ async function bookFor(user, body, { from, via } = {}) {
       ...(via ? { via } : {}),
       ...(note ? { note } : {}),
       ...(anyone ? { anyBarber: true } : {}),
+      ...(cover.included ? { membership: { included: true, plan: sub.plan.id, planName: sub.plan.name, from: cover.window.start, to: cover.window.end } } : {}),
       ...(user?.card ? { guarantee: { brand: user.card.brand, last4: user.card.last4, at: now.stamp } } : {}),
     };
     let b = null;
@@ -1050,11 +1069,12 @@ async function bookFor(user, body, { from, via } = {}) {
         `Cita reservada · ${T.niceDate(b.date)} ${b.start}`,
         "Tu cita está reservada",
         bookingLines(b, T.niceDate(b.date)) +
+          (b.membership ? `<p style="margin:14px 0 0;font-size:14px"><b>Incluida en tu membresía ${htmlEsc(b.membership.planName)}</b>: no pagas nada en el local.</p>` : "") +
           `<p style="margin:14px 0 0;color:#64645e;font-size:13px">Puedes cambiarla o cancelarla desde la app hasta ${NORMS.cancelHours} h antes. Referencia ${b.id}.</p>`,
       ),
       notifySalon(b, "Nueva cita"),
     ]);
-    return { out: { id: b.id, series, provider: { id: b.provider.id, name: b.provider.name } }, booking: b };
+    return { out: { id: b.id, series, provider: { id: b.provider.id, name: b.provider.name }, ...(b.membership ? { membership: { included: true, plan: b.membership.planName, left: cover.left - 1 } } : {}) }, booking: b };
   } finally {
     await cmd("DEL", "booking:" + email);
   }
@@ -1093,7 +1113,8 @@ async function cancelFor(b, { staff = false, series = false, host = "" } = {}) {
   }
   if (!staff && b.kind === "booking") await notifySalon(b, late ? "Cancelación tardía" : more ? `Cita cancelada (y ${more} más de la serie)` : "Cita cancelada");
   for (const d of freed) await waitlistPing(d, host);
-  return { ok: true, late, fee: late ? feeFor(b, "late") : 0 };
+  // Cita incluida en la membresía: a tiempo, el corte se devuelve; tarde, se gasta.
+  return { ok: true, late, fee: late ? feeFor(b, "late") : 0, ...(b.membership?.included ? { cutReturned: !late } : {}) };
 }
 
 // Las citas de un cliente: las próximas (de la más cercana a la más lejana) y las pasadas.
@@ -1327,6 +1348,14 @@ async function cronTick(req) {
       out.ranking = await rankMaintain(now);
     } catch (e) {
       out.ranking = { error: String(e.message || e) };
+    }
+    // Socio NOVA+ en demo: no hay Stripe que renueve, así que se avanzan los periodos vencidos.
+    try {
+      let n = 0;
+      for (const x of await M.allSubs()) if (x.demo && (await M.advanceDemo(x, now.date)) !== x) n++;
+      if (n) out.membership = { demoRenewed: n };
+    } catch (e) {
+      out.membership = { error: String(e.message || e) };
     }
     // Sin correo no se manda nada, pero lo que no envía nada se hace igual:
     // borrar las cuentas que pasaron 3 años sin uso (lo promete la política).
@@ -1591,6 +1620,12 @@ async function eraseAccount(a, now) {
   await rankDrop(email);
   await Tokens.revokeAll(email); // los tokens de asistente de IA dejan de valer
   if (u.card?.pm) await Card.removeCard(u.card.pm).catch(() => {});
+  // Membresía: si tenía una de pago en Stripe, se deja de cobrar ya; los ingresos ya cobrados se conservan en la contabilidad.
+  const sub = await M.getSub(email);
+  if (sub) {
+    if (!sub.demo && sub.stripeSub && ["active", "past_due"].includes(sub.status)) await Card.membershipCancel(sub.stripeSub, true).catch((e) => console.error("Baja de membresía al borrar la cuenta:", e.message));
+    await M.dropSub(email);
+  }
 }
 
 // La pasada diaria: avisa a quien le falta un mes y borra a quien ya pasó el plazo.
@@ -1821,6 +1856,24 @@ const publicBase = (req) => {
   const h = hostOf(req) || DEFAULT_HOST;
   return (/^(localhost|127\.|\[::1\])/.test(h) ? "http://" : "https://") + h;
 };
+// ── Socio NOVA+ (membresía de pago) ────────────────────────────────────────
+// Lo que ve el cliente de su membresía: estado, cortes usados y restantes, ventajas.
+async function memberView(email) {
+  const sub = await memberOf(email);
+  if (!sub) return null;
+  return M.viewOf(sub, await bookingsByIds(await cmd("SMEMBERS", "ubk:" + email)), T.nowLocal().date);
+}
+const memberOut = () => ({ name: MEMBERSHIP.name, enabled: true, demo: Card.membershipDemo(), plans: activePlans().map(M.planOut) });
+// Pone al día la suscripción con lo que dice Stripe (al volver de Checkout, por si el webhook aún no ha llegado).
+async function syncMember(sub) {
+  if (Card.membershipDemo() || !sub?.stripeCustomer) return sub;
+  const s = await Card.latestSubscription(sub.stripeCustomer).catch(() => null);
+  if (!s) return sub;
+  const evId = "sync-" + s.id + "-" + s.status + "-" + (s.current_period_end ?? s.items?.data?.[0]?.current_period_end) + "-" + !!s.cancel_at_period_end;
+  await M.applyEvent({ id: evId, type: "customer.subscription.updated", data: { object: s } });
+  return M.getSub(sub.email);
+}
+
 // Navegadores: solo la propia web y los orígenes de MCP_ALLOWED_ORIGINS (separados por comas).
 function mcpOriginOk(origin, req) {
   let o;
@@ -1847,7 +1900,7 @@ const bookingOut = (b) => {
     start: b.start,
     end: b.end,
     status: b.status,
-    pay: "En el local",
+    pay: b.membership?.included ? `Incluida en tu membresía ${b.membership.planName}` : "En el local",
     free_cancellation: !late,
     late_cancel_fee_eur: late ? feeFor(b, "late") : 0,
     ...(b.note ? { note: b.note } : {}),
@@ -2054,7 +2107,7 @@ const MCP_TOOLS = [
       );
       const b = bookingOut(r.booking);
       return {
-        text: `Cita reservada: ${b.service.name} con ${b.barber.name}, ${b.day} a las ${b.start} (hasta las ${b.end}). ${euros(b.service.price_eur)}, se paga en el local. Referencia ${b.id}. Cambio o cancelación gratis hasta ${NORMS.cancelHours} h antes (con cancel_booking o en ${base}/mis-citas). Le llega la confirmación por correo.`,
+        text: `Cita reservada: ${b.service.name} con ${b.barber.name}, ${b.day} a las ${b.start} (hasta las ${b.end}). ${r.out.membership ? `Incluida en su membresía ${r.out.membership.plan} (sin coste en el local; le quedan ${r.out.membership.left} cortes este periodo)` : `${euros(b.service.price_eur)}, se paga en el local`}. Referencia ${b.id}. Cambio o cancelación gratis hasta ${NORMS.cancelHours} h antes (con cancel_booking o en ${base}/mis-citas). Le llega la confirmación por correo.`,
         data: { booking: b, manage_url: base + "/mis-citas" },
       };
     },
@@ -2292,6 +2345,7 @@ const routes = {
       },
       reviews: !!NORMS.reviewUrl,
       card: Card.cardPublic(),
+      membership: memberOut(),
     };
   },
 
@@ -2379,7 +2433,7 @@ const routes = {
       const found = team.find((p, i) => (p.email && p.email === u.email) || (cfgs[i] && JSON.parse(cfgs[i]).email === u.email));
       if (found) staffHint = { id: found.id, name: found.name };
     }
-    return { user: publicUser(u), staff: st, staffHint, mail: mailReady(), auth: authChannels() };
+    return { user: publicUser(u), staff: st, staffHint, mail: mailReady(), auth: authChannels(), ...(u ? { membership: await memberView(u.email) } : {}) };
   },
 
   "GET referral/:code": async ({ params }) => {
@@ -2435,6 +2489,7 @@ const routes = {
     const team = teamFor(s, pid);
     if (!s || s.consult || s.active === false || !team.length || !/^\d{4}-\d{2}$/.test(month)) fail(400, "Petición incorrecta.");
     const now = T.nowLocal(),
+      horizon = horizonOf(await memberOf((await currentUser(req))?.email)),
       busies = await Promise.all(team.map((p) => busyOf(p.id, month))),
       [y, m] = month.split("-").map(Number),
       total = new Date(Date.UTC(y, m, 0)).getUTCDate(),
@@ -2442,7 +2497,7 @@ const routes = {
       full = [];
     for (let d = 1; d <= total; d++) {
       const date = `${month}-${String(d).padStart(2, "0")}`;
-      days[date] = [...new Set(team.flatMap((p, i) => freeTimes(p, s, date, busies[i], now, undefined, staff)))].sort();
+      days[date] = [...new Set(team.flatMap((p, i) => freeTimes(p, s, date, busies[i], now, horizon, staff)))].sort();
       if (!days[date].length && NORMS.waitlist && team.some((p) => freeTimes(p, s, date, {}, now).length)) full.push(date);
     }
     return { days, full };
@@ -2558,13 +2613,136 @@ const routes = {
       p = provider(b.provider.id);
     if (!T.isDate(body.date) || !T.isTime(body.start)) fail(400, "Elige día y hora.");
     const busy = await busyOf(p.id, monthOf(body.date), b.id);
-    if (!freeTimes(p, s, body.date, busy, T.nowLocal(), undefined, !!staff).includes(body.start))
+    const sub = await memberOf(b.email);
+    if (!freeTimes(p, s, body.date, busy, T.nowLocal(), horizonOf(sub), !!staff).includes(body.start))
       fail(409, "Esa hora ya no está libre. Elige otra, por favor.");
+    // Una cita incluida en la membresía solo se mueve a un día donde siga cubierta (mismo periodo con cortes libres).
+    if (b.membership?.included && !staff) {
+      const mine = await bookingsByIds(await cmd("SMEMBERS", "ubk:" + b.email));
+      if (!M.coverage(sub, s.id, body.date, mine, T.nowLocal().date, b.id).included)
+        fail(400, "Ese día queda fuera de tu periodo de membresía o sin cortes libres. Elige un día dentro de tu mes o cancela esta cita.");
+    }
     const moved = { ...b, date: body.date, start: body.start, end: T.toHHMM(T.toMin(body.start) + b.service.duration) };
+    if (b.membership?.included) {
+      const w = M.windowFor(sub, body.date);
+      if (w) moved.membership = { ...b.membership, from: w.start, to: w.end };
+    }
     await moveTo(b, moved);
     if (!staff) await notifySalon(moved, "Cita cambiada");
     await waitlistPing(b.date, hostOf(req));
     return { ok: true };
+  },
+
+  // ── Socio NOVA+ ─────────────────────────────────────────────────────────
+  // Membresía mensual de pago. Sin STRIPE_SECRET_KEY va en modo demo: alta y
+  // baja al momento, sin cobro y marcadas como demo.
+  "GET membership": async ({ req, q }) => {
+    const u = await currentUser(req);
+    if (!u) fail(401, "Entra en tu cuenta.");
+    let sub = await memberOf(u.email);
+    if (q.get("sync") === "1" && sub && sub.status !== "active") sub = await syncMember(sub);
+    return { ...memberOut(), mine: sub ? M.viewOf(sub, await bookingsByIds(await cmd("SMEMBERS", "ubk:" + u.email)), T.nowLocal().date) : null };
+  },
+
+  "POST membership/join": async ({ req, body }) => {
+    const u = await currentUser(req);
+    if (!u) fail(401, "Entra en tu cuenta.");
+    await limit("memjoin:" + u.email, 10, 3600);
+    if (!clean(u.name)) fail(400, "Falta tu nombre.");
+    const plan = activePlans().find((p) => p.id === body.plan);
+    if (!plan) fail(400, "Ese plan no existe.");
+    const prev = await memberOf(u.email);
+    if (prev && ["active", "past_due"].includes(prev.status)) fail(409, prev.status === "past_due" ? "Tu cuota está impagada. Actualiza el pago desde «Gestionar»." : "Ya eres socio.");
+    const today = T.nowLocal().date;
+    const base = { email: u.email, name: u.name, plan: M.planSnapshot(plan), created: today };
+    if (Card.membershipDemo()) {
+      const sub = await M.saveSub({ ...base, status: "active", demo: true, since: today, periodStart: today, periodEnd: M.addMonths(today, 1), cancelAtPeriodEnd: false });
+      await M.recordRevenue({ id: `demo-${u.email}-${today}`, email: u.email, amount: plan.price, plan: plan.id, planName: plan.name, at: today, demo: true });
+      return { demo: true, mine: M.viewOf(sub, await bookingsByIds(await cmd("SMEMBERS", "ubk:" + u.email)), today) };
+    }
+    let stripe = u.stripe;
+    if (!stripe) {
+      stripe = await Card.ensureCustomer(u);
+      await setJSON("user:" + u.email, { ...u, stripe });
+    }
+    const price = await Card.ensureMembershipPrice(plan, PLANS.findIndex((p) => p.id === plan.id) === 0);
+    // Se apunta antes de ir a pagar: el webhook sabe a quién activar y con qué plan.
+    await M.saveSub({ ...base, status: "incomplete", demo: false, stripeCustomer: stripe, since: "", cancelAtPeriodEnd: false });
+    const s = await Card.membershipCheckout({ customer: stripe, price, email: u.email, plan: plan.id, base: publicBase(req) });
+    return { url: s.url };
+  },
+
+  // Baja. En demo es inmediata; con Stripe se deja de cobrar al acabar el periodo ya pagado.
+  "POST membership/cancel": async ({ req, body }) => {
+    const u = await currentUser(req);
+    if (!u) fail(401, "Entra en tu cuenta.");
+    const sub = await memberOf(u.email);
+    if (!sub || !["active", "past_due"].includes(sub.status)) fail(400, "No tienes ninguna membresía activa.");
+    const undo = body?.resume === true;
+    const today = T.nowLocal().date;
+    let next;
+    if (sub.demo) {
+      next = undo ? { ...sub, cancelAtPeriodEnd: false } : { ...sub, status: "canceled", cancelAtPeriodEnd: false, canceledAt: today };
+    } else {
+      if (!sub.stripeSub) fail(400, "Tu alta aún se está confirmando. Espera un momento.");
+      await Card.membershipCancel(sub.stripeSub, !undo);
+      next = { ...sub, cancelAtPeriodEnd: !undo };
+    }
+    await M.saveSub(next);
+    return { mine: M.viewOf(next, await bookingsByIds(await cmd("SMEMBERS", "ubk:" + u.email)), today) };
+  },
+
+  // Portal de Stripe: cambiar la tarjeta de la cuota y ver las facturas.
+  "POST membership/portal": async ({ req }) => {
+    const u = await currentUser(req);
+    if (!u) fail(401, "Entra en tu cuenta.");
+    const sub = await M.getSub(u.email);
+    if (!sub || sub.demo || !sub.stripeCustomer) fail(400, Card.membershipDemo() ? "En modo demo no hay portal de pago." : "No tienes ninguna membresía.");
+    return { url: await Card.membershipPortal(sub.stripeCustomer, publicBase(req)) };
+  },
+
+  // El panel del dueño: planes, socios y MRR.
+  "GET staff/membership": async ({ req }) => {
+    const me = await needStaff(req);
+    if (!me.owner) fail(403, "Esto lo ve solo el dueño.");
+    const today = T.nowLocal().date;
+    const subs = await Promise.all((await M.allSubs()).map((x) => M.advanceDemo(x, today)));
+    const ids = [...new Set((await pipe(subs.map((x) => ["SMEMBERS", "ubk:" + x.email]))).flat())];
+    const all = await bookingsByIds(ids);
+    const members = subs
+      .map((x) => ({ email: x.email, name: x.name || "", ...M.viewOf(x, all.filter((b) => b.email === x.email), today) }))
+      .sort((a, b) => Number(b.live) - Number(a.live) || (b.since || "").localeCompare(a.since || ""));
+    const live = members.filter((m) => m.live);
+    const month = today.slice(0, 7);
+    return {
+      name: MEMBERSHIP.name,
+      demo: Card.membershipDemo(),
+      plans: PLANS,
+      services: SVCS.filter((x) => !x.consult).map((x) => ({ id: x.id, name: x.name, price: x.price })),
+      members,
+      mrr: cents(live.reduce((a, m) => a + (m.plan?.price || 0), 0)),
+      counts: { active: live.length, churning: live.filter((m) => m.cancelAtPeriodEnd).length, pastDue: members.filter((m) => m.status === "past_due").length, canceled: members.filter((m) => m.status === "canceled").length },
+      month: { id: month, revenue: (await M.revenueOf(month)).amount },
+      maxDays: 365,
+    };
+  },
+
+  "POST staff/membership/plans": async ({ req, body }) => {
+    const me = await needStaff(req);
+    if (!me.owner) fail(403, "Esto lo ve solo el dueño.");
+    let plans;
+    try {
+      plans = M.cleanPlans(body.plans, SVCS.filter((x) => !x.consult).map((x) => x.id));
+    } catch (e) {
+      if (e instanceof RangeError) fail(400, e.message);
+      throw e;
+    }
+    // No se puede quitar un plan con socios activos (sí desactivarlo, para que nadie nuevo lo contrate).
+    const used = new Set((await M.allSubs()).filter((x) => ["active", "past_due"].includes(x.status)).map((x) => x.plan?.id));
+    const lost = [...used].filter((id) => id && !plans.some((p) => p.id === id));
+    if (lost.length) fail(400, "Hay socios con un plan que quieres quitar. Desactívalo en vez de borrarlo.");
+    await setJSON("memplans", plans);
+    return { ok: true, plans };
   },
 
   "GET member": async ({ req }) => {
@@ -3124,7 +3302,8 @@ const routes = {
     const u = await findMember(q.get("q"));
     if (!u) fail(404, "No encontramos a ese socio. Prueba con su correo o su código del Club.");
     const c = await clubOf(u);
-    return { member: { email: u.email, name: u.name, no: u.no, earned: c.earned, balance: c.balance } };
+    const sub = await memberOf(u.email);
+    return { member: { email: u.email, name: u.name, no: u.no, earned: c.earned, balance: c.balance, ...(M.isLive(sub, T.nowLocal().date) && sub.plan?.discountPct ? { socio: { plan: sub.plan.name, discountPct: sub.plan.discountPct } } : {}) } };
   },
 
   "POST staff/shop": async ({ req, body }) => {
@@ -3806,10 +3985,20 @@ const routes = {
       .filter((x) => me.owner || me.caja || x.provider.id === me.id || (x.by === me.id && x.date === now.date))
       .sort((a, b) => b.created.localeCompare(a.created));
     // Citas del día sin cobrar, de todo el equipo: con ellas se rellena el formulario.
-    const pending = books
-      .filter((b) => b.date === date && b.kind === "booking" && b.status === "confirmed" && b.attendance !== "absent" && !b.pay)
-      .sort((a, b) => a.start.localeCompare(b.start))
-      .map((b) => ({ id: b.id, provider: b.provider.id, name: b.name, start: b.start, end: b.end, service: b.service.id }));
+    const open = books.filter((b) => b.date === date && b.kind === "booking" && b.status === "confirmed" && b.attendance !== "absent" && !b.pay).sort((a, b) => a.start.localeCompare(b.start));
+    // Socios NOVA+: la cita incluida va a 0 €; a los demás socios se les ofrece su descuento.
+    const subs = new Map();
+    for (const e of new Set(open.filter((b) => b.email && !b.membership?.included).map((b) => b.email))) subs.set(e, await memberOf(e));
+    const pending = open.map((b) => ({
+      id: b.id,
+      provider: b.provider.id,
+      name: b.name,
+      start: b.start,
+      end: b.end,
+      service: b.service.id,
+      ...(b.membership?.included ? { incl: true } : {}),
+      ...(M.isLive(subs.get(b.email), date) && subs.get(b.email).plan?.discountPct ? { disc: subs.get(b.email).plan.discountPct } : {}),
+    }));
     const mine = seen.filter((x) => me.owner || me.caja || x.provider.id === me.id);
     const sum = (list) => cents(list.reduce((a, x) => a + x.amount, 0));
     return {
@@ -3836,7 +4025,7 @@ const routes = {
   "POST staff/cobros": async ({ req, body }) => {
     const me = await needCaja(req);
     const now = T.nowLocal();
-    const x = { id: "C" + crypto.randomBytes(4).toString("hex").toUpperCase(), ...readPay(body), date: now.date, time: now.stamp.slice(11, 16), created: now.stamp, by: me.id };
+    const x = { id: "C" + crypto.randomBytes(4).toString("hex").toUpperCase(), ...readPay(body, !!(await includedOf(body.booking))), date: now.date, time: now.stamp.slice(11, 16), created: now.stamp, by: me.id };
     await linkPay(x, x.booking);
     await pipe([
       ["SET", "pay:" + x.id, JSON.stringify(x)],
@@ -3851,7 +4040,8 @@ const routes = {
     const prev = await getJSON("pay:" + params.id);
     if (!prev) fail(404, "No existe ese cobro.");
     if (!canTouchPay(me, prev)) fail(403, "Ese cobro solo lo puede cambiar quien lo hizo o el dueño.");
-    const x = { ...prev, ...readPay(body), edited: T.nowLocal().stamp, editedBy: me.id };
+    const { included: _i, ...before } = prev;
+    const x = { ...before, ...readPay(body, !!(await includedOf(body.booking))), edited: T.nowLocal().stamp, editedBy: me.id };
     await linkPay(x, x.booking);
     if (x.booking !== prev.booking) await unlinkPay(prev);
     await setJSON("pay:" + x.id, x);
@@ -4412,6 +4602,9 @@ const routes = {
 
 // ── Caja ───────────────────────────────────────────────────────────────────
 const cents = (n) => Math.round(n * 100) / 100;
+// Lo que vale una cita para la caja y las ganancias: una incluida en la membresía no suma
+// (su dinero ya entró con la cuota mensual, que sale como línea propia).
+const svcPrice = (b) => (b.membership?.included ? 0 : Number(b.service.price) || 0);
 
 async function monthBookings(month) {
   const [y, m] = month.split("-").map(Number);
@@ -4465,7 +4658,7 @@ function progressOf({ list, pays }, from, to) {
     mark(day(b.provider.id, b.date).busy, a, e);
     if (!inside(b.date + " " + b.start) || cobradas.has(b.id)) continue;
     const p = P(b.provider.id);
-    p.billed += Number(b.service.price) || 0;
+    p.billed += svcPrice(b);
     p.services++;
     p._who.add(who(b));
   }
@@ -4517,7 +4710,12 @@ function progressOf({ list, pays }, from, to) {
 const payLabel = (x) => x.items.map((it) => it.name).join(" + ") || "Cobro";
 
 // Lo que llega del formulario de cobrar: barbero, servicio, extras, importe y forma de pago.
-function readPay(body) {
+// Una cita incluida en la membresía: se «cobra» a 0 € con la forma de pago «membresía».
+async function includedOf(bookingId) {
+  const b = bookingId ? await getJSON("bk:" + clean(bookingId, 20)) : null;
+  return b?.kind === "booking" && b.status === "confirmed" && b.membership?.included ? b : null;
+}
+function readPay(body, included = false) {
   const p = provider(body.provider);
   if (!p) fail(400, "Elige quién ha hecho el servicio.");
   const items = [];
@@ -4531,10 +4729,11 @@ function readPay(body) {
     if (e) items.push({ id: e.id, name: e.name, price: e.price, extra: true });
   }
   if (!items.length) fail(400, "Elige el servicio que se ha hecho.");
-  const amount = Math.round(Number(String(body.amount ?? "").replace(",", ".")) * 100) / 100;
-  if (!(amount > 0 && amount <= 1000)) fail(400, "Pon el importe cobrado, en euros.");
-  if (!PAY_METHODS.some((m) => m.id === body.method)) fail(400, "Elige cómo ha pagado.");
-  return { provider: { id: p.id, name: p.name }, items, amount, method: body.method, name: clean(body.name, 60) || "Cliente sin cita", booking: clean(body.booking, 20) };
+  if (included) items.forEach((it) => (it.price = 0));
+  const amount = included ? 0 : Math.round(Number(String(body.amount ?? "").replace(",", ".")) * 100) / 100;
+  if (!included && !(amount > 0 && amount <= 1000)) fail(400, "Pon el importe cobrado, en euros.");
+  if (!included && !PAY_METHODS.some((m) => m.id === body.method)) fail(400, "Elige cómo ha pagado.");
+  return { provider: { id: p.id, name: p.name }, items, amount, method: included ? "membresia" : body.method, ...(included ? { included: true } : {}), name: clean(body.name, 60) || "Cliente sin cita", booking: clean(body.booking, 20) };
 }
 // Engancha el cobro a su cita: así la agenda la enseña como cobrada y el Club
 // da los puntos por lo que se pagó de verdad.
@@ -4581,7 +4780,7 @@ function statsOf(list, now, pays = []) {
   const live = list.filter((b) => b.status === "confirmed");
   const done = live.filter((b) => isPast(b, now) && b.attendance !== "absent");
   const upcoming = live.filter((b) => !isPast(b, now));
-  const row = (b) => ({ id: b.id, date: b.date, start: b.start, name: b.name, service: b.service.name, price: Number(b.service.price) || 0, marked: b.attendance === "done", unpaid: true });
+  const row = (b) => ({ id: b.id, date: b.date, start: b.start, name: b.name, service: b.service.name, price: svcPrice(b), marked: b.attendance === "done", unpaid: true });
   const payRow = (x) => ({ id: x.id, date: x.date, start: x.time, name: x.name, service: payLabel(x), price: x.amount, method: x.method, pay: true });
   const byService = {};
   const add = (name, n, total) => {
@@ -4589,7 +4788,7 @@ function statsOf(list, now, pays = []) {
     x.count += n;
     x.total = cents(x.total + total);
   };
-  for (const b of done) add(b.service.name, 1, Number(b.service.price) || 0);
+  for (const b of done) add(b.service.name, 1, svcPrice(b));
   for (const x of pays) {
     for (const it of x.items) add(it.name, 1, it.price);
     const rest = cents(x.amount - x.items.reduce((a, it) => a + it.price, 0));
@@ -4597,7 +4796,7 @@ function statsOf(list, now, pays = []) {
   }
   const methods = Object.fromEntries(PAY_METHODS.map((m) => [m.id, 0]));
   for (const x of pays) methods[x.method] = cents((methods[x.method] || 0) + x.amount);
-  const billed = cents(done.reduce((a, b) => a + (Number(b.service.price) || 0), 0) + pays.reduce((a, x) => a + x.amount, 0));
+  const billed = cents(done.reduce((a, b) => a + svcPrice(b), 0) + pays.reduce((a, x) => a + x.amount, 0));
   const services = done.length + pays.length;
   return {
     services,
@@ -4607,7 +4806,7 @@ function statsOf(list, now, pays = []) {
     methods,
     unpaid: done.length,
     upcoming: upcoming.length,
-    expected: cents(upcoming.reduce((a, b) => a + (Number(b.service.price) || 0), 0)),
+    expected: cents(upcoming.reduce((a, b) => a + svcPrice(b), 0)),
     absent: live.filter((b) => b.attendance === "absent").length,
     // Lo cobrado a clientes que no vinieron (va aparte de lo facturado y no lleva comisión).
     penalties: cents(list.reduce((a, b) => a + ((b.attendance === "absent" || b.late) && b.charge?.status === "succeeded" ? b.charge.amount : 0), 0)),
@@ -4639,6 +4838,14 @@ function rateAt(id, history, date) {
 // barbero (una cita cobrada cuenta por lo cobrado, igual que en Caja).
 const INCOME_SOURCES = [
   {
+    id: "membresias",
+    label: "Socio NOVA+ (cuotas)",
+    async get(month) {
+      const r = await M.revenueOf(month);
+      return { amount: r.amount, count: r.count, ...(r.demo ? { demo: r.demo } : {}) };
+    },
+  },
+  {
     id: "ropa",
     label: "Ropa (NOVA Supply)",
     async get(month) {
@@ -4664,7 +4871,7 @@ async function monthEarnings(month, now, withClients) {
   const other = [];
   for (const src of INCOME_SOURCES) {
     const r = await src.get(month);
-    if (r.amount || r.count) other.push({ id: src.id, label: src.label, amount: r.amount, count: r.count });
+    if (r.amount || r.count) other.push({ id: src.id, label: src.label, amount: r.amount, count: r.count, ...(r.demo ? { demo: r.demo } : {}) });
   }
   const otherTotal = cents(other.reduce((a, x) => a + x.amount, 0));
   const income = { services: billed, other, otherTotal, total: cents(billed + otherTotal) };
@@ -4969,6 +5176,8 @@ export default async function handler(req, res) {
   url.searchParams.delete("route");
   // El servidor MCP habla JSON-RPC, con sus propios códigos y cabeceras.
   if (path === "mcp") return mcpHttp(req, res);
+  // El webhook de Stripe necesita el cuerpo tal cual llegó (para la firma): lo lee él mismo.
+  if (path === "stripe/webhook") return M.webhookHttp(req, res);
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   try {
