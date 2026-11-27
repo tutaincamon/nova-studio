@@ -51,6 +51,7 @@ const staffMoreGroups = () =>
       "Tu negocio",
       [
         ["progreso", "Progreso", "Ingresos, ocupación y horas flojas", ICONS.bolt],
+        staff.owner && ["ganancias", "Cuánto gana Nova", "Ingresos, gastos y beneficio neto del mes", ICONS.till],
         staff.owner && ["clientes", "Clientes", "A quién le toca volver y quién se ha perdido", ICONS.users],
         ["faltas", "Faltas", "Quien no vino o canceló tarde, y si se cobra", ICONS.clock],
       ],
@@ -804,6 +805,168 @@ function pctSheet(p, month) {
       toast(err.message);
     }
   });
+}
+
+// ── Cuánto gana Nova (solo el dueño) ───────────────────────────────────────
+// Ingresos del mes (del servidor), gastos editables y beneficio neto. El
+// beneficio se recalcula aquí, al momento, mientras se escribe; el botón
+// «Guardar gastos» manda los gastos del mes al servidor.
+let earnMonth = "";
+const eNum = (v) => {
+  const n = Number(String(v ?? "").trim().replace(/\s/g, "").replace(",", "."));
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+};
+const eR2 = (n) => Math.round(n * 100) / 100;
+const eNumTxt = (n) => (n ? String(n).replace(".", ",") : "");
+const eSigned = (n) => (n > 0 ? "+" : n < 0 ? "−" : "") + euro(Math.abs(n));
+const eCmp = (d, unit = "€") => {
+  if (!d || (!d.diff && d.pct == null)) return `<em class="pg-delta">= igual</em>`;
+  const cls = d.diff > 0 ? "up" : d.diff < 0 ? "down" : "";
+  return `<em class="pg-delta ${cls}">${d.diff > 0 ? "▲" : d.diff < 0 ? "▼" : "="} ${eSigned(d.diff)}${d.pct == null ? "" : ` (${d.pct > 0 ? "+" : d.pct < 0 ? "−" : ""}${String(Math.abs(d.pct)).replace(".", ",")} %)`}</em>`;
+};
+
+async function staffEarnings() {
+  const q$ = (sel, root = document) => root.querySelector(sel),
+    qa = (sel, root = document) => [...root.querySelectorAll(sel)];
+  if (!staff.owner) return show(staffTop("ganancias") + `<p class="ag-free">Esto lo lleva el dueño.</p>`);
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Atlantic/Canary" }).slice(0, 7);
+  if (!earnMonth) earnMonth = today;
+  const r = await api("staff/earnings?month=" + earnMonth);
+  const c = r.current;
+  const x = r.expenses;
+  const step = (n) => {
+    const [y, m] = r.month.split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 7);
+  };
+  const money = (name, value, label, attrs = "") =>
+    `<div class="en-row"><label for="en-${esc(name)}">${esc(label)}</label><div class="en-in"><input id="en-${esc(name)}" data-en="${esc(name)}" inputmode="decimal" autocomplete="off" placeholder="0" value="${esc(eNumTxt(value))}" ${attrs}><span>€</span></div></div>`;
+  const extraRow = (e = { name: "", amount: 0 }) =>
+    `<div class="en-extra"><input data-en-xname maxlength="40" placeholder="Concepto" aria-label="Nombre del concepto" value="${esc(e.name)}"><div class="en-in"><input data-en-xamt inputmode="decimal" placeholder="0" aria-label="Importe" value="${esc(eNumTxt(e.amount))}"><span>€</span></div><button type="button" class="en-del" data-en-del aria-label="Quitar concepto">×</button></div>`;
+  const [ty, tm] = today.split("-").map(Number);
+  const maxMonth = new Date(Date.UTC(ty, tm - 1 + 12, 1)).toISOString().slice(0, 7);
+  const barbers = c.byBarber.length
+    ? `<table class="pg-table"><thead><tr><th class="en-l">Barbero</th><th>Servicios</th><th>Facturado</th><th>Ocupación</th></tr></thead><tbody>${c.byBarber
+        .map((b) => `<tr><td class="en-l">${esc(first(b.name))}</td><td>${b.services}</td><td>${euro(b.billed)}</td><td>${b.occupancy == null ? "—" : pctTxt(b.occupancy)}</td></tr>`)
+        .join("")}</tbody></table>`
+    : `<p class="ag-free">Todavía no hay servicios este mes.</p>`;
+  const dorm = c.dormant;
+
+  show(
+    staffTop("ganancias") +
+      `<div class="month-nav"><button type="button" class="cal-nav" data-em="-1" aria-label="Mes anterior">‹</button><label class="en-month"><span class="sr-only">Mes</span><input type="month" id="en-month" value="${esc(r.month)}" max="${esc(maxMonth)}"></label><button type="button" class="cal-nav" data-em="1" aria-label="Mes siguiente">›</button></div>
+      <div class="club-card caja-hero pg-hero" aria-live="polite"><span class="club-tag">${esc(monthLabel(r.month).toUpperCase())} · BENEFICIO NETO</span>
+        <h2 id="en-net-big"></h2>
+        <p id="en-net-sub"></p>
+        <p class="en-vs">Mes anterior (${esc(monthLabel(r.prevMonth))}): <b id="en-prev-net"></b> <span id="en-net-cmp"></span></p></div>
+
+      <p class="section-label">Ingresos</p>
+      <div class="stat3 money pg-tiles"><div><strong>${euro(c.income.total)}</strong><span>Ingresos</span>${eCmp(r.compare.income)}</div><div><strong>${c.services}</strong><span>Servicios</span>${progDelta(c.services, r.previous.services)}</div><div><strong>${euro(c.ticket)}</strong><span>Ticket medio</span>${progDelta(c.ticket, r.previous.ticket)}</div></div>
+      <ul class="caja-rows en-lines">
+        <li><span>Servicios (cobrados y completados)</span><b>${euro(c.income.services)}</b></li>
+        ${c.income.other.map((o) => `<li><span>Otros ingresos · ${esc(o.label)}${o.count ? ` (${o.count})` : ""}</span><b>${euro(o.amount)}</b></li>`).join("") || `<li><span>Otros ingresos (ropa, productos…)</span><b>${euro(0)}</b></li>`}
+        <li class="en-sum"><span>Total</span><b>${euro(c.income.total)}</b></li>
+      </ul>
+      <div class="comm-box"><div><span>Ocupación</span><strong>${c.occupancy == null ? "—" : pctTxt(c.occupancy)}</strong>${r.previous.occupancy == null || c.occupancy == null ? "" : progDelta(c.occupancy, r.previous.occupancy, "pp")}</div><div><span>Clientes nuevos</span><strong>${c.clients.new}</strong></div><div><span>Recurrentes</span><strong>${c.clients.returning}</strong></div></div>
+      ${c.clients.unknown ? `<p class="caja-meta">${c.clients.unknown} ${c.clients.unknown === 1 ? "servicio sin correo (no cuenta como nuevo ni recurrente)" : "servicios sin correo (no cuentan como nuevos ni recurrentes)"}.</p>` : ""}
+      <p class="section-label">Por barbero</p>${barbers}
+      <p class="caja-meta">Ocupación: minutos con cita entre los minutos del horario de cada barbero en el mes (sin horas bloqueadas ni «No vino»).</p>
+
+      <p class="section-label">Clientes dormidos</p>
+      <p class="caja-meta">Llevan más de 6 semanas sin venir y no tienen cita: <b>${dorm.count}</b>. ${dorm.count ? `<a href="#equipo/clientes">Verlos en Clientes</a>` : ""}</p>
+      ${dorm.list.length ? `<ul class="caja-rows en-lines">${dorm.list.slice(0, 5).map((d) => `<li><span>${esc(d.name)}</span><b>hace ${Math.round(d.since / 7)} sem.</b></li>`).join("")}</ul>` : ""}
+
+      <p class="section-label">Gastos de ${esc(monthLabel(r.month))}</p>
+      <p class="caja-meta">${r.inherited ? `Este mes no tiene gastos guardados: son los de ${esc(monthLabel(r.inheritedFrom))}. Cámbialos y pulsa «Guardar gastos».` : x && Object.values(x.fixed).some(Boolean) ? "Gastos guardados de este mes." : "Aún no has apuntado gastos. Los que guardes se copian a los meses siguientes."}</p>
+      <form id="en-form" class="en-form" novalidate autocomplete="off">
+        <div class="card en-card">${r.fixedLabels.map(([k, label]) => money("f-" + k, x.fixed[k], label, `data-en-fixed="${esc(k)}"`)).join("")}</div>
+        ${
+          r.workers.length
+            ? `<p class="section-label">Equipo</p><div class="card en-card">${r.workers
+                .map(
+                  (w) => `<div class="en-person"><strong>${esc(first(w.name))}</strong><small>Facturado: ${euro(w.billed)}</small>
+                  ${money("s-" + w.id, x.salaries[w.id], "Sueldo fijo", `data-en-sal="${esc(w.id)}"`)}
+                  <div class="en-row"><label for="en-p-${esc(w.id)}">Comisión por servicio</label><div class="en-in"><input id="en-p-${esc(w.id)}" data-en-pct="${esc(w.id)}" data-def="${w.defaultPct}" inputmode="decimal" value="${esc(eNumTxt(r.net.commissions.find((k) => k.id === w.id)?.pct ?? w.defaultPct))}"><span>%</span></div></div>
+                  <p class="en-comm">Comisión: <b data-en-commamt="${esc(w.id)}"></b></p></div>`,
+                )
+                .join("")}</div>`
+            : `<p class="caja-meta">No hay barberos con comisión en el equipo.</p>`
+        }
+        <p class="section-label">Otros conceptos</p>
+        <div id="en-extras" class="card en-card">${x.extras.map(extraRow).join("")}</div>
+        <button type="button" class="btn secondary wide" id="en-add">+ Añadir concepto</button>
+
+        <ul class="caja-rows en-lines en-total">
+          <li><span>Ingresos</span><b id="en-t-inc"></b></li>
+          <li><span>Gastos fijos (incluye sueldos y conceptos)</span><b id="en-t-cost"></b></li>
+          <li><span>Comisiones</span><b id="en-t-comm"></b></li>
+          <li class="en-sum"><span>Beneficio neto</span><b id="en-t-net"></b></li>
+          <li><span>Margen</span><b id="en-t-margin"></b></li>
+        </ul>
+        <button class="btn wide" type="submit" id="en-save">Guardar gastos</button>
+        <p class="caja-meta">Beneficio neto = ingresos − gastos fijos − comisiones. Se calcula al escribir; no se guarda hasta pulsar el botón. La comisión usa lo facturado por cada barbero; si la cambias aquí, solo vale para este análisis (no cambia el % del equipo).</p>
+      </form>`,
+  );
+
+  const form = q$("#en-form");
+  const val = (el) => eNum(el.value);
+  const readBody = () => ({
+    month: r.month,
+    fixed: Object.fromEntries(qa("[data-en-fixed]", form).map((i) => [i.dataset.enFixed, i.value])),
+    salaries: Object.fromEntries(qa("[data-en-sal]", form).map((i) => [i.dataset.enSal, i.value])),
+    pct: Object.fromEntries(qa("[data-en-pct]", form).map((i) => [i.dataset.enPct, i.value])),
+    extras: qa(".en-extra", form).map((row) => ({ name: q$("[data-en-xname]", row).value, amount: q$("[data-en-xamt]", row).value })),
+  });
+  const recalc = () => {
+    const fixed = qa("[data-en-fixed]", form).reduce((a, i) => a + val(i), 0);
+    const sal = qa("[data-en-sal]", form).reduce((a, i) => a + val(i), 0);
+    const ext = qa("[data-en-xamt]", form).reduce((a, i) => a + val(i), 0);
+    let comm = 0;
+    for (const w of r.workers) {
+      const pct = Math.min(100, val(q$(`[data-en-pct="${CSS.escape(w.id)}"]`, form)));
+      const amt = eR2((w.billed * pct) / 100);
+      comm += amt;
+      q$(`[data-en-commamt="${CSS.escape(w.id)}"]`, form).textContent = euro(amt);
+    }
+    const costs = eR2(fixed + sal + ext);
+    comm = eR2(comm);
+    const net = eR2(c.income.total - costs - comm);
+    const margin = c.income.total > 0 ? Math.round((net / c.income.total) * 1000) / 10 : null;
+    const big = q$("#en-net-big");
+    big.textContent = (net < 0 ? "−" : "") + euro(Math.abs(net));
+    q$("#en-net-sub").textContent = margin == null ? "Sin ingresos este mes: no hay margen que calcular." : `Margen ${String(margin).replace(".", ",")} % de ${euro(c.income.total)} de ingresos`;
+    q$("#en-prev-net").textContent = (r.previous.net < 0 ? "−" : "") + euro(Math.abs(r.previous.net));
+    q$("#en-net-cmp").innerHTML = eCmp({ diff: eR2(net - r.previous.net), pct: r.previous.net ? Math.round(((net - r.previous.net) / Math.abs(r.previous.net)) * 1000) / 10 : null });
+    q$("#en-t-inc").textContent = euro(c.income.total);
+    q$("#en-t-cost").textContent = "− " + euro(costs);
+    q$("#en-t-comm").textContent = "− " + euro(comm);
+    q$("#en-t-net").textContent = (net < 0 ? "−" : "") + euro(Math.abs(net));
+    q$("#en-t-margin").textContent = margin == null ? "—" : String(margin).replace(".", ",") + " %";
+    q$("#en-net-big").className = net < 0 ? "en-neg" : "";
+    q$("#en-t-net").className = net < 0 ? "en-neg" : "";
+  };
+  form.addEventListener("input", recalc);
+  recalc();
+
+  q$("#en-add").onclick = () => {
+    if (qa(".en-extra", form).length >= 30) return toast("Como mucho 30 conceptos.");
+    q$("#en-extras").insertAdjacentHTML("beforeend", extraRow());
+    qa("[data-en-xname]", form).at(-1).focus();
+  };
+  form.addEventListener("click", (e) => {
+    const del = e.target.closest("[data-en-del]");
+    if (!del) return;
+    del.closest(".en-extra").remove();
+    recalc();
+  });
+  onForm("en-form", async () => {
+    await api("staff/expenses", readBody());
+    toast("Gastos guardados.");
+    await staffEarnings();
+  });
+  qa("[data-em]").forEach((b) => (b.onclick = () => ((earnMonth = step(Number(b.dataset.em))), staffEarnings())));
+  q$("#en-month").onchange = (e) => {
+    if (/^\d{4}-\d{2}$/.test(e.target.value)) (earnMonth = e.target.value), staffEarnings();
+  };
 }
 
 // ── Equipo: progreso (ganancias y ocupación) ──────────────────────────────

@@ -8,6 +8,7 @@ import * as Card from "./_lib/stripe.js";
 import * as Sup from "./_lib/supply.js";
 import { accessPolicy, MAIL_NOT_READY } from "./_lib/access.js";
 import * as Tokens from "./_lib/assistant.js";
+import * as E from "./_lib/earnings.js";
 import { serveMcp } from "./_lib/mcp.js";
 
 const ON_VERCEL = !!process.env.VERCEL;
@@ -3740,6 +3741,55 @@ const routes = {
     };
   },
 
+  // ── Cuánto gana Nova (solo el dueño) ────────────────────────────────────
+  // Ingresos del mes (la misma lógica de «cobrada» que la caja y el progreso),
+  // comparativa con el mes anterior, gastos editables y beneficio neto.
+  "GET staff/earnings": async ({ req, q }) => {
+    const me = await needStaff(req);
+    if (!me.owner) fail(403, "Esto lo ve solo el dueño.");
+    const now = T.nowLocal();
+    const cur = now.date.slice(0, 7);
+    const month = q.get("month") || cur;
+    if (!E.MONTH_RE.test(month) || month < "2020-01" || month > E.shiftMonth(cur, 12)) fail(400, "Mes incorrecto.");
+    const prev = E.shiftMonth(month, -1);
+    const [a, b, dormant, ex, exPrev] = await Promise.all([monthEarnings(month, now, true), monthEarnings(prev, now, false), dormantClients(), expensesFor(month), expensesFor(prev)]);
+    const [workers, workersPrev] = await Promise.all([earningsWorkers(month, a.people), earningsWorkers(prev, b.people)]);
+    const netA = E.netOf(a.forNet, ex.exp, workers.list, workers.pct);
+    const netB = E.netOf(b.forNet, exPrev.exp, workersPrev.list, workersPrev.pct);
+    return {
+      month,
+      prevMonth: prev,
+      current: { ...a.view, dormant },
+      previous: { income: b.view.income.total, services: b.view.services, ticket: b.view.ticket, occupancy: b.view.occupancy, net: netB.net, margin: netB.margin },
+      compare: { income: E.diff(a.view.income.total, b.view.income.total), net: E.diff(netA.net, netB.net) },
+      expenses: ex.exp,
+      inherited: ex.inherited,
+      inheritedFrom: ex.from,
+      fixedLabels: E.FIXED,
+      workers: workers.list.map((w) => ({ ...w, defaultPct: workers.pct(w.id), billed: a.forNet.byBarber[w.id] || 0 })),
+      net: netA,
+    };
+  },
+
+  // Guarda los gastos de un mes (los meses siguientes sin gastos propios los heredan).
+  "POST staff/expenses": async ({ req, body }) => {
+    const me = await needStaff(req);
+    if (!me.owner) fail(403, "Esto lo ve solo el dueño.");
+    const month = String(body.month || "");
+    const cur = T.nowLocal().date.slice(0, 7);
+    if (!E.MONTH_RE.test(month) || month < "2020-01" || month > E.shiftMonth(cur, 12)) fail(400, "Mes incorrecto.");
+    const { list, pct } = await earningsWorkers(month);
+    let exp;
+    try {
+      exp = E.cleanExpenses(body, list, pct);
+    } catch (e) {
+      if (e instanceof RangeError) fail(400, e.message);
+      throw e;
+    }
+    await setJSON("gastos:" + month, { ...exp, saved: T.nowLocal().stamp, by: me.id });
+    return { ok: true, expenses: exp };
+  },
+
   // ── Cobros en caja ──────────────────────────────────────────────────────
   // La tablet del local: cualquiera del equipo apunta un cobro a nombre de
   // quien hizo el servicio. Cada barbero ve solo los suyos (y los que ha
@@ -4578,6 +4628,96 @@ function rateAt(id, history, date) {
   let pct = TEAM.find((p) => p.id === id)?.commission ?? COMMISSION[id] ?? 0;
   for (const e of [...history].sort((a, b) => a.from.localeCompare(b.from))) if (e.from <= date) pct = e.pct;
   return pct;
+}
+
+
+// ── Cuánto gana Nova: datos del mes ────────────────────────────────────────
+// Otras fuentes de ingresos, cada una con { id, label, get(month) → { amount, count } }.
+// Para añadir una línea nueva (productos del mostrador, cursos…) basta con
+// sumarla a esta lista: sale en el panel como «otros ingresos» y cuenta en el
+// beneficio. Los cobros de caja NO van aquí: ya están en lo facturado por cada
+// barbero (una cita cobrada cuenta por lo cobrado, igual que en Caja).
+const INCOME_SOURCES = [
+  {
+    id: "ropa",
+    label: "Ropa (NOVA Supply)",
+    async get(month) {
+      const r = await Sup.leer({ ventas: 5000 });
+      const v = r.ventas.filter((x) => String(x.fecha || "").startsWith(month));
+      return { amount: cents(v.reduce((a, x) => a + (Number(x.importe) || 0), 0)), count: v.reduce((a, x) => a + (Number(x.cantidad) || 1), 0) };
+    },
+  },
+];
+
+const pct1 = (n) => Math.round(n * 1000) / 10;
+
+async function monthEarnings(month, now, withClients) {
+  const data = await monthData(month);
+  const start = month + "-01 00:00";
+  const end = [E.shiftMonth(month, 1) + "-01 00:00", now.stamp].sort()[0];
+  const { people } = progressOf(data, start, end);
+  const rows = Object.entries(people).map(([id, x]) => ({ id, name: TEAM.find((p) => p.id === id)?.name || id, billed: cents(x.billed), services: x.services, booked: x.booked, cap: x.cap, occupancy: x.cap ? pct1(x.booked / x.cap) : null }));
+  const billed = cents(rows.reduce((a, x) => a + x.billed, 0));
+  const services = rows.reduce((a, x) => a + x.services, 0);
+  const booked = rows.reduce((a, x) => a + x.booked, 0),
+    cap = rows.reduce((a, x) => a + x.cap, 0);
+  const other = [];
+  for (const src of INCOME_SOURCES) {
+    const r = await src.get(month);
+    if (r.amount || r.count) other.push({ id: src.id, label: src.label, amount: r.amount, count: r.count });
+  }
+  const otherTotal = cents(other.reduce((a, x) => a + x.amount, 0));
+  const income = { services: billed, other, otherTotal, total: cents(billed + otherTotal) };
+  const view = { income, services, ticket: services ? cents(billed / services) : 0, occupancy: cap ? pct1(booked / cap) : null, bookedMin: booked, capMin: cap, byBarber: rows.sort((x, y) => y.billed - x.billed) };
+  if (withClients) view.clients = await newVsReturning(data, start, end);
+  return { view, people, forNet: { total: income.total, byBarber: Object.fromEntries(rows.map((x) => [x.id, x.billed])) } };
+}
+
+// Clientes del mes: nuevos (sin ningún servicio hecho antes del mes) y recurrentes.
+async function newVsReturning(data, start, end) {
+  const byBooking = new Map(data.list.map((b) => [b.id, b]));
+  const emails = new Set();
+  let unknown = 0;
+  const seen = (x) => {
+    const e = normEmail(x.email);
+    if (e) emails.add(e);
+    else unknown++;
+  };
+  const cobradas = new Set(data.pays.map((x) => x.booking).filter(Boolean));
+  for (const b of data.list) if (b.kind === "booking" && b.attendance !== "absent" && !cobradas.has(b.id) && b.date + " " + b.start >= start && b.date + " " + b.start < end) seen(b);
+  for (const x of data.pays) if (x.date + " " + x.time >= start && x.date + " " + x.time < end) seen(x.email ? x : byBooking.get(x.booking) || {});
+  const list = [...emails];
+  if (!list.length) return { new: 0, returning: 0, unknown };
+  const sets = await pipe(list.map((e) => ["SMEMBERS", "ubk:" + e]));
+  const prior = await bookingsByIds([...new Set(sets.flat())]);
+  const before = new Set(prior.filter((b) => b.kind === "booking" && b.status === "confirmed" && b.attendance !== "absent" && b.date + " " + b.start < start).map((b) => normEmail(b.email)));
+  const returning = list.filter((e) => before.has(e)).length;
+  return { new: list.length - returning, returning, unknown };
+}
+
+// Clientes dormidos: más de 6 semanas sin venir y sin cita próxima.
+async function dormantClients() {
+  const list = (await allClients()).filter((c) => c.visits && c.since != null && c.since > 42 && !c.next).sort((a, b) => a.since - b.since);
+  return { count: list.length, list: list.slice(0, 20).map((c) => ({ name: c.name || c.email.split("@")[0], since: c.since, last: c.last })) };
+}
+
+// Gastos de un mes. Si el mes no tiene, hereda los del último mes anterior que sí (hasta dos años atrás).
+async function expensesFor(month) {
+  const months = Array.from({ length: 24 }, (_, i) => E.shiftMonth(month, -i));
+  const raw = await cmd("MGET", ...months.map((m) => "gastos:" + m));
+  const i = raw.findIndex(Boolean);
+  if (i < 0) return { exp: E.emptyExpenses(), inherited: false, from: "" };
+  const { saved, by, ...doc } = JSON.parse(raw[i]);
+  const base = E.emptyExpenses();
+  return { exp: { ...base, ...doc, fixed: { ...base.fixed, ...doc.fixed } }, inherited: i > 0, from: months[i] };
+}
+
+// Los barberos del mes (sin el dueño): en activo o con ingresos ese mes, y su % de comisión del equipo.
+async function earningsWorkers(month, people = {}) {
+  const workers = TEAM.filter((p) => !p.owner && (p.active !== false || people[p.id]));
+  const hist = await commissionHistory(workers);
+  const ref = [lastOfMonth(month), T.nowLocal().date].sort()[0];
+  return { list: workers.map((p) => ({ id: p.id, name: p.name })), pct: (id) => rateAt(id, hist[id] || [], ref) };
 }
 
 // ── Caja de un periodo ─────────────────────────────────────────────────────

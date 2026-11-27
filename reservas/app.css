@@ -2087,3 +2087,33 @@ main:has(.ag-wide) { max-width: 1180px; }
 .ai-tok strong { display: block; font-size: 14px; }
 .ai-tok span { display: block; font-size: 12.5px; color: var(--muted); }
 .ai-note { font-size: 12.5px; margin: 10px 0 0; }
+
+/* Cuánto gana Nova (panel del dueño): gastos editables y beneficio neto */
+.en-month { flex: 1; display: flex; justify-content: center; margin: 0; }
+.en-month input { width: auto; min-height: 40px; text-align: center; font-weight: 700; border: 0; background: transparent; }
+.en-vs { font-size: 13px; }
+.en-vs b { font-variant-numeric: tabular-nums; }
+.en-vs .pg-delta { color: #fff; }
+.en-vs .pg-delta.up { color: #7fdc9b; }
+.en-vs .pg-delta.down { color: #ff9a92; }
+#en-net-big { font-size: clamp(30px, 10vw, 44px); letter-spacing: -1.5px; font-variant-numeric: tabular-nums; }
+#en-net-big.en-neg, #en-t-net.en-neg { color: #ff9a92; }
+#en-t-net.en-neg { color: #b3261e; }
+.en-lines li { grid-template-columns: minmax(0, 1fr) auto; }
+.en-lines .en-sum { background: var(--soft); font-weight: 700; }
+.en-lines b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.en-form { margin-top: 6px; }
+.en-card { display: grid; gap: 4px; padding: 12px; margin-bottom: 8px; }
+.en-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(104px, 40%); gap: 10px; align-items: center; }
+.en-row label { margin: 0; font-size: 14px; font-weight: 500; }
+.en-in { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.en-in input { min-width: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.en-in span { font-weight: 700; color: var(--muted); }
+.en-person { display: grid; gap: 6px; padding: 8px 0 12px; border-bottom: 1px solid var(--line); }
+.en-person:last-child { border-bottom: 0; padding-bottom: 0; }
+.en-person small { color: var(--muted); }
+.en-comm { margin: 0; font-size: 13px; color: var(--muted); text-align: right; }
+.en-extra { display: grid; grid-template-columns: minmax(0, 1fr) minmax(104px, 36%) 40px; gap: 8px; align-items: center; }
+.en-del { min-height: 44px; border: 1px solid var(--line); background: #fff; font-size: 22px; line-height: 1; cursor: pointer; }
+.en-total { margin: 14px 0 12px; }
+@media (max-width: 380px) { .en-row { grid-template-columns: 1fr; gap: 4px; } .en-extra { grid-template-columns: minmax(0, 1fr) 40px; } .en-extra .en-in { grid-column: 1; } .en-extra .en-del { grid-row: 1; grid-column: 2; } }
