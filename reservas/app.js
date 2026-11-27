@@ -373,7 +373,7 @@ function nav() {
 }
 function markNav(page) {
   const sect =
-    { barber: "home", time: "home", details: "home", consulta: "home", booked: "home", booking: "bookings", move: "bookings", login: "profile", code: "profile" }[page] || page;
+    { barber: "home", time: "home", details: "home", consulta: "home", booked: "home", booking: "bookings", move: "bookings", login: "profile", code: "profile", supply: "home" }[page] || page;
   const links = $$("#nav a"),
     i = links.findIndex((a) => a.dataset.sect === sect);
   links.forEach((a) => a.classList.toggle("active", a.dataset.sect === sect));
@@ -631,7 +631,8 @@ ${galleryBlock()}
     `Heavyweight cotton, boxy fit and the star emblem. Designed in the studio. <strong>Every euro spent on clothing earns you ${catalog.points.perEuro} points</strong> in the Club, and from ${esc(catalog.leagues.find((lg) => lg.perks.some((p) => /%.*Supply/.test(p)))?.name || "")} league you get a discount on every garment.`,
   )}</p>
   <div class="home-actions">
-    <a class="btn" href="${esc(catalog.shop.url)}" target="_blank" rel="noopener">${L("Ver la tienda", "Visit the shop")} · ${esc(catalog.shop.label)} ↗</a>
+    <a class="btn" href="#supply">${L("Pedir y recoger en el estudio", "Order and pick up at the studio")}</a>
+    <a class="btn secondary" href="${esc(catalog.shop.url)}" target="_blank" rel="noopener">${L("Ver la tienda", "Visit the shop")} · ${esc(catalog.shop.label)} ↗</a>
     <a class="btn secondary" href="#rewards">Cómo suma en el Club</a>
   </div>
 </section>
@@ -828,6 +829,7 @@ const LEGAL = {
         ["Gestionar tus citas", "Servicio, barbero, día y hora, cambios y cancelaciones, si viniste, lo que pagaste y cómo (efectivo, tarjeta o Bizum) y las citas periódicas si las pides", "El contrato (art. 6.1.b RGPD)", "Igual que la cuenta. Los cobros, 6 años"],
         ["Avisarte de tus citas", "Tu correo y los datos de la cita: confirmación, cambios, recordatorio el día antes y unas horas antes, y el aviso de la lista de espera si te apuntas", "El contrato (art. 6.1.b RGPD)", "Lo que dura la cita. La lista de espera se borra al pasar ese día"],
         cardOn() && ["Tarjeta en garantía y cobro de faltas", "La tarjeta la guarda Stripe, no nosotros. Nosotros solo vemos la marca, los 4 últimos números y la caducidad, además de las faltas, las cancelaciones tardías y lo que se haya cobrado o devuelto", "El contrato (art. 6.1.b RGPD) y nuestro interés legítimo en que no se pierdan huecos (art. 6.1.f)", "La tarjeta, hasta que la quites. Los cobros, 6 años"],
+        ["Pedidos de NOVA Supply", "Las prendas, tallas e importe de tus pedidos para recoger en el local, su estado (pendiente, pagado, listo, entregado) y la fecha. Si pagas online, el pago lo hace Stripe: aquí solo guardamos que está pagado", "El contrato: tu pedido (art. 6.1.b RGPD) y la obligación de conservar las facturas (art. 6.1.c)", "Mientras tengas cuenta; los datos de facturación, el plazo legal"],
         ["Club NOVA", "Puntos, liga, medallas, premios canjeados, las compras de ropa de NOVA Supply que el equipo apunta a tu cuenta (fecha, importe y prendas), tu código de amigo, quién te invitó, los amigos que añades al ranking y si has pulsado «Dejar mi reseña»", "El contrato: las condiciones del Club (art. 6.1.b RGPD)", "Mientras tengas cuenta"],
         ["Ranking del Club", "Tu foto de perfil (si has puesto una), el nombre o apodo que elijas, tu liga y tus puntos ganados. Los ven los demás socios que han entrado en la app. Tus amigos te ven siempre; en el ranking de todo el Club puedes dejar de salir desde tu perfil cuando quieras", "El contrato: las condiciones del Club (art. 6.1.b RGPD)", "Mientras tengas cuenta"],
         ["Ofrecerte «tu cita de siempre»", "A partir de tu historial calculamos tu día, hora, barbero y servicio habituales y cada cuánto vienes. Se calcula en el momento y no se guarda aparte", "Interés legítimo en facilitarte la reserva (art. 6.1.f RGPD)", "Mientras tengas cuenta"],
@@ -1039,6 +1041,7 @@ const LEGAL_EN = {
         ["Managing your bookings", "Service, barber, date and time, changes and cancellations, attendance, what you paid and how (cash, card, Bizum), recurring bookings if you set them", "Contract (art. 6.1.b GDPR)", "Same as the account. Payments: 6 years"],
         ["Booking notices", "Your email and the booking details: confirmation, changes, reminders the day before and a few hours before, and waitlist alerts if you join one", "Contract (art. 6.1.b GDPR)", "For as long as the booking lasts. Waitlists are deleted once the day has passed"],
         cardOn() && ["Guarantee card and no-show charges", "Your card is stored by Stripe, not by us. We only see the brand, the last 4 digits and the expiry date, plus your no-shows, late cancellations and any charges or refunds", "Contract (art. 6.1.b) and our legitimate interest in not losing slots (art. 6.1.f)", "The card: until you remove it. Charges: 6 years"],
+        ["NOVA Supply orders", "The items, sizes and amount of your studio pick-up orders, their status (pending, paid, ready, delivered) and the date. If you pay online, Stripe takes the payment: we only keep that it is paid", "Contract: your order (art. 6.1.b GDPR) and the duty to keep invoices (art. 6.1.c)", "While you have an account; billing data, the legal period"],
         ["NOVA Club", "Points, league, medals, redeemed rewards, the NOVA Supply clothing purchases the team adds to your account (date, amount, items), your friend code, who invited you, the friends you add to the ranking and whether you tapped “Leave my review”", "Contract: the Club terms (art. 6.1.b GDPR)", "While you have an account"],
         ["Club ranking", "Your profile photo (if you've added one), the name or nickname you choose, your league and the points you've earned. Other members who have logged in to the app can see them. Your friends always see you; you can stop appearing in the whole-Club ranking from your profile at any time", "Contract: the Club terms (art. 6.1.b GDPR)", "While you have an account"],
         ["Offering “your usual booking”", "From your history we work out your usual day, time, barber and service, and how often you come. It is computed on the spot and not stored separately", "Legitimate interest in making booking easier (art. 6.1.f GDPR)", "While you have an account"],
@@ -1410,6 +1413,10 @@ const pages = {
       });
       return;
     }
+    let shop = null;
+    try {
+      shop = await loadShop(true);
+    } catch {}
     show(
       back(`time/${draft.provider}`, "Cambiar hora") +
         heading("Confirma tu cita", "Un toque y listo.") +
@@ -1418,6 +1425,7 @@ const pages = {
           <div class="quick-who">${user.photo ? `<img src="${esc(user.photo)}" alt="">` : `<b>${initial(user.name)}</b>`}<div><strong>${esc(user.name)}</strong><span>${esc(user.email)}${user.phone ? " · " + esc(user.phone) : ""}</span></div><a href="#profile">Cambiar</a></div>
           <div class="club-joined"><span class="club-check">✓</span><div><strong>Eres del Club NOVA</strong><span>${L(`Cuando pagues esta cita en el estudio, sumas ${svcPoints(s)} puntos.`, `Once you pay for this booking at the studio, you earn ${svcPoints(s)} points.`)}</span></div></div>
           ${cardOn() ? guaranteeBox(s) : ""}
+          ${merchBox(shop)}
           <button class="btn wide book-btn" type="submit">${cardOn() && !user.card ? "Añadir tarjeta y reservar" : "Confirmar reserva"}</button>
           ${
             catalog.rules.recurring
@@ -1441,6 +1449,7 @@ const pages = {
     $("#g-change")?.addEventListener("click", async () => {
       if (await addCard()) render();
     });
+    bindMerchBox(shop);
     onForm("details", async (d) => {
       Object.assign(draft, { terms: true });
       saveDraft();
@@ -1450,6 +1459,7 @@ const pages = {
         if (!card) return toast("Sin tarjeta en garantía no podemos guardar la cita.");
       }
       const repeat = d.every ? { every: Number(d.every), times: Number(d.times) } : null;
+      const merch = merchPicked(shop, d);
       // Una clave por hora elegida: si la red se corta y se reintenta, el servidor
       // reconoce que es la misma reserva y no dice «esa hora ya no está libre».
       const slot = [draft.service, draft.provider, draft.date, draft.start].join("|");
@@ -1458,7 +1468,7 @@ const pages = {
       const book = async () => {
         for (let i = 0; ; i++) {
           try {
-            return await api("book", { service: draft.service, provider: draft.provider, date: draft.date, start: draft.start, terms: true, repeat, key: draft.key }, { timeout: 20000 });
+            return await api("book", { service: draft.service, provider: draft.provider, date: draft.date, start: draft.start, terms: true, repeat, key: draft.key, ...(merch.length ? { merch } : {}) }, { timeout: 20000 });
           } catch (err) {
             if (!(err.network || err.data?.pending) || i >= 3) throw err;
             if (!i) toast("La conexión va lenta. Seguimos intentándolo…");
@@ -1487,7 +1497,7 @@ const pages = {
         return pickAlternative(err.data.alternatives);
       }
       availCache.clear();
-      lastBooked = { id: r.id, membership: r.membership, service: s, provider: (r.provider && provById(r.provider.id)) || r.provider || p, date: draft.date, start: draft.start, series: r.series };
+      lastBooked = { id: r.id, membership: r.membership, service: s, provider: (r.provider && provById(r.provider.id)) || r.provider || p, date: draft.date, start: draft.start, series: r.series, merch: r.merch };
       draft = {};
       saveDraft();
       go("booked");
@@ -1527,6 +1537,9 @@ const pages = {
                   )}</span>`
                 : ""
             }</div>`
+          : "") +
+        (b.merch
+          ? `<div class="card series-note"><strong>${L("NOVA Supply: lo recoges en tu cita", "NOVA Supply: pick it up at your visit")}</strong><span>${b.merch.items.map((l) => `${esc(l.nombre)} · ${esc(l.talla)}${l.cantidad > 1 ? " × " + l.cantidad : ""}`).join(" · ")}</span><span>${L(`Total ${euro(b.merch.total)}, se paga en el local.`, `Total ${euro(b.merch.total)}, paid at the studio.`)}</span></div>`
           : "") +
         calButtons({ ...b, end: addMin(b.start, b.service.duration) }) +
         `<a class="btn wide" style="margin-top:10px" href="#booking/${esc(b.id)}">Ver, cambiar o cancelar mi cita</a>`,
@@ -1898,6 +1911,10 @@ const pages = {
   // El dueño ve a todo el equipo y, solo él, las comisiones.
   async productos() {
     await productsPage();
+  },
+
+  async supply() {
+    await supplyPage();
   },
 
   async formacion() {
@@ -2354,7 +2371,8 @@ function supplyBlock(L) {
               `From ${esc(catalog.leagues.find((lg) => lg.perks.some((p) => /%.*Supply/.test(p)))?.name || "")} league, a discount on every garment.`,
             )}</p>`
       }
-      <a class="btn wide club-btn" href="${esc(S.url)}" target="_blank" rel="noopener">${tl("Ver la tienda", "Visit the shop")} · ${esc(S.label)} ↗</a>
+      <a class="btn wide club-btn" href="#supply">${tl("Pedir y recoger en el estudio", "Order and pick up at the studio")}</a>
+      <a class="btn wide secondary" href="${esc(S.url)}" target="_blank" rel="noopener">${tl("Ver la tienda", "Visit the shop")} · ${esc(S.label)} ↗</a>
     </div>
   </section>`;
 }
@@ -3202,6 +3220,207 @@ async function productsPage() {
   bindProducts(list);
 }
 
+
+// ── NOVA Supply en la app: pedir ropa y recogerla en el local ──────────────
+// El catálogo, el stock y las ventas son los de la tienda (el servidor aparta las
+// unidades al hacer el pedido). Se paga siempre en el local; con Stripe también
+// online, y en demo el pago online es simulado.
+let shopData = null;
+let cart = []; // [{ prenda, talla, cantidad }]
+async function loadShop(force) {
+  if (force || !shopData) shopData = await api("shop");
+  return shopData;
+}
+const supImg = (p, cls = "") => (p.img ? `<img class="${cls}" src="/api/supply/${esc(p.id)}/photo?v=${esc(p.img)}" alt="${esc(p.nombre)}" loading="lazy">` : `<span class="${cls} pr-noimg" aria-hidden="true">${svg(ICONS.shirt)}</span>`);
+const supName = (p) => p.nombre + (p.variante ? " · " + p.variante : "");
+const supUnit = (p) => (p.precioSocio != null ? p.precioSocio : p.precio);
+const supPrice = (p) => (p.precioSocio != null ? `<s>${euro(p.precio)}</s> <b>${euro(p.precioSocio)}</b>` : `<b>${euro(p.precio)}</b>`);
+const cartTotal = (shop) => Math.round(cart.reduce((a, l) => a + supUnit(shop.prendas.find((p) => p.id === l.prenda) || { precio: 0 }) * l.cantidad, 0) * 100) / 100;
+const ORDER_STATE = {
+  pendiente: ["Pendiente de pago", "Awaiting payment", "st-wait"],
+  pagado: ["Pagado", "Paid", "st-ok"],
+  listo: ["Listo para recoger", "Ready for pickup", "st-ok"],
+  entregado: ["Entregado", "Delivered", ""],
+  cancelado: ["Cancelado", "Cancelled", "st-cancel"],
+};
+const orderState = (o) => {
+  const [es, en, cls] = ORDER_STATE[o.estado] || ORDER_STATE.pendiente;
+  return `<span class="appt-state ${cls}">${L(es, en)}</span>`;
+};
+const orderWhere = (o) => (o.booking ? L("Lo recoges en tu cita", "Pick it up at your visit") : L("Lo recoges en el local cuando quieras", "Pick it up at the studio any time"));
+
+function supplyCartBox(shop) {
+  if (!cart.length) return `<p class="muted sup-empty">${L("Elige una prenda, su talla y cuántas quieres.", "Pick an item, its size and how many.")}</p>`;
+  const total = cartTotal(shop);
+  const pays = [
+    ["local", L("Pagar en el local", "Pay at the studio"), L("En efectivo o con tarjeta, al recogerlo.", "Cash or card, when you collect it.")],
+    ...(shop.online ? [["online", shop.online === "demo" ? L("Pagar ahora (simulado)", "Pay now (simulated)") : L("Pagar ahora con tarjeta", "Pay now by card"), shop.online === "demo" ? L("Modo demo: no se cobra nada de verdad.", "Demo mode: nothing is really charged.") : L("Pago seguro con Stripe.", "Secure payment with Stripe.")]] : []),
+  ];
+  return `<div class="card sup-cart"><p class="section-label" style="margin-top:0">${L("Tu pedido", "Your order")}</p>
+    ${cart
+      .map((l, i) => {
+        const p = shop.prendas.find((x) => x.id === l.prenda);
+        return `<div class="sup-line"><span><strong>${esc(supName(p))}</strong><small>${L("Talla", "Size")} ${esc(l.talla)} × ${l.cantidad}</small></span><b>${euro(supUnit(p) * l.cantidad)}</b><button type="button" class="sup-x" data-sup-rm="${i}" aria-label="${L("Quitar", "Remove")}">×</button></div>`;
+      })
+      .join("")}
+    <div class="sup-total"><span>Total</span><strong>${euro(total)}</strong></div>
+    ${shop.discountPct ? `<p class="mem-hint">${L(`Incluye tu ${shop.discountPct} % de descuento de socio NOVA+.`, `Includes your ${shop.discountPct}% NOVA+ member discount.`)}</p>` : ""}
+    <div class="sup-pay">${pays.map(([v, t, d], i) => `<label class="sup-pay-opt"><input type="radio" name="sup-pay" value="${v}" ${i === 0 ? "checked" : ""}><span><b>${t}</b><small>${d}</small></span></label>`).join("")}</div>
+    <p class="muted" style="font-size:12px">${L(`Sumas ${nf(Math.round(total * catalog.points.perEuro))} puntos del Club cuando se cobre. Entrega: recoger en el local.`, `You earn ${nf(Math.round(total * catalog.points.perEuro))} Club points once it's paid. Delivery: pick up at the studio.`)}</p>
+    <button type="button" class="btn wide" id="sup-go">${L("Hacer el pedido", "Place order")}</button></div>`;
+}
+
+function supplySheet(shop, p, redraw) {
+  const open = p.tallas.filter((t) => t.max > 0);
+  const sh = sheet(`<div class="pr-sheet"><span class="pr-big">${supImg(p)}</span>
+    <h2>${esc(supName(p))}</h2><p class="pr-price">${supPrice(p)}</p>
+    ${p.descripcion ? `<p>${esc(p.descripcion)}</p>` : ""}
+    ${
+      open.length
+        ? `<p class="section-label">${L("Talla", "Size")}</p><div class="tchips">${p.tallas.map((t) => `<label class="tchip${t.max ? "" : " dis"}"><input type="radio" name="sup-t" value="${esc(t.talla)}" ${t.max ? "" : "disabled"}><span>${esc(t.talla)}</span></label>`).join("")}</div>
+      <label for="sup-q">${L("Cuántas", "How many")}</label><select id="sup-q"></select>
+      <button type="button" class="btn wide" id="sup-add" style="margin-top:14px">${L("Añadir al pedido", "Add to order")}</button>`
+        : `<p class="warning">${L("Ahora mismo no queda ninguna talla.", "No sizes left right now.")}</p>`
+    }
+    <p class="muted" style="font-size:12px">${L("Se recoge en el local. Se paga allí o, si quieres, online.", "Pick-up at the studio. Pay there or, if you prefer, online.")}</p></div>`);
+  const q = sh.el.querySelector("#sup-q");
+  const fill = (t) => {
+    const max = Math.min(10, p.tallas.find((x) => x.talla === t)?.max || 0);
+    q.innerHTML = Array.from({ length: max }, (_, i) => `<option>${i + 1}</option>`).join("");
+  };
+  fill("");
+  sh.el.querySelectorAll("[name=sup-t]").forEach((r) => (r.onchange = () => fill(r.value)));
+  const add = sh.el.querySelector("#sup-add");
+  if (add)
+    add.onclick = () => {
+      const t = sh.el.querySelector("[name=sup-t]:checked")?.value;
+      if (!t) return toast(L("Elige la talla.", "Pick a size."));
+      const n = Number(q.value) || 1;
+      const prev = cart.find((l) => l.prenda === p.id && l.talla === t);
+      const max = p.tallas.find((x) => x.talla === t).max;
+      if (prev) prev.cantidad = Math.min(max, prev.cantidad + n);
+      else cart.push({ prenda: p.id, talla: t, cantidad: n });
+      sh.close();
+      redraw();
+    };
+}
+
+async function supplyPage() {
+  // Al volver de Stripe (?pedido=…&pago=ok|cancel): se pone al día el pedido, que el webhook puede tardar.
+  const ret = new URLSearchParams(location.search);
+  const back_ = ret.get("pedido");
+  if (back_ && user) {
+    history.replaceState(null, "", "/#supply");
+    if (ret.get("pago") === "ok") {
+      try {
+        const r = await api(`shop/orders/${encodeURIComponent(back_)}?sync=1`);
+        toast(r.order.estado === "pagado" ? L("¡Pago recibido! Te lo guardamos para recoger.", "Payment received! We'll keep it for you to collect.") : L("Estamos confirmando tu pago. Mira «Mis pedidos» en un momento.", "We're confirming your payment. Check “My orders” in a moment."));
+      } catch (e) {
+        toast(e.message);
+      }
+    } else toast(L("No se ha hecho ningún cobro. Tu pedido sigue guardado: puedes pagarlo en el local o cancelarlo.", "Nothing was charged. Your order is still saved: you can pay at the studio or cancel it."));
+  }
+  const shop = await loadShop(true);
+  let orders = [];
+  if (user) orders = (await api("shop/orders").catch(() => ({ orders: [] }))).orders;
+  const draw = () => {
+    show(
+      back("home", "Inicio") +
+        heading("NOVA Supply", L("La ropa de la casa. La pides aquí y la recoges en el local, en tu cita o cuando quieras.", "The house clothing. Order here and pick it up at the studio, at your visit or whenever you like.")) +
+        (shop.discountPct ? `<p class="mem-hint">${L(`Como socio NOVA+ tienes ${shop.discountPct} % de descuento: ya está en los precios.`, `As a NOVA+ member you get ${shop.discountPct}% off: it's already in the prices.`)}</p>` : "") +
+        (shop.prendas.length
+          ? `<div class="pr-grid">${shop.prendas.map((p) => `<button type="button" class="pr-card" data-sup="${esc(p.id)}"><span class="pr-pic">${supImg(p)}</span><strong>${esc(supName(p))}</strong><span class="pr-p">${supPrice(p)}</span></button>`).join("")}</div>`
+          : `<p class="ag-free">${L("Ahora mismo no hay prendas para pedir. Vuelve pronto.", "Nothing to order right now. Check back soon.")}</p>`) +
+        `<div id="sup-cart">${shop.prendas.length ? supplyCartBox(shop) : ""}</div>` +
+        (orders.length
+          ? `<p class="section-label">${L("Mis pedidos", "My orders")}</p>` +
+            orders
+              .map(
+                (o) => `<div class="card sup-order"><div class="tr-item-top"><div><strong>${o.items.map((l) => esc(l.nombre) + " · " + esc(l.talla) + (l.cantidad > 1 ? " × " + l.cantidad : "")).join(", ")}</strong><span>${euro(o.total)} · ${esc(o.pay === "local" ? L("pago en el local", "pay at the studio") : o.pay === "demo" ? L("pago simulado", "simulated payment") : L("pagado online", "paid online"))} · ${orderWhere(o)}</span></div>${orderState(o)}</div>
+                  ${o.estado === "pendiente" ? `<div class="form-actions" style="margin-top:8px">${o.url ? `<a class="btn small" href="${esc(o.url)}">${L("Terminar el pago", "Finish payment")}</a>` : ""}<button type="button" class="btn small secondary" data-sup-cancel="${esc(o.id)}">${L("Cancelar pedido", "Cancel order")}</button></div>` : ""}</div>`,
+              )
+              .join("")
+          : "") +
+        legalLinks(),
+    );
+    $$("[data-sup]").forEach((b) => (b.onclick = () => supplySheet(shop, shop.prendas.find((p) => p.id === b.dataset.sup), draw)));
+    $$("[data-sup-rm]").forEach(
+      (b) =>
+        (b.onclick = () => {
+          cart.splice(Number(b.dataset.supRm), 1);
+          draw();
+        }),
+    );
+    $$("[data-sup-cancel]").forEach(
+      (b) =>
+        (b.onclick = async () => {
+          b.disabled = true;
+          try {
+            await api(`shop/orders/${encodeURIComponent(b.dataset.supCancel)}/cancel`, {});
+            toast(L("Pedido cancelado.", "Order cancelled."));
+            render();
+          } catch (e) {
+            b.disabled = false;
+            toast(e.message);
+          }
+        }),
+    );
+    const go_ = $("#sup-go");
+    if (go_)
+      go_.onclick = async () => {
+        if (!user) return loginScreen(L("Entra con tu correo para hacer el pedido.", "Sign in with your email to place your order."), "supply");
+        go_.disabled = true;
+        try {
+          const r = await api("shop/orders", { items: cart, pay: $("[name=sup-pay]:checked")?.value === "online" ? "online" : "local" }, { timeout: 20000 });
+          cart = [];
+          if (r.url) return void (location.href = r.url); // Stripe Checkout
+          toast(r.demo ? L("¡Pedido pagado! (modo demo, sin cobro real)", "Order paid! (demo mode, no real charge)") : L("¡Pedido hecho! Te lo guardamos para recoger y pagar en el local.", "Order placed! We'll keep it for you to collect and pay at the studio."));
+          render();
+        } catch (e) {
+          go_.disabled = false;
+          if (e.status === 401) return loginScreen(e.message, "supply");
+          toast(e.message);
+          if (e.status === 409) render();
+        }
+      };
+  };
+  draw();
+}
+
+// Paso opcional al reservar: «Añade algo para recoger en el local».
+function merchBox(shop) {
+  if (!shop?.prendas?.length) return "";
+  return `<details class="merch-box"><summary>${svg(ICONS.bag)} ${L("Añade algo para recoger en el local", "Add something to pick up at the studio")}</summary>
+    <p class="muted" style="margin:8px 0 10px;font-size:13px">${L("Te lo guardamos y lo recoges en tu cita. Se paga en el local.", "We'll keep it for you to collect at your visit. Pay at the studio.")}</p>
+    ${shop.prendas
+      .map((p) => {
+        const open = p.tallas.filter((t) => t.max > 0);
+        return `<div class="merch-row"><span class="merch-pic">${supImg(p)}</span><div class="merch-txt"><strong>${esc(supName(p))}</strong><span>${supPrice(p)}</span>
+          ${
+            open.length
+              ? `<div class="merch-pick"><select name="mt-${esc(p.id)}" aria-label="${L("Talla", "Size")}"><option value="">${L("Talla…", "Size…")}</option>${open.map((t) => `<option value="${esc(t.talla)}">${esc(t.talla)}</option>`).join("")}</select><select name="mq-${esc(p.id)}" aria-label="${L("Cantidad", "Quantity")}">${[1, 2, 3, 4, 5].map((n) => `<option>${n}</option>`).join("")}</select></div>`
+              : `<small>${L("Agotada", "Sold out")}</small>`
+          }</div></div>`;
+      })
+      .join("")}
+    <p class="merch-total" id="merch-total"></p></details>`;
+}
+function merchPicked(shop, d) {
+  return (shop?.prendas || []).filter((p) => d["mt-" + p.id]).map((p) => ({ prenda: p.id, talla: d["mt-" + p.id], cantidad: Number(d["mq-" + p.id]) || 1 }));
+}
+function bindMerchBox(shop) {
+  const f = $("#details"),
+    out = $("#merch-total");
+  if (!f || !out) return;
+  const upd = () => {
+    const list = merchPicked(shop, Object.fromEntries(new FormData(f)));
+    const total = Math.round(list.reduce((a, l) => a + supUnit(shop.prendas.find((p) => p.id === l.prenda)) * l.cantidad, 0) * 100) / 100;
+    out.textContent = list.length ? L(`Para recoger en la cita: ${euro(total)}, se paga en el local.`, `To pick up at your visit: ${euro(total)}, paid at the studio.`) : "";
+  };
+  f.addEventListener("change", upd);
+  upd();
+}
+
 // ── Equipo y normas (solo el dueño) ────────────────────────────────────────
 // Airam pone aquí cuántas horas antes se puede cancelar gratis, cuánto se
 // cobra si alguien cancela tarde o no viene, y lleva el equipo: altas,
@@ -4047,7 +4266,7 @@ function installCard() {
 }
 
 // Rutas «bonitas» que llevan a una pantalla (por si se comparten).
-const entry = { "/acceder": "login", "/mis-citas": "bookings", "/perfil": "profile", "/equipo": "equipo", "/reservar": "reservar", "/formacion": "formacion", "/productos": "productos", "/privacidad": "privacidad", "/cookies": "cookies", "/condiciones": "condiciones", "/aviso-legal": "aviso-legal" }[location.pathname.replace(/\/$/, "")];
+const entry = { "/acceder": "login", "/mis-citas": "bookings", "/perfil": "profile", "/equipo": "equipo", "/reservar": "reservar", "/formacion": "formacion", "/productos": "productos", "/supply": "supply", "/privacidad": "privacidad", "/cookies": "cookies", "/condiciones": "condiciones", "/aviso-legal": "aviso-legal" }[location.pathname.replace(/\/$/, "")];
 if (entry && !location.hash) history.replaceState(null, "", "/#" + entry);
 
 // Intro con el logo: solo la primera vez en cada visita y como mínimo un instante, para que se vea.

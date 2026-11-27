@@ -2147,3 +2147,41 @@ main:has(.ag-wide) { max-width: 1180px; }
 .mem-st.past_due, .mem-st.canceled, .mem-st.incomplete { background: #fbe9e7; color: #9e2c2c; }
 .mem-st.churn { background: #fff3d6; color: #8a5a00; }
 .cb-disc { margin: 6px 0 0; font-size: 13px; font-weight: 600; color: #1f6b35; }
+
+/* ── NOVA Supply en la app: pedido y paso al reservar ── */
+.pr-card .pr-p { font-size: 14px; color: var(--muted); }
+.pr-card .pr-p b { color: var(--ink); font-weight: 600; }
+.pr-card .pr-p s, .pr-price s, .merch-txt s { color: var(--muted); font-weight: 400; margin-right: 4px; }
+.sup-cart { margin-top: 18px; }
+.sup-line { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.sup-line span { display: grid; gap: 1px; }
+.sup-line small { color: var(--muted); font-size: 12px; }
+.sup-x { min-height: 0; width: 28px; height: 28px; padding: 0; background: none; border: 1px solid var(--line); border-radius: 0; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; }
+.sup-total { display: flex; justify-content: space-between; align-items: baseline; padding: 12px 0 6px; font-size: 17px; }
+.sup-pay { display: grid; gap: 8px; margin: 10px 0; }
+.sup-pay-opt { display: flex; gap: 10px; align-items: flex-start; margin: 0; padding: 10px 12px; border: 1px solid var(--line); background: #fff; font-weight: 400; cursor: pointer; }
+.sup-pay-opt input { margin-top: 3px; }
+.sup-pay-opt span { display: grid; gap: 1px; }
+.sup-pay-opt small { color: var(--muted); font-size: 12px; }
+.sup-pay-opt:has(input:checked) { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.sup-order { margin-top: 10px; }
+.sup-empty { margin: 16px 0 0; }
+.merch-box { margin: 14px 0; padding: 12px 14px; border: 1px solid var(--line); background: #fff; }
+.merch-box summary { cursor: pointer; font-weight: 600; display: flex; gap: 8px; align-items: center; }
+.merch-box summary svg { width: 18px; height: 18px; flex: none; }
+.merch-row { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.merch-pic { width: 56px; height: 56px; background: var(--soft); overflow: hidden; display: grid; place-items: center; }
+.merch-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.merch-txt { display: grid; gap: 3px; align-content: start; font-size: 14px; }
+.merch-pick { display: flex; gap: 8px; margin-top: 4px; }
+.merch-pick select { width: auto; min-width: 84px; }
+.merch-total { margin: 8px 0 0; font-size: 13px; font-weight: 600; }
+.merch-total:empty { display: none; }
+/* Panel: pedidos de la app */
+.od-card { margin-top: 10px; }
+.od-card .form-actions { margin-top: 10px; flex-wrap: wrap; }
+.od-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0 4px; }
+.od-tab { min-height: 0; padding: 6px 12px; border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 0; font-size: 13px; font-weight: 500; cursor: pointer; }
+.od-tab.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+.od-alert { margin: 8px 0 0; padding: 8px 10px; background: #fdecea; color: #8a1f17; font-size: 13px; }
+.rp-photo { margin: 6px 0; }

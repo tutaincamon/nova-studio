@@ -64,7 +64,7 @@ Solo los nombres. Los valores van en Vercel, nunca en el repo.
 | `LOGIN_CON_CODIGO` | En Vercel no cambia nada. En local, `0` entra sin código (solo para pruebas) |
 | `MODO_DEMO` | Si vale `1`, se entra solo con el correo también en producción y la app muestra «Modo demo». Sin esta variable, en producción hace falta el código |
 | `CRON_SECRET` | El cron de Vercel lo manda como `Authorization: Bearer …` |
-| `STRIPE_SECRET_KEY` | Cobro de faltas y tarjeta en garantía. Sin las dos claves, no se pide tarjeta |
+| `STRIPE_SECRET_KEY` | Cobro de faltas y tarjeta en garantía (sin las dos claves, no se pide tarjeta), membresía y pago online de los pedidos de NOVA Supply (Checkout en modo `payment`) |
 | `STRIPE_PUBLISHABLE_KEY` | La clave pública que carga el móvil |
 | `STRIPE_WEBHOOK_SECRET` | Secreto de firma (`whsec_…`) del webhook `/api/stripe/webhook` de la membresía. Sin él, el webhook responde 503 y no acepta nada |
 | `STRIPE_MEMBERSHIP_PRICE_ID` | Opcional. ID de un precio mensual de Stripe (`price_…`) para el primer plan. Sin él, el precio se crea solo con un `lookup_key` |
@@ -142,7 +142,7 @@ Limitaciones: no hay SSE ni notificaciones del servidor. No hay OAuth: los clien
 En el panel, **Más → Cuánto gana Nova** (solo el dueño; la API devuelve 403 a barberos y caja). Elige el mes (por defecto el actual) y compara con el anterior en € y %.
 
 - **Ingresos**: facturación de las citas hechas o cobradas (misma lógica que Caja y Progreso: una cita cobrada cuenta por lo cobrado), servicios, ticket medio, ocupación (minutos con cita entre minutos de horario de cada barbero), ingresos por barbero, clientes nuevos y recurrentes, y clientes dormidos (los mismos de «Avisos y reseñas», según las semanas que fije el dueño).
-- **Otros ingresos**: línea aparte. Hoy suma la ropa vendida (`supply:ventas`). Para añadir otra fuente, se agrega un objeto a la lista `INCOME_SOURCES` de `api/handler.js` (`{ id, label, get(month) }`).
+- **Otros ingresos**: línea aparte. Hoy suma la ropa vendida en caja (`supply:ventas`) y, aparte, «Merch NOVA Supply» (los pedidos de la app cobrados; ver más abajo). Para añadir otra fuente, se agrega un objeto a la lista `INCOME_SOURCES` de `api/handler.js` (`{ id, label, get(month) }`).
 - **Gastos** editables (alquiler, luz, agua, internet, productos, sueldo fijo y comisión % de cada barbero, Seguridad Social, autónomo, gestoría, software, otros y conceptos libres), guardados en `gastos:<AAAA-MM>`. Un mes sin gastos propios hereda los del último mes anterior que los tenga. El servidor valida (importes de 0 a 100.000 €, % de 0 a 100, máximo 30 conceptos libres).
 - **Beneficio neto** = ingresos − gastos fijos − comisiones, con margen %. Se recalcula en el navegador al escribir; el botón «Guardar gastos» lo guarda. El % de comisión sale del equipo; si se cambia aquí solo vale para este análisis.
 - API: `GET /api/staff/earnings?month=AAAA-MM` y `POST /api/staff/expenses`. Sin variables de entorno nuevas.
@@ -163,6 +163,23 @@ Capa **nueva y distinta del Club** (puntos, ligas y medallas, que siguen gratis)
 - **Panel (solo el dueño, 403 al resto)**: socios con plan, estado, cortes usados/restantes, alta, próxima renovación y MRR (suma de cuotas de los socios activos). `GET /api/staff/membership` y `POST /api/staff/membership/plans`.
 - API del cliente: `GET /api/membership`, `POST /api/membership/join|cancel|portal`. `/api/me` y `/api/catalog` llevan la membresía.
 - Tests: `test/membership.test.js`. Sin dependencias nuevas.
+
+---
+
+## Tienda NOVA Supply en la app
+
+Los clientes piden ropa desde la app (`#supply`, y un paso opcional al reservar: «Añade algo para recoger en el local») y la recogen en el local. **No hay un segundo inventario**: se usa el de la tienda web (`supply:catalogo`, `supply:stock`, `supply:apartadas`, `supply:ventas`; ver `api/_lib/supply.js`). Los pedidos y su lógica están en `api/_lib/shop.js` (claves `sord:*`, `usord:*`, `sordbk:*`, `sordall`).
+
+- **Catálogo (solo el dueño)**: en **Ropa** cada prenda tiene nombre, variante, descripción, precio (40 € por defecto en las nuevas), foto (misma mecánica que los productos del estudio: `prodimg:sup-<id>`, servida en `/api/supply/<id>/photo`; si no hay, la de la web de la tienda), tallas con stock por talla y estado (`A la venta` = activa, `Oculta` = inactiva). Se puede borrar una prenda si no tiene pedidos abiertos. Barbero y caja reciben 403/401.
+- **Cliente**: elige talla y cantidad (sin pasar del stock libre). Entrega: recoger en el local (en la cita o, sin cita, cuando quiera). El socio NOVA+ paga con el descuento de su plan (el que ya define para «el resto de servicios y la ropa»).
+- **Stock**: al hacer el pedido se **apartan** las unidades (`supply:apartadas`, como las reservas de la web), así que nadie las vende dos veces. Se liberan si se cancela el pedido, si caduca el pago o si se cancela la cita a la que iban ligados. El stock real baja al cobrarse.
+- **Pago**: «pagar en el local» siempre. Con `STRIPE_SECRET_KEY`, Checkout en modo `payment` (sesión de 35 min; si caduca, se cancela y se libera). Sin Stripe, **en MODO_DEMO (o en local) el pago online es simulado** y se cobra al momento; en producción sin Stripe solo se ofrece pagar en el local. El webhook `/api/stripe/webhook` (el mismo de la membresía) atiende también `checkout.session.completed` y `checkout.session.expired` de los pedidos; el importe se comprueba contra el pedido.
+- **Estados** (panel → Ropa → «Pedidos de la app», y desde la caja «Pedidos de la app»): pendiente de pago → pagado → listo para recoger → entregado, y cancelado. «Cobrado en el local» (con el importe real) apunta la venta en la lista de ventas de ropa de la caja (canal `app`, con `pedido`), baja el stock y suma los puntos del Club como cualquier venta de ropa. Entregar un pedido sin cobrar lo cobra a la vez. Cancelar un pedido ya cobrado (solo el dueño) deshace venta, stock y puntos; si fue con Stripe, el dinero se devuelve a mano desde Stripe (queda marcado).
+- **Cuánto gana Nova**: los pedidos cobrados salen en la línea «Merch NOVA Supply» del mes. Cada pedido se apunta **una sola vez** en `supply:ventas`; la línea «Ropa (NOVA Supply)» ya no incluye las ventas con `pedido`, así que nada se cuenta dos veces. Los puntos de los cobrados por Stripe se dan al abrir el panel de pedidos o en el cron.
+- **Cron horario**: suelta los pagos online sin completar, los pedidos de una cita cancelada o pasada hace más de 2 días y los «en el local» sin cita que llevan 7 días sin cobrarse.
+- API cliente: `GET /api/shop`, `GET|POST /api/shop/orders`, `GET /api/shop/orders/:id` (`?sync=1` pregunta a Stripe), `POST /api/shop/orders/:id/cancel`; `POST /api/book` acepta `merch: [{ prenda, talla, cantidad }]`. Equipo: `GET /api/staff/shop`, `POST /api/staff/shop/:id/estado|cobrar`, `POST /api/staff/ropa/prenda[/borrar]`.
+- Sin variables de entorno nuevas ni dependencias. El precio de partida de las camisetas del catálogo inicial (solo si la base aún no tiene catálogo) es 40 €. Las pantallas de cliente llevan texto en español e inglés (`L(es, en)`); el panel está solo en castellano.
+- Tests: `test/shop.test.js`.
 
 ---
 

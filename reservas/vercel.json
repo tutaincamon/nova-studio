@@ -25,7 +25,7 @@
       "destination": "/api/handler?route=well-known/mcp.json"
     },
     {
-      "source": "/(acceder|mis-citas|perfil|equipo|reservar|formacion|productos|privacidad|cookies|condiciones|aviso-legal)",
+      "source": "/(acceder|mis-citas|perfil|equipo|reservar|formacion|productos|supply|privacidad|cookies|condiciones|aviso-legal)",
       "destination": "/index.html"
     }
   ],
