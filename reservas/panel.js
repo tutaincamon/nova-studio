@@ -612,7 +612,7 @@ function cajaStats(p, word = "este mes") {
   const rows = p.rows
     .map(
       (x) =>
-        `<li><time>${esc(shortDate(x.date))}<small>${esc(x.start)}</small></time><span><strong>${esc(x.name)}</strong>${esc(x.service)}${x.pay ? ` · ${esc(methodName(x.method))}` : " · sin cobro apuntado"}</span><b>${euro(x.price)}${withComm ? `<small>${String(x.pct).replace(".", ",")} % · ${euro(x.commission)}</small>` : ""}</b></li>`,
+        `<li><time>${esc(shortDate(x.date))}<small>${esc(x.start)}</small></time><span><strong>${esc(x.name)}</strong>${esc(x.service)}${x.included ? " · incluido en membresía" : x.pay ? ` · ${esc(methodName(x.method))}` : " · sin cobro apuntado"}</span><b>${euro(x.price)}${withComm ? `<small>${String(x.pct).replace(".", ",")} % ${x.included ? `de ${euro(x.base)} ` : ""}· ${euro(x.commission)}</small>` : ""}</b></li>`,
     )
     .join("");
   return (
@@ -739,6 +739,7 @@ async function staffCaja() {
           (p) => `<div class="card worker">
             <div class="worker-head">${face(provById(p.id), "who-face")}<div><strong>${esc(p.name)}</strong><span>${p.services} ${p.services === 1 ? "servicio" : "servicios"} · ${euro(p.billed)} facturado</span></div></div>
             <div class="comm-box"><div><span>Comisión</span><strong>${String(p.pct).replace(".", ",")} %</strong></div><div><span>Te toca</span><strong>${euro(p.commission)}</strong></div><div><span>Le queda</span><strong>${euro(Math.round((p.billed - p.commission) * 100) / 100)}</strong></div></div>
+            ${p.includedCuts ? `<p class="caja-meta">Incluye ${p.includedCuts} ${p.includedCuts === 1 ? "corte incluido" : "cortes incluidos"} en la membresía NOVA+ (${euro(p.includedCommission)} de comisión, sobre su precio normal).</p>` : ""}
             ${p.expectedCommission ? `<p class="caja-meta">Con las citas que quedan ${esc(range.word)}: +${euro(p.expectedCommission)} de comisión.</p>` : ""}
             <div class="seg"><button type="button" class="secondary" data-pct="${esc(p.id)}">Cambiar %</button>${r.month ? `<button type="button" class="${p.paid ? "paid" : "secondary"}" data-paid="${esc(p.id)}">${p.paid ? "✓ Cobrado" : "Marcar como cobrado"}</button>` : ""}</div>
             ${r.month && p.paid ? `<p class="caja-meta">Cobrado el ${esc(shortDate(p.paid.slice(0, 10)))}. Pulsa otra vez para desmarcarlo.</p>` : ""}
@@ -867,6 +868,7 @@ async function staffEarnings() {
         ${c.income.other.map((o) => `<li><span>Otros ingresos · ${esc(o.label)}${o.count ? ` (${o.count})` : ""}${o.demo ? " · demo" : ""}</span><b>${euro(o.amount)}</b></li>`).join("") || `<li><span>Otros ingresos (ropa, productos…)</span><b>${euro(0)}</b></li>`}
         <li class="en-sum"><span>Total</span><b>${euro(c.income.total)}</b></li>
       </ul>
+      ${r.included && r.included.cuts ? `<p class="caja-meta en-incl">Cortes incluidos en la membresía NOVA+ este mes: <b>${r.included.cuts}</b>. Su ingreso es la cuota (no se cuenta dos veces), pero los barberos cobran comisión por su precio normal (${euro(r.included.base)}): <b>${euro(r.included.commission)}</b> de comisión.</p>` : ""}
       <div class="comm-box"><div><span>Ocupación</span><strong>${c.occupancy == null ? "—" : pctTxt(c.occupancy)}</strong>${r.previous.occupancy == null || c.occupancy == null ? "" : progDelta(c.occupancy, r.previous.occupancy, "pp")}</div><div><span>Clientes nuevos</span><strong>${c.clients.new}</strong></div><div><span>Recurrentes</span><strong>${c.clients.returning}</strong></div></div>
       ${c.clients.unknown ? `<p class="caja-meta">${c.clients.unknown} ${c.clients.unknown === 1 ? "servicio sin correo (no cuenta como nuevo ni recurrente)" : "servicios sin correo (no cuentan como nuevos ni recurrentes)"}.</p>` : ""}
       <p class="section-label">Por barbero</p>${barbers}
@@ -884,7 +886,7 @@ async function staffEarnings() {
           r.workers.length
             ? `<p class="section-label">Equipo</p><div class="card en-card">${r.workers
                 .map(
-                  (w) => `<div class="en-person"><strong>${esc(first(w.name))}</strong><small>Facturado: ${euro(w.billed)}</small>
+                  (w) => `<div class="en-person"><strong>${esc(first(w.name))}</strong><small>Facturado: ${euro(w.billed)}${w.inclBase ? ` · cortes incluidos (precio normal): ${euro(w.inclBase)}` : ""}</small>
                   ${money("s-" + w.id, x.salaries[w.id], "Sueldo fijo", `data-en-sal="${esc(w.id)}"`)}
                   <div class="en-row"><label for="en-p-${esc(w.id)}">Comisión por servicio</label><div class="en-in"><input id="en-p-${esc(w.id)}" data-en-pct="${esc(w.id)}" data-def="${w.defaultPct}" inputmode="decimal" value="${esc(eNumTxt(r.net.commissions.find((k) => k.id === w.id)?.pct ?? w.defaultPct))}"><span>%</span></div></div>
                   <p class="en-comm">Comisión: <b data-en-commamt="${esc(w.id)}"></b></p></div>`,
@@ -924,7 +926,7 @@ async function staffEarnings() {
     let comm = 0;
     for (const w of r.workers) {
       const pct = Math.min(100, val(q$(`[data-en-pct="${CSS.escape(w.id)}"]`, form)));
-      const amt = eR2((w.billed * pct) / 100);
+      const amt = eR2(((w.billed + (w.inclBase || 0)) * pct) / 100);
       comm += amt;
       q$(`[data-en-commamt="${CSS.escape(w.id)}"]`, form).textContent = euro(amt);
     }

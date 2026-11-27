@@ -3815,16 +3815,24 @@ const routes = {
     for (const person of people) {
       if (person.owner) continue;
       const h = hist[person.id];
-      let commission = 0;
+      let commission = 0,
+        includedCuts = 0,
+        includedCommission = 0;
       for (const r of person.rows) {
         r.pct = rateAt(person.id, h, r.date);
-        r.commission = cents((r.price * r.pct) / 100);
+        r.commission = cents((r.base * r.pct) / 100);
         commission += r.commission;
+        if (r.included) {
+          includedCuts++;
+          includedCommission += r.commission;
+        }
       }
       Object.assign(person, {
         pct: rateAt(person.id, h, to),
         commission: cents(commission),
-        expectedCommission: cents(person.upcomingRows.reduce((a, r) => a + (r.price * rateAt(person.id, h, r.date)) / 100, 0)),
+        includedCuts,
+        includedCommission: cents(includedCommission),
+        expectedCommission: cents(person.upcomingRows.reduce((a, r) => a + (r.base * rateAt(person.id, h, r.date)) / 100, 0)),
         paid: (month && paid[workers.findIndex((w) => w.id === person.id)]) || "",
       });
     }
@@ -3841,6 +3849,8 @@ const routes = {
         salon: cents(people.reduce((a, p) => a + p.billed, 0)),
         own: cents(own),
         commissions,
+        includedCuts: people.reduce((a, p) => a + (p.includedCuts || 0), 0),
+        includedCommission: cents(people.reduce((a, p) => a + (p.includedCommission || 0), 0)),
         pendingCommissions: month ? cents(people.filter((p) => !p.owner && !p.paid).reduce((a, p) => a + p.commission, 0)) : 0,
         income: cents(own + commissions),
       },
@@ -3895,7 +3905,7 @@ const routes = {
       const addComm = (a, m) => {
         if (!boss) return;
         let comm = 0;
-        for (const [pid, x] of Object.entries(a.people)) if (pid !== boss.id && hist[pid]) comm += (x.billed * rateAt(pid, hist[pid], m + "-01")) / 100;
+        for (const [pid, x] of Object.entries(a.people)) if (pid !== boss.id && hist[pid]) comm += ((x.billed + (x.inclBase || 0)) * rateAt(pid, hist[pid], m + "-01")) / 100;
         const o = (a.people[boss.id] ||= { billed: 0, services: 0, clients: 0, booked: 0, cap: 0, heat: {} });
         o.comm = cents(comm);
       };
@@ -3945,8 +3955,10 @@ const routes = {
       inherited: ex.inherited,
       inheritedFrom: ex.from,
       fixedLabels: E.FIXED,
-      workers: workers.list.map((w) => ({ ...w, defaultPct: workers.pct(w.id), billed: a.forNet.byBarber[w.id] || 0 })),
+      workers: workers.list.map((w) => ({ ...w, defaultPct: workers.pct(w.id), billed: a.forNet.byBarber[w.id] || 0, inclBase: a.forNet.inclBase[w.id] || 0 })),
       net: netA,
+      // Cortes incluidos en la membresía: ingreso 0 € (va en la cuota), pero el barbero cobra comisión por su precio normal.
+      included: { cuts: a.inclCuts, base: cents(Object.values(a.forNet.inclBase).reduce((x, y) => x + y, 0)), commission: netA.includedCommission },
     };
   },
 
@@ -4605,6 +4617,10 @@ const cents = (n) => Math.round(n * 100) / 100;
 // Lo que vale una cita para la caja y las ganancias: una incluida en la membresía no suma
 // (su dinero ya entró con la cuota mensual, que sale como línea propia).
 const svcPrice = (b) => (b.membership?.included ? 0 : Number(b.service.price) || 0);
+// Base de la comisión del barbero: el precio NORMAL del servicio, aunque el socio pague 0 € (corte incluido en la membresía).
+const commBase = (b) => (b.membership?.included ? Number(b.service.price) || 0 : svcPrice(b));
+// Lo mismo para un cobro de caja de una cita incluida: lo que valían sus servicios (guardado en `normal`; si falta, el precio del catálogo).
+const payNormal = (x) => cents(x.normal ?? x.items.reduce((a, it) => a + (Number(service(it.id)?.price ?? EXTRAS.find((e) => e.id === it.id)?.price) || 0), 0));
 
 async function monthBookings(month) {
   const [y, m] = month.split("-").map(Number);
@@ -4644,7 +4660,7 @@ function progressOf({ list, pays }, from, to) {
   const inside = (stamp) => stamp >= from && stamp < to;
   const cobradas = new Set(pays.map((x) => x.booking).filter(Boolean));
   const people = {};
-  const P = (id) => (people[id] ||= { billed: 0, services: 0, clients: 0, booked: 0, cap: 0, heat: {}, _who: new Set(), _days: {} });
+  const P = (id) => (people[id] ||= { billed: 0, inclCuts: 0, inclBase: 0, services: 0, clients: 0, booked: 0, cap: 0, heat: {}, _who: new Set(), _days: {} });
   const day = (id, date) => (P(id)._days[date] ||= { busy: new Set(), off: new Set() });
   const mark = (set, a, b) => {
     for (let t = Math.floor(a / LOCK_MIN) * LOCK_MIN; t < b; t += LOCK_MIN) set.add(t);
@@ -4659,6 +4675,10 @@ function progressOf({ list, pays }, from, to) {
     if (!inside(b.date + " " + b.start) || cobradas.has(b.id)) continue;
     const p = P(b.provider.id);
     p.billed += svcPrice(b);
+    if (b.membership?.included) {
+      p.inclCuts++;
+      p.inclBase += commBase(b);
+    }
     p.services++;
     p._who.add(who(b));
   }
@@ -4671,6 +4691,10 @@ function progressOf({ list, pays }, from, to) {
     if (!inside(x.date + " " + x.time)) continue;
     const p = P(x.provider.id);
     p.billed += x.amount;
+    if (x.included) {
+      p.inclCuts++;
+      p.inclBase += payNormal(x);
+    }
     p.services++;
     p._who.add(who(x));
   }
@@ -4699,6 +4723,7 @@ function progressOf({ list, pays }, from, to) {
   }
   for (const [id, p] of Object.entries(people)) {
     p.billed = cents(p.billed);
+    p.inclBase = cents(p.inclBase);
     p.clients = p._who.size;
     delete p._who;
     delete p._days;
@@ -4729,11 +4754,12 @@ function readPay(body, included = false) {
     if (e) items.push({ id: e.id, name: e.name, price: e.price, extra: true });
   }
   if (!items.length) fail(400, "Elige el servicio que se ha hecho.");
+  const normal = cents(items.reduce((a, it) => a + it.price, 0));
   if (included) items.forEach((it) => (it.price = 0));
   const amount = included ? 0 : Math.round(Number(String(body.amount ?? "").replace(",", ".")) * 100) / 100;
   if (!included && !(amount > 0 && amount <= 1000)) fail(400, "Pon el importe cobrado, en euros.");
   if (!included && !PAY_METHODS.some((m) => m.id === body.method)) fail(400, "Elige cómo ha pagado.");
-  return { provider: { id: p.id, name: p.name }, items, amount, method: included ? "membresia" : body.method, ...(included ? { included: true } : {}), name: clean(body.name, 60) || "Cliente sin cita", booking: clean(body.booking, 20) };
+  return { provider: { id: p.id, name: p.name }, items, amount, method: included ? "membresia" : body.method, ...(included ? { included: true, normal } : {}), name: clean(body.name, 60) || "Cliente sin cita", booking: clean(body.booking, 20) };
 }
 // Engancha el cobro a su cita: así la agenda la enseña como cobrada y el Club
 // da los puntos por lo que se pagó de verdad.
@@ -4780,8 +4806,8 @@ function statsOf(list, now, pays = []) {
   const live = list.filter((b) => b.status === "confirmed");
   const done = live.filter((b) => isPast(b, now) && b.attendance !== "absent");
   const upcoming = live.filter((b) => !isPast(b, now));
-  const row = (b) => ({ id: b.id, date: b.date, start: b.start, name: b.name, service: b.service.name, price: svcPrice(b), marked: b.attendance === "done", unpaid: true });
-  const payRow = (x) => ({ id: x.id, date: x.date, start: x.time, name: x.name, service: payLabel(x), price: x.amount, method: x.method, pay: true });
+  const row = (b) => ({ id: b.id, date: b.date, start: b.start, name: b.name, service: b.service.name, price: svcPrice(b), base: commBase(b), ...(b.membership?.included ? { included: true } : {}), marked: b.attendance === "done", unpaid: true });
+  const payRow = (x) => ({ id: x.id, date: x.date, start: x.time, name: x.name, service: payLabel(x), price: x.amount, base: x.included ? payNormal(x) : x.amount, ...(x.included ? { included: true } : {}), method: x.method, pay: true });
   const byService = {};
   const add = (name, n, total) => {
     const x = (byService[name] ||= { name, count: 0, total: 0 });
@@ -4877,7 +4903,8 @@ async function monthEarnings(month, now, withClients) {
   const income = { services: billed, other, otherTotal, total: cents(billed + otherTotal) };
   const view = { income, services, ticket: services ? cents(billed / services) : 0, occupancy: cap ? pct1(booked / cap) : null, bookedMin: booked, capMin: cap, byBarber: rows.sort((x, y) => y.billed - x.billed) };
   if (withClients) view.clients = await newVsReturning(data, start, end);
-  return { view, people, forNet: { total: income.total, byBarber: Object.fromEntries(rows.map((x) => [x.id, x.billed])) } };
+  const inclBase = Object.fromEntries(Object.entries(people).filter(([, x]) => x.inclBase).map(([id, x]) => [id, x.inclBase]));
+  return { view, people, forNet: { total: income.total, byBarber: Object.fromEntries(rows.map((x) => [x.id, x.billed])), inclBase }, inclCuts: Object.values(people).reduce((a, x) => a + x.inclCuts, 0) };
 }
 
 // Clientes del mes: nuevos (sin ningún servicio hecho antes del mes) y recurrentes.
