@@ -2117,3 +2117,33 @@ main:has(.ag-wide) { max-width: 1180px; }
 .en-del { min-height: 44px; border: 1px solid var(--line); background: #fff; font-size: 22px; line-height: 1; cursor: pointer; }
 .en-total { margin: 14px 0 12px; }
 @media (max-width: 380px) { .en-row { grid-template-columns: 1fr; gap: 4px; } .en-extra { grid-template-columns: minmax(0, 1fr) 40px; } .en-extra .en-in { grid-column: 1; } .en-extra .en-del { grid-row: 1; grid-column: 2; } }
+
+/* Socio NOVA+ (membresía de pago): perfil, reserva y panel de socios */
+.st-mem { background: #1a1a1a; color: #fff; }
+.mem-box { display: grid; gap: 10px; }
+.mem-plan { display: grid; gap: 8px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.mem-plan:last-of-type { border-bottom: 0; padding-bottom: 0; }
+.mem-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.mem-top strong { display: block; font-size: 18px; letter-spacing: -.3px; }
+.mem-top > div > span { font-size: 14px; color: var(--muted); }
+.mem-demo { font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; background: var(--soft); color: var(--muted); padding: 3px 8px; white-space: nowrap; }
+.mem-perks { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 14px; }
+.mem-perks li { padding-left: 18px; position: relative; }
+.mem-perks li::before { content: "✦"; position: absolute; left: 0; font-size: 11px; top: 2px; }
+.mem-cuts { display: flex; gap: 6px; flex-wrap: wrap; }
+.mem-cuts i { width: 26px; height: 8px; background: var(--ink); }
+.mem-cuts i.used { background: var(--line); }
+.mem-line { margin: 0; font-size: 14px; }
+.mem-fine { margin: 0; font-size: 12px; }
+.mem-hint { margin: 10px 0 0; padding: 10px 12px; background: #e3f5e8; color: #1f6b35; font-size: 13px; font-weight: 600; }
+.mem-hint-off { background: var(--soft); color: var(--muted); }
+.mem-admin .mem-plan-edit { display: grid; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.mem-admin .mem-plan-edit:last-child { border-bottom: 0; }
+.mem-admin .mem-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.mem-admin .mem-svcs { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
+.mem-admin .mem-svcs label { display: flex; align-items: center; gap: 6px; margin: 0; }
+.mem-admin .mem-svcs input { width: auto; min-height: 0; }
+.mem-st { font-size: 11px; font-weight: 700; padding: 2px 8px; background: #e3f5e8; color: #1f6b35; }
+.mem-st.past_due, .mem-st.canceled, .mem-st.incomplete { background: #fbe9e7; color: #9e2c2c; }
+.mem-st.churn { background: #fff3d6; color: #8a5a00; }
+.cb-disc { margin: 6px 0 0; font-size: 13px; font-weight: 600; color: #1f6b35; }

@@ -52,6 +52,8 @@ Solo los nombres. Los valores van en Vercel, nunca en el repo.
 | `CRON_SECRET` | El cron de Vercel lo manda como `Authorization: Bearer …` |
 | `STRIPE_SECRET_KEY` | Cobro de faltas y tarjeta en garantía. Sin las dos claves, no se pide tarjeta |
 | `STRIPE_PUBLISHABLE_KEY` | La clave pública que carga el móvil |
+| `STRIPE_WEBHOOK_SECRET` | Secreto de firma (`whsec_…`) del webhook `/api/stripe/webhook` de la membresía. Sin él, el webhook responde 503 y no acepta nada |
+| `STRIPE_MEMBERSHIP_PRICE_ID` | Opcional. ID de un precio mensual de Stripe (`price_…`) para el primer plan. Sin él, el precio se crea solo con un `lookup_key` |
 | `STAFF_PIN` | Clave del dueño, si no tiene una puesta desde el panel |
 | `STAFF_PIN_AIRAM` | Clave del panel de Airam (y `STAFF_PIN_` + el id en mayúsculas de cada barbero) |
 | `STAFF_PIN_EHEDEY` | Clave de Ehedey |
@@ -130,6 +132,22 @@ En el panel, **Más → Cuánto gana Nova** (solo el dueño; la API devuelve 403
 - **Beneficio neto** = ingresos − gastos fijos − comisiones, con margen %. Se recalcula en el navegador al escribir; el botón «Guardar gastos» lo guarda. El % de comisión sale del equipo; si se cambia aquí solo vale para este análisis.
 - API: `GET /api/staff/earnings?month=AAAA-MM` y `POST /api/staff/expenses`. Sin variables de entorno nuevas.
 - Tests: `test/earnings.test.js`. El panel está solo en castellano (no usa `i18n.js`), así que no hay textos nuevos allí.
+
+---
+
+## Socio NOVA+ (membresía mensual de pago)
+
+Capa **nueva y distinta del Club** (puntos, ligas y medallas, que siguen gratis): el cliente paga una cuota al mes con Stripe Subscriptions y recibe cortes incluidos y ventajas. Plan por defecto: «Club NOVA», 30 €/mes, 2 cortes (corte y corte+barba), reserva hasta 90 días vista (los demás, 60) y 10 % en el resto de servicios y en la ropa. El precio está pendiente de cerrar.
+
+- **Planes**: los de partida están en `MEMBERSHIP` (`api/_lib/config.js`); el dueño los edita en **Más → Socios NOVA+** (nombre, precio, cortes, servicios cubiertos, días vista, descuento, activo). Se guardan en la clave `memplans`. Un plan editado vale para altas nuevas: cada socio guarda una copia de lo que contrató.
+- **Alta (perfil → «Socio NOVA+»)**: con `STRIPE_SECRET_KEY`, redirige a Stripe Checkout (`mode=subscription`). El producto y el precio se crean solos la primera vez con `lookup_key` `nova_socio_<plan>_<céntimos>` (si el dueño cambia el precio se crea otro precio; los socios antiguos siguen con el suyo), o se usa `STRIPE_MEMBERSHIP_PRICE_ID`. «Gestionar pago» abre el portal de Stripe (hay que activarlo en el panel de Stripe). «Darme de baja» pone `cancel_at_period_end`: conserva las ventajas hasta fin de periodo y puede deshacerlo.
+- **Modo demo**: sin `STRIPE_SECRET_KEY` (también con `MODO_DEMO=1`), alta y baja son inmediatas, sin cobro, marcadas «demo». La renovación mensual se simula al abrir la cuenta o en el cron.
+- **Webhook** `POST /api/stripe/webhook` (función propia `api/stripe-webhook.js`, con el cuerpo en bruto): firma `Stripe-Signature` comprobada a mano con HMAC-SHA256 (tolerancia de 5 min, sin dependencias). Eventos: `checkout.session.completed`, `customer.subscription.created/updated/deleted`, `invoice.paid`, `invoice.payment_failed`. Estados: `active`, `past_due` (sin ventajas), `canceled`, `incomplete`. Cada evento se procesa una sola vez. En Stripe hay que crear el endpoint con esos eventos y copiar su secreto en `STRIPE_WEBHOOK_SECRET`.
+- **Al reservar**: si es socio activo, el servicio está cubierto y le quedan cortes del periodo, la cita sale «incluida en tu membresía» (`b.membership.included`, 0 € en caja). Los cortes usados no son un contador: se cuentan sobre las citas del periodo, así que **cancelar a tiempo devuelve el corte**; cancelar tarde o «No vino» lo gasta. Las citas de un periodo futuro (por los días vista) salen incluidas si la membresía se renueva. Las citas repetidas y las que crea el equipo no consumen corte.
+- **Caja y ganancias**: la cita incluida se «cobra» a 0 € con forma de pago «Membresía» y no suma como ingreso del servicio; las cuotas cobradas salen como línea propia («Socio NOVA+ (cuotas)») en «Cuánto gana Nova», así que no se cuenta dos veces. El socio sigue sumando puntos del Club por el valor del servicio. A los demás servicios del socio, la caja le propone su descuento %.
+- **Panel (solo el dueño, 403 al resto)**: socios con plan, estado, cortes usados/restantes, alta, próxima renovación y MRR (suma de cuotas de los socios activos). `GET /api/staff/membership` y `POST /api/staff/membership/plans`.
+- API del cliente: `GET /api/membership`, `POST /api/membership/join|cancel|portal`. `/api/me` y `/api/catalog` llevan la membresía.
+- Tests: `test/membership.test.js`. Sin dependencias nuevas.
 
 ---
 

@@ -52,6 +52,7 @@ const staffMoreGroups = () =>
       [
         ["progreso", "Progreso", "Ingresos, ocupación y horas flojas", ICONS.bolt],
         staff.owner && ["ganancias", "Cuánto gana Nova", "Ingresos, gastos y beneficio neto del mes", ICONS.till],
+        staff.owner && ["socios", "Socios NOVA+", "Membresías de pago: socios, cortes y cuota mensual", ICONS.gem || ICONS.users],
         staff.owner && ["clientes", "Clientes", "A quién le toca volver y quién se ha perdido", ICONS.users],
         ["faltas", "Faltas", "Quien no vino o canceló tarde, y si se cobra", ICONS.clock],
       ],
@@ -862,8 +863,8 @@ async function staffEarnings() {
       <p class="section-label">Ingresos</p>
       <div class="stat3 money pg-tiles"><div><strong>${euro(c.income.total)}</strong><span>Ingresos</span>${eCmp(r.compare.income)}</div><div><strong>${c.services}</strong><span>Servicios</span>${progDelta(c.services, r.previous.services)}</div><div><strong>${euro(c.ticket)}</strong><span>Ticket medio</span>${progDelta(c.ticket, r.previous.ticket)}</div></div>
       <ul class="caja-rows en-lines">
-        <li><span>Servicios (cobrados y completados)</span><b>${euro(c.income.services)}</b></li>
-        ${c.income.other.map((o) => `<li><span>Otros ingresos · ${esc(o.label)}${o.count ? ` (${o.count})` : ""}</span><b>${euro(o.amount)}</b></li>`).join("") || `<li><span>Otros ingresos (ropa, productos…)</span><b>${euro(0)}</b></li>`}
+        <li><span>Servicios (cobrados y completados; los cortes incluidos en membresía no suman aquí)</span><b>${euro(c.income.services)}</b></li>
+        ${c.income.other.map((o) => `<li><span>Otros ingresos · ${esc(o.label)}${o.count ? ` (${o.count})` : ""}${o.demo ? " · demo" : ""}</span><b>${euro(o.amount)}</b></li>`).join("") || `<li><span>Otros ingresos (ropa, productos…)</span><b>${euro(0)}</b></li>`}
         <li class="en-sum"><span>Total</span><b>${euro(c.income.total)}</b></li>
       </ul>
       <div class="comm-box"><div><span>Ocupación</span><strong>${c.occupancy == null ? "—" : pctTxt(c.occupancy)}</strong>${r.previous.occupancy == null || c.occupancy == null ? "" : progDelta(c.occupancy, r.previous.occupancy, "pp")}</div><div><span>Clientes nuevos</span><strong>${c.clients.new}</strong></div><div><span>Recurrentes</span><strong>${c.clients.returning}</strong></div></div>
@@ -967,6 +968,72 @@ async function staffEarnings() {
   q$("#en-month").onchange = (e) => {
     if (/^\d{4}-\d{2}$/.test(e.target.value)) (earnMonth = e.target.value), staffEarnings();
   };
+}
+
+// ── Socios NOVA+ (solo el dueño) ───────────────────────────────────────────
+// La membresía de pago (distinta del Club de puntos): lista de socios con su
+// plan, estado, cortes y renovación, el ingreso mensual recurrente (MRR) y los
+// planes, que se editan aquí. Un plan editado solo vale para altas nuevas: los
+// socios que ya están conservan lo que contrataron.
+const memStatus = (m) =>
+  m.status === "active" ? (m.cancelAtPeriodEnd ? [`Baja programada`, "churn"] : ["Activa", "active"]) : m.status === "past_due" ? ["Impagada", "past_due"] : m.status === "canceled" ? ["Cancelada", "canceled"] : ["Sin completar", "incomplete"];
+async function staffMembers() {
+  if (!staff.owner) return show(staffTop("socios") + `<p class="ag-free">Esto lo lleva el dueño.</p>`);
+  const r = await api("staff/membership");
+  const nf0 = (n) => String(n).replace(".", ",");
+  const planForm = (p, i) => `<div class="mem-plan-edit" data-plan="${i}">
+      <input type="hidden" data-f="id" value="${esc(p.id || "")}">
+      <div class="mem-grid"><div><label>Nombre</label><input data-f="name" maxlength="40" value="${esc(p.name || "")}" required></div>
+      <div><label>Precio (€/mes)</label><input data-f="price" inputmode="decimal" value="${esc(nf0(p.price ?? ""))}" required></div>
+      <div><label>Cortes al mes</label><input data-f="cuts" inputmode="numeric" value="${esc(p.cuts ?? 0)}"></div>
+      <div><label>Días vista (0 = los normales)</label><input data-f="daysAhead" inputmode="numeric" value="${esc(p.daysAhead ?? 0)}"></div>
+      <div><label>Descuento en el resto (%)</label><input data-f="discountPct" inputmode="decimal" value="${esc(nf0(p.discountPct ?? 0))}"></div></div>
+      <label>Servicios que cubre</label><div class="mem-svcs">${r.services.map((s) => `<label><input type="checkbox" data-svc="${esc(s.id)}" ${(p.services || []).includes(s.id) ? "checked" : ""}> ${esc(s.name)}</label>`).join("")}</div>
+      <label>Descripción corta</label><input data-f="desc" maxlength="140" value="${esc(p.desc || "")}">
+      <label class="check"><input type="checkbox" data-f="active" ${p.active === false ? "" : "checked"}><span>Se puede contratar<small>Desactívalo para que nadie nuevo lo contrate (los socios actuales siguen).</small></span></label>
+    </div>`;
+  const rows = r.members.length
+    ? `<table class="pg-table"><thead><tr><th>Socio</th><th>Estado</th><th>Cortes</th><th>Renueva</th></tr></thead><tbody>${r.members
+        .map((m) => {
+          const [st, cls] = memStatus(m);
+          return `<tr><td class="en-l"><b>${esc(m.name || m.email.split("@")[0])}</b><br><small>${esc(m.plan?.name || "")} · ${euro(m.plan?.price || 0)} · alta ${esc(m.since ? shortDate(m.since) : "—")}${m.demo ? " · demo" : ""}</small></td><td><span class="mem-st ${cls}">${st}</span></td><td>${m.live ? `${m.used}/${m.cuts}<br><small>quedan ${m.left}</small>` : "—"}</td><td>${m.live ? esc(shortDate(m.renews)) : "—"}</td></tr>`;
+        })
+        .join("")}</tbody></table>`
+    : `<p class="ag-free">Todavía no hay socios.</p>`;
+  show(
+    staffTop("socios") +
+      `<div class="stat3 money pg-tiles"><div><strong>${euro(r.mrr)}</strong><span>MRR (al mes)</span></div><div><strong>${r.counts.active}</strong><span>Socios activos</span></div><div><strong>${euro(r.month.revenue)}</strong><span>Cuotas de ${esc(monthLabel(r.month.id))}</span></div></div>
+      <p class="caja-meta">MRR = suma de las cuotas de los socios activos. ${r.counts.churning ? `${r.counts.churning} con baja programada (siguen hasta fin de periodo). ` : ""}${r.counts.pastDue ? `${r.counts.pastDue} con la cuota impagada (no cuentan ni tienen ventajas). ` : ""}${r.counts.canceled ? `${r.counts.canceled} de baja. ` : ""}Las cuotas cobradas salen en «Cuánto gana Nova» como línea propia, y los cortes incluidos no se cuentan otra vez.${r.demo ? " <b>Modo demo:</b> sin Stripe, las altas y las cuotas son simuladas." : ""}</p>
+      <p class="section-label">Socios</p>${rows}
+      <p class="section-label">Planes</p>
+      <p class="caja-meta">Los cambios valen para quien se haga socio desde ahora; los socios de antes mantienen su plan y su precio.</p>
+      <form id="mem-form" class="card mem-admin" novalidate autocomplete="off"><div id="mem-plans">${r.plans.map(planForm).join("")}</div>
+        <button type="button" class="btn secondary wide" id="mem-add">+ Añadir plan</button>
+        <button class="btn wide" style="margin-top:12px" type="submit">Guardar planes</button></form>`,
+  );
+  const wrap = document.getElementById("mem-plans");
+  document.getElementById("mem-add").onclick = () => {
+    wrap.insertAdjacentHTML("beforeend", planForm({ name: "", price: "", cuts: 1, services: [], daysAhead: 0, discountPct: 0, active: true }, wrap.children.length));
+  };
+  onForm("mem-form", async () => {
+    const plans = [...wrap.querySelectorAll("[data-plan]")].map((el) => {
+      const g = (k) => el.querySelector(`[data-f=${k}]`);
+      return {
+        id: g("id").value,
+        name: g("name").value,
+        price: g("price").value,
+        cuts: Number(g("cuts").value || 0),
+        daysAhead: Number(g("daysAhead").value || 0),
+        discountPct: g("discountPct").value,
+        desc: g("desc").value,
+        active: g("active").checked,
+        services: [...el.querySelectorAll("[data-svc]:checked")].map((c) => c.dataset.svc),
+      };
+    });
+    await api("staff/membership/plans", { plans });
+    toast("Planes guardados.");
+    await staffMembers();
+  });
 }
 
 // ── Equipo: progreso (ganancias y ocupación) ──────────────────────────────
@@ -1233,7 +1300,7 @@ async function staffProgress() {
 // La tablet del mostrador. Se elige quién ha hecho el servicio y el formulario
 // se rellena solo con su cliente de ahora (a las 11 se cobra al de las 10:30),
 // con su servicio y su precio. Todo se puede cambiar: un extra, otro importe…
-const methodName = (id) => (catalog.payMethods || []).find((m) => m.id === id)?.name || id || "";
+const methodName = (id) => (id === "membresia" ? "Membresía NOVA+" : (catalog.payMethods || []).find((m) => m.id === id)?.name || id || "");
 
 const byLabel = (by) => (by === "caja" ? "desde la caja" : `por ${esc(first(provById(by)?.name || by))}`);
 
@@ -1284,7 +1351,7 @@ function cobroForm(r, x) {
     <p class="cb-label">Importe</p>
     <div class="cb-amount"><input name="amount" id="cb-amount" inputmode="decimal" aria-label="Importe en euros" required><span>€</span></div>
     <p class="cb-hint" id="cb-hint"></p>
-    <p class="cb-label">Forma de pago</p>
+    <p class="cb-label cb-pay">Forma de pago</p>
     <div class="cb-chips cb-pay" role="radiogroup" aria-label="Forma de pago">${(catalog.payMethods || [])
       .map((m, i) => `<label class="cb-chip"><input type="radio" name="method" value="${esc(m.id)}" ${(x ? x.method === m.id : i === 0) ? "checked" : ""}><span>${esc(m.name)}</span></label>`)
       .join("")}</div>
@@ -1307,14 +1374,27 @@ function bindCobroForm(root, r, x, done) {
     const ex = [...f.querySelectorAll("[name=extras]:checked")].map((i) => catalog.extras.find((e) => e.id === i.value)).filter(Boolean);
     return { s, ex, total: (Number(s?.price) || 0) + ex.reduce((a, e) => a + e.price, 0) };
   };
+  let cur = null; // la cita elegida (con «incl» si va incluida en la membresía, o «disc» = % de descuento de socio)
   const refresh = () => {
     const b = base();
-    if (!touched) amount.value = b.total ? String(b.total).replace(".", ",") : "";
+    const incl = !!cur?.incl,
+      disc = !incl && cur?.disc ? cur.disc : 0;
+    if (incl) {
+      amount.value = "0";
+      touched = false;
+    } else if (!touched) amount.value = b.total ? String(Math.round(b.total * (100 - disc)) / 100).replace(".", ",") : "";
+    amount.readOnly = incl;
+    f.querySelectorAll(".cb-pay").forEach((el) => (el.hidden = incl));
     const n = parse(amount.value);
-    const diff = Math.round((n - b.total) * 100) / 100;
+    const diff = Math.round((n - (b.total * (100 - disc)) / 100) * 100) / 100;
+    if (incl) {
+      hint.textContent = "Incluida en la membresía NOVA+ del cliente: se cobra a 0 € y no suma como ingreso (ya pagó su cuota).";
+      go_.textContent = x ? "Guardar · incluida" : "Registrar · incluida";
+      return;
+    }
     hint.textContent = !b.s
       ? "Elige el servicio."
-      : `${b.s.name} ${euro(b.s.price)}${b.ex.map((e) => ` + ${e.name.toLowerCase()} ${euro(e.price)}`).join("")}` +
+      : (disc ? `Socio NOVA+: −${disc} % aplicado. ` : "") + `${b.s.name} ${euro(b.s.price)}${b.ex.map((e) => ` + ${e.name.toLowerCase()} ${euro(e.price)}`).join("")}` +
         (n && diff ? ` · ${diff > 0 ? "+" : "−"}${money(Math.abs(diff))} a mano` : "") +
         (touched && diff ? "" : " · puedes cambiar el importe a mano");
     go_.textContent = (x ? "Guardar · " : "Cobrar ") + (n > 0 ? money(n) : "");
@@ -1323,10 +1403,11 @@ function bindCobroForm(root, r, x, done) {
   const clients = (prov) => {
     const list = r.pending.filter((b) => b.provider === prov);
     if (x?.booking && x.provider.id === prov && !list.some((b) => b.id === x.booking))
-      list.unshift({ id: x.booking, provider: prov, name: x.name, start: x.time, end: x.time, service: x.items.find((i) => !i.extra)?.id });
+      list.unshift({ id: x.booking, provider: prov, name: x.name, start: x.time, end: x.time, service: x.items.find((i) => !i.extra)?.id, incl: !!x.included });
     return list;
   };
   const pick = (b, keepService) => {
+    cur = b || null;
     bookIn.value = b?.id || "";
     nameIn.value = b ? b.name : "";
     if (b?.service && !keepService) {
@@ -1348,7 +1429,7 @@ function bindCobroForm(root, r, x, done) {
       if (i.closest("label").hidden && i.checked) i.checked = false;
     });
     root.querySelector("#cb-clients").innerHTML =
-      list.map((b) => `<button type="button" class="cb-chip" data-id="${esc(b.id)}"><span>${esc(b.start)}</span><small>${esc(b.name)}</small></button>`).join("") +
+      list.map((b) => `<button type="button" class="cb-chip" data-id="${esc(b.id)}"><span>${esc(b.start)}</span><small>${esc(b.name)}${b.incl ? " · NOVA+ incluida" : b.disc ? ` · NOVA+ −${b.disc} %` : ""}</small></button>`).join("") +
       `<button type="button" class="cb-chip" data-id=""><span>Sin cita</span><small>Entra sin reservar</small></button>`;
     [...root.querySelectorAll("#cb-clients .cb-chip")].forEach((c) => (c.onclick = () => pick(list.find((b) => b.id === c.dataset.id) || null)));
     return list;
