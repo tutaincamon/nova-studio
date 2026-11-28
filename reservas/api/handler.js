@@ -3395,10 +3395,15 @@ const routes = {
     return { name: SHOP.name, prendas: Shop.orderable(r.prendas).map((p) => Shop.publicItem(p, disc, ctx)), oferta: Shop.publicOferta(ctx), discountPct: disc, online: shopOnlineMode(), perEuro: POINTS.perEuro, demo: shopOnlineMode() === "demo" };
   },
   "GET supply/:id/photo": async ({ params }) => {
-    const data = await cmd("GET", "prodimg:sup-" + String(params.id).replace(/[^a-z0-9-]/g, ""));
+    const id = String(params.id).replace(/[^a-z0-9-]/g, "");
+    // 1) foto subida por el dueño; 2) foto de catálogo (archivo local o web de Supply).
+    const data = await cmd("GET", "prodimg:sup-" + id);
     const m = data && /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(data);
-    if (!m) fail(404, "Sin foto.");
-    return { raw: Buffer.from(m[2], "base64"), type: m[1], cache: "public, max-age=31536000, immutable" };
+    if (m) return { raw: Buffer.from(m[2], "base64"), type: m[1], cache: "public, max-age=31536000, immutable" };
+    const p = (await Sup.leer({ ventas: 1 })).prendas.find((x) => x.id === id);
+    const f = p && (await Sup.fotoBytes(p.foto));
+    if (!f) fail(404, "Sin foto.");
+    return { raw: f.bytes, type: f.type, cache: "public, max-age=86400" };
   },
   "GET shop/orders": async ({ req }) => {
     const u = await currentUser(req);

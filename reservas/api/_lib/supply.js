@@ -17,6 +17,8 @@
 // dos partes; una reserva de la web aparta la unidad hasta que se recoge.
 // ─────────────────────────────────────────────────────────────────────────────
 import crypto from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { sharedPipe } from "./store.js";
 
 export const K = { cat: "supply:catalogo", stock: "supply:stock", apart: "supply:apartadas", ventas: "supply:ventas", pedidos: "preventa:pedidos" };
@@ -195,4 +197,32 @@ export async function marcarPedido(ref, cambios) {
     return { ...nuevo, _antes: ped };
   }
   throw Error("La lista de reservas está cambiando. Prueba otra vez.");
+}
+
+// ── Foto de catálogo ────────────────────────────────────────────────────────
+// `foto` es el nombre de archivo de la web (p. ej. "rosa-delante.jpg"). Se sirve
+// desde nuestro origen (la CSP no deja cargar imágenes de otros dominios):
+// primero el archivo local de assets/supply/, y si no está, la web de Supply.
+const FOTO_OK = /^[A-Za-z0-9][A-Za-z0-9._-]*\.(jpe?g|png|webp|gif)$/i;
+const FOTO_MIME = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif" };
+export const FOTO_WEB = "https://www.novasupply.es/";
+const FOTO_DIR = fileURLToPath(new URL("../../assets/supply/", import.meta.url));
+// Nombre seguro o "" (sin barras, sin «..», sin URLs).
+export const fotoSegura = (f) => (typeof f === "string" && !f.includes("..") && FOTO_OK.test(f) ? f : "");
+export const fotoMime = (f) => FOTO_MIME[f.slice(f.lastIndexOf(".") + 1).toLowerCase()];
+// Bytes de la foto de catálogo (local o de la web de Supply) o null.
+export async function fotoBytes(foto, { fetchFn = globalThis.fetch } = {}) {
+  const f = fotoSegura(foto);
+  if (!f) return null;
+  try {
+    return { bytes: await readFile(FOTO_DIR + f), type: fotoMime(f) };
+  } catch {}
+  try {
+    const r = await fetchFn(FOTO_WEB + f, { redirect: "follow", signal: AbortSignal.timeout(5000) });
+    if (!r.ok) return null;
+    const bytes = Buffer.from(await r.arrayBuffer());
+    return bytes.length && bytes.length < 4_000_000 ? { bytes, type: fotoMime(f) } : null;
+  } catch {
+    return null;
+  }
 }
