@@ -23,8 +23,9 @@ export const K = { cat: "supply:catalogo", stock: "supply:stock", apart: "supply
 export const ESTADOS = ["disponible", "proximamente", "agotado", "oculto"];
 
 // Lo que había en prendas.js de la tienda el día que se conectaron las dos
-// partes. Sirve solo para arrancar: a partir de ahí manda la base.
-const SEED = [
+// partes (47,50 €, como en la web). Sirve solo para arrancar: a partir de ahí
+// manda la base compartida, no la app.
+export const SEED = [
   { id: "camiseta", nombre: "Camiseta", variante: "Gris", color: "gris", precio: 47.5, estado: "agotado", tallas: ["L", "XL", "XXL"], foto: "gris-delante.jpg" },
   { id: "camiseta-rosa", nombre: "Camiseta", variante: "Rosa", color: "rosa", precio: 47.5, estado: "disponible", tallas: ["L", "XL", "XXL"], foto: "rosa-delante.jpg" },
   { id: "sudadera", nombre: "Sudadera", variante: "", color: "", precio: null, estado: "proximamente", tallas: [], foto: "sud-delante.jpg" },
@@ -120,6 +121,18 @@ export async function guardarPrenda(datos, prendas) {
   for (const t of (prev?.tallas || []).filter((t) => !item.tallas.includes(t))) ops.push(["HDEL", K.stock, id + "|" + t]);
   await sharedPipe(ops);
   return item;
+}
+
+// Quita una prenda del catálogo (y sus unidades). La foto y los pedidos los trata quien llama.
+export async function borrarPrenda(id, prendas) {
+  const prev = prendas.find((p) => p.id === id);
+  if (!prev) return null;
+  const base = prendas.filter((p) => p.id !== id).map(({ efectivo, tallas, ...p }) => ({ ...p, tallas: tallas.map((t) => t.talla || t) }));
+  await sharedPipe([
+    ["SET", K.cat, JSON.stringify(base)],
+    ...prev.tallas.flatMap((t) => [["HDEL", K.stock, id + "|" + (t.talla || t)], ["HDEL", K.apart, id + "|" + (t.talla || t)]]),
+  ]);
+  return prev;
 }
 
 // Quita unidades del stock. Devuelve false si no quedan libres (sin contar las

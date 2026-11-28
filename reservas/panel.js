@@ -1684,8 +1684,106 @@ function staffSheet(b) {
 // el mismo stock y las mismas ventas.
 const ESTADO_ROPA = { disponible: ["A la venta", "st-ok"], agotado: ["Agotada", "st-cancel"], proximamente: ["Próximamente", "st-wait"], oculto: ["Oculta", ""] };
 
-const ropaFoto = (r, p) => (p.foto ? `${r.tienda.replace(/\/$/, "")}/${encodeURIComponent(p.foto)}` : "");
+// La foto subida desde la app manda; si no hay, la de la web de la tienda.
+const ropaFoto = (r, p) => (p.img ? `/api/supply/${encodeURIComponent(p.id)}/photo?v=${encodeURIComponent(p.img)}` : p.foto ? `${r.tienda.replace(/\/$/, "")}/${encodeURIComponent(p.foto)}` : "");
 
+// ── Pedidos de NOVA Supply hechos en la app ────────────────────────────────
+const PED_ESTADO = { pendiente: ["Pendiente de pago", "st-wait"], pagado: ["Pagado", "st-ok"], listo: ["Listo para recoger", "st-ok"], entregado: ["Entregado", ""], cancelado: ["Cancelado", "st-cancel"] };
+let pedFiltro = "abiertos";
+const pedAbierto = (o) => ["pendiente", "pagado", "listo"].includes(o.estado);
+function pedidoCards(list, owner) {
+  const rows = pedFiltro === "abiertos" ? list.filter(pedAbierto) : list;
+  if (!rows.length) return `<p class="ag-free">${pedFiltro === "abiertos" ? "No hay pedidos abiertos." : "Aún no hay pedidos."}</p>`;
+  return rows
+    .map((o) => {
+      const [st, cls] = PED_ESTADO[o.estado] || PED_ESTADO.pendiente;
+      const pago = o.pay === "local" ? "pagará en el local" : o.pay === "demo" ? "pago simulado (demo)" : "pago online";
+      const act = [];
+      if (o.estado === "pendiente") {
+        act.push(`<input class="rp-imp" inputmode="decimal" aria-label="Importe cobrado" value="${Number(o.total).toFixed(2).replace(".", ",")}"><button type="button" class="btn" data-od-cobrar="${esc(o.id)}">Cobrado en el local</button>`);
+        act.push(`<button type="button" class="btn secondary" data-od="${esc(o.id)}" data-st="cancelado">Cancelar</button>`);
+      } else if (o.estado === "pagado") {
+        act.push(`<button type="button" class="btn" data-od="${esc(o.id)}" data-st="listo">Listo para recoger</button><button type="button" class="btn secondary" data-od="${esc(o.id)}" data-st="entregado">Entregado</button>`);
+        if (owner) act.push(`<button type="button" class="tr-del" data-od="${esc(o.id)}" data-st="cancelado" data-sure-msg="Pulsa otra vez: se deshace la venta y las unidades vuelven al stock">Cancelar pedido</button>`);
+      } else if (o.estado === "listo") {
+        act.push(`<button type="button" class="btn" data-od="${esc(o.id)}" data-st="entregado">Entregado</button>`);
+        if (owner) act.push(`<button type="button" class="tr-del" data-od="${esc(o.id)}" data-st="cancelado" data-sure-msg="Pulsa otra vez: se deshace la venta y las unidades vuelven al stock">Cancelar pedido</button>`);
+      }
+      return `<div class="card od-card"><div class="tr-item-top"><div><strong>${esc(o.name || o.email)}</strong><span>${o.items.map((l) => esc(l.nombre) + " · " + esc(l.talla) + (l.cantidad > 1 ? " × " + l.cantidad : "")).join(", ")}</span></div><span class="appt-state ${cls}">${st}</span></div>
+        <p class="tr-line muted">${euro(o.total)}${o.discountPct ? ` (socio −${o.discountPct} %)` : ""} · ${pago} · ${o.booking ? "en la cita " + esc(o.booking) : "recoge en el local"} · ${esc(shortDate(String(o.created).slice(0, 10)))} · ref. <b>${esc(o.id)}</b></p>
+        ${o.email ? `<p class="tr-line muted">${esc(o.email)}${o.phone ? " · " + esc(o.phone) : ""}</p>` : ""}
+        ${o.note ? `<p class="tr-line">${esc(o.note)}</p>` : ""}
+        ${o.puntos ? `<p class="tr-line muted">+${nf(o.puntos)} puntos del Club</p>` : ""}
+        ${o.reembolsar ? `<p class="od-alert">Hay que devolverle el dinero a mano desde Stripe.</p>` : ""}${o.aviso ? `<p class="od-alert">${esc(o.aviso)}</p>` : ""}
+        ${act.length ? `<div class="form-actions">${act.join("")}</div>` : ""}</div>`;
+    })
+    .join("");
+}
+function bindPedidos(root, done) {
+  root.querySelectorAll("[data-od-cobrar]").forEach(
+    (b) =>
+      (b.onclick = async () => {
+        b.disabled = true;
+        try {
+          const x = await api(`staff/shop/${b.dataset.odCobrar}/cobrar`, { importe: b.parentElement.querySelector(".rp-imp").value });
+          toast(`Cobrado: ${euro(x.order.total)}${x.puntos ? ` · +${nf(x.puntos)} puntos` : ""}. Ya está en la caja.`);
+          done();
+        } catch (e) {
+          b.disabled = false;
+          toast(e.message);
+        }
+      }),
+  );
+  root.querySelectorAll("[data-od]").forEach(
+    (b) =>
+      (b.onclick = async () => {
+        if (b.dataset.sureMsg && b.dataset.sure !== "1") {
+          b.dataset.sure = "1";
+          b.textContent = b.dataset.sureMsg;
+          return;
+        }
+        b.disabled = true;
+        try {
+          await api(`staff/shop/${b.dataset.od}/estado`, { estado: b.dataset.st });
+          toast(b.dataset.st === "cancelado" ? "Pedido cancelado: las unidades vuelven a estar libres." : "Pedido actualizado.");
+          done();
+        } catch (e) {
+          b.disabled = false;
+          toast(e.message);
+        }
+      }),
+  );
+}
+// Desde la caja (venta de ropa): los pedidos de la app, para cobrarlos o entregarlos.
+async function pedidosSheet() {
+  let sp;
+  try {
+    sp = await api("staff/shop");
+  } catch (e) {
+    return toast(e.message);
+  }
+  const sh = sheet(`<p class="eyebrow">NOVA Supply · app</p><h2>Pedidos para recoger</h2><div id="od-list"></div>`);
+  pedFiltro = "abiertos";
+  const box = sh.el.querySelector("#od-list");
+  box.innerHTML = pedidoCards(sp.orders, sp.owner);
+  bindPedidos(box, () => (sh.close(), render()));
+}
+
+// Precio que se cobra hoy (la promo de novasupply.es si aplica a esa prenda).
+const ropaPrecio = (p) => (p.precioOferta != null ? p.precioOferta : p.precio);
+const ropaEuro = (n) => Number(n).toFixed(2).replace(".", ",");
+const OF_FUENTE = { web: "leída ahora de la web", cache: "leída de la web (guardada hasta 10 min)", respaldo: "la web no responde: se usa la última lectura buena", ninguna: "sin oferta (la web no responde o no hay)", desactivada: "desactivada (SUPPLY_OFERTA_URL=off)" };
+const ofFecha = (iso) => (iso ? new Date(iso).toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "nunca");
+// De dónde sale el precio y cómo va la promo. Solo lectura: la promo se cambia en la web.
+function ofertaBox(r) {
+  const o = r.oferta || {};
+  const estado = !o.hay ? "Sin promo" : o.activa ? `Activa · −${o.descuento} %` : Date.parse(o.desde) > Date.now() ? "Programada" : "Terminada";
+  return `<div class="card of-box"><p class="section-label" style="margin-top:0">Precios y promo</p>
+    <p class="caja-meta">El precio base es el del <b>catálogo compartido</b> con novasupply.es (una sola fuente: lo que cambies aquí se cambia también en la web). La promo se lee de <b>novasupply.es</b> y <b>no se edita desde la app</b>: se cambia en la web.</p>
+    ${o.hay ? `<p class="of-line"><b>${esc(o.nombre)}</b> · ${esc(o.fechas)} <span class="appt-state ${o.activa ? "st-ok" : ""}">${esc(estado)}</span></p>
+    <p class="caja-meta">−${o.descuento} % en: ${(o.prendas || []).map((id) => esc(id)).join(", ") || "—"}. Desde ${esc(ofFecha(o.desde))} hasta ${esc(ofFecha(o.hasta))}. Un socio NOVA+ no suma su descuento a la promo: se le aplica el mejor de los dos.</p>` : `<p class="of-line"><span class="appt-state">${esc(estado)}</span></p>`}
+    <p class="caja-meta">Fuente: ${esc(o.url || "—")} · ${esc(OF_FUENTE[o.fuente] || o.fuente || "")} · última lectura: ${esc(ofFecha(o.leida))}${o.error && o.fuente !== "web" && o.fuente !== "cache" ? ` · ${esc(o.error)}` : ""}</p></div>`;
+}
 const ropaNombre = (p) => p.nombre + (p.variante ? " · " + p.variante : "");
 
 async function staffShop(email) {
@@ -1707,6 +1805,7 @@ async function staffShop(email) {
       (r.pendientes.length
         ? `<button type="button" class="btn wide secondary" id="sp-web" style="margin-bottom:14px">Entregar una reserva de la web <span class="cb-badge">${r.pendientes.length}</span></button>`
         : "") +
+      `<button type="button" class="btn wide secondary" id="sp-app" style="margin-bottom:14px">Pedidos de la app</button>` +
       (!venta.length
         ? `<p class="ag-free">No hay prendas a la venta. ${r.owner ? "Añádelas en la pestaña «Ropa»." : "Díselo al dueño."}</p>`
         : `<form id="sp-sale">
@@ -1724,7 +1823,7 @@ async function staffShop(email) {
           })
           .join("")}</div>
         <div class="form-row2" style="margin-top:6px"><div><label for="sp-n">Cuántas</label><select id="sp-n" name="cantidad">${[1, 2, 3, 4, 5].map((n) => `<option>${n}</option>`).join("")}</select></div>
-          <div><label for="sp-amount">Cobrado (€)</label><input id="sp-amount" name="importe" required inputmode="decimal" value="${p.precio != null ? Number(p.precio).toFixed(2).replace(".", ",") : ""}" autocomplete="off"></div></div>
+          <div><label for="sp-amount">Cobrado (€)</label><input id="sp-amount" name="importe" required inputmode="decimal" value="${ropaPrecio(p) != null ? ropaEuro(ropaPrecio(p)) : ""}" autocomplete="off"></div></div>
         <label for="sp-socio">Socio del Club <small>(opcional: correo o código, para sumarle puntos)</small></label>
         <input id="sp-socio" name="socio" autocomplete="off" autocapitalize="none" spellcheck="false" value="${esc(email || "")}" placeholder="cliente@correo.com o CARLOS482">
         <p class="sp-preview" id="sp-preview"></p>
@@ -1732,9 +1831,10 @@ async function staffShop(email) {
         <p class="muted" style="font-size:12px;margin-top:10px">Se descuenta del stock y sale también en la web de la tienda.</p>
       </form>`);
     flow.querySelector("#sp-web")?.addEventListener("click", () => (sh.close(), ropaRecogidas(r)));
+    flow.querySelector("#sp-app")?.addEventListener("click", () => (sh.close(), pedidosSheet()));
     const f = flow.querySelector("#sp-sale");
     if (!f) return;
-    const price = () => (p.precio != null ? p.precio : 0);
+    const price = () => (ropaPrecio(p) != null ? ropaPrecio(p) : 0);
     const pv = flow.querySelector("#sp-preview");
     const upd = () => {
       const n = Number(String(f.importe.value).replace(",", "."));
@@ -1742,7 +1842,7 @@ async function staffShop(email) {
     };
     flow.querySelectorAll("[data-pr]").forEach((b) => (b.onclick = () => ((pick.prenda = b.dataset.pr), (pick.talla = ""), draw())));
     f.cantidad.onchange = () => {
-      if (p.precio != null) f.importe.value = (price() * Number(f.cantidad.value)).toFixed(2).replace(".", ",");
+      if (ropaPrecio(p) != null) f.importe.value = (price() * Number(f.cantidad.value)).toFixed(2).replace(".", ",");
       upd();
     };
     f.importe.oninput = upd;
@@ -1834,18 +1934,23 @@ function ropaRecogidas(r) {
 
 // Pestaña «Ropa» (dueño): stock de cada prenda, reservas de la web y ventas.
 async function staffRopa() {
-  const r = await api("staff/ropa");
+  const [r, sp] = await Promise.all([api("staff/ropa"), api("staff/shop")]);
   show(
     staffTop("ropa") +
       `<div class="stat3 money"><div><strong>${r.mes.unidades}</strong><span>Prendas este mes</span></div><div><strong>${euro(r.mes.importe)}</strong><span>Vendido</span></div><div><strong>${r.pendientes.length}</strong><span>Por recoger</span></div></div>
       <p class="caja-meta">${r.mes.estudio} ${r.mes.estudio === 1 ? "venta" : "ventas"} en el estudio · ${r.mes.web} ${r.mes.web === 1 ? "recogida" : "recogidas"} de la web</p>
       <div class="staff-bar"><button type="button" class="btn" id="rp-sell">${svg(ICONS.bag)} Vender</button>${r.pendientes.length ? `<button type="button" class="btn secondary" id="rp-web">Reservas web (${r.pendientes.length})</button>` : ""}</div>
+      <p class="section-label">Pedidos de la app ${sp.open ? `<span class="cb-badge">${sp.open}</span>` : ""}</p>
+      <p class="caja-meta">${sp.mes.pedidos} ${sp.mes.pedidos === 1 ? "pedido cobrado" : "pedidos cobrados"} este mes · ${euro(sp.mes.importe)} (suman en «Merch NOVA Supply» de Ganancias)</p>
+      <div class="od-tabs"><button type="button" class="od-tab${pedFiltro === "abiertos" ? " on" : ""}" data-odf="abiertos">Abiertos</button><button type="button" class="od-tab${pedFiltro === "todos" ? " on" : ""}" data-odf="todos">Todos</button></div>
+      <div id="od-list">${pedidoCards(sp.orders, sp.owner)}</div>
+      ${ofertaBox(r)}
       <p class="section-label">Stock</p>
       <div class="rp-list">${r.prendas
         .map((p) => {
           const [st, cls] = ESTADO_ROPA[p.efectivo] || ESTADO_ROPA.oculto;
           return `<button type="button" class="ag-item rp-row" data-ed="${esc(p.id)}">${ropaFoto(r, p) ? `<img class="pr-thumb" src="${esc(ropaFoto(r, p))}" alt="" loading="lazy">` : `<span class="pr-thumb pr-noimg">${svg(ICONS.shirt)}</span>`}
-            <div><strong>${esc(ropaNombre(p))}</strong><span>${p.tallas.length ? p.tallas.map((t) => `${esc(t.talla)} ${t.stock === null ? "·" : `<b>${t.libres}</b>`}`).join(" &nbsp; ") : "Sin tallas"}${p.precio != null ? " · " + euro(p.precio) : ""}</span></div>
+            <div><strong>${esc(ropaNombre(p))}</strong><span>${p.tallas.length ? p.tallas.map((t) => `${esc(t.talla)} ${t.stock === null ? "·" : `<b>${t.libres}</b>`}`).join(" &nbsp; ") : "Sin tallas"}${p.precio != null ? " · " + (p.precioOferta != null ? `<s>${euro(p.precio)}</s> <b>${euro(p.precioOferta)}</b> (${esc(r.oferta.nombre)})` : euro(p.precio)) : ""}</span></div>
             <span class="appt-state ${cls}">${st}</span></button>`;
         })
         .join("")}</div>
@@ -1856,13 +1961,21 @@ async function staffRopa() {
         r.ventas.length
           ? r.ventas
               .map(
-                (v) => `<div class="ag-item rp-sale"><time>${esc(shortDate(String(v.fecha).slice(0, 10)))}<small>${esc(String(v.fecha).slice(11, 16))}</small></time><div><strong>${esc(v.nombre)} · ${esc(v.talla)}${v.cantidad > 1 ? " × " + v.cantidad : ""}</strong><span>${v.canal === "web" ? "Reserva web" : "Estudio"}${v.cliente ? " · " + esc(v.cliente) : ""}${v.ref ? " · " + esc(v.ref) : ""}</span></div><span class="rp-amt"><b>${euro(v.importe)}</b>${v.canal === "estudio" ? `<button type="button" class="tr-del" data-undo="${esc(v.id)}">Deshacer</button>` : ""}</span></div>`,
+                (v) => `<div class="ag-item rp-sale"><time>${esc(shortDate(String(v.fecha).slice(0, 10)))}<small>${esc(String(v.fecha).slice(11, 16))}</small></time><div><strong>${esc(v.nombre)} · ${esc(v.talla)}${v.cantidad > 1 ? " × " + v.cantidad : ""}</strong><span>${v.canal === "web" ? "Reserva web" : v.canal === "app" ? "Pedido app" : "Estudio"}${v.cliente ? " · " + esc(v.cliente) : ""}${v.ref ? " · " + esc(v.ref) : ""}</span></div><span class="rp-amt"><b>${euro(v.importe)}</b>${v.canal === "estudio" && !v.pedido ? `<button type="button" class="tr-del" data-undo="${esc(v.id)}">Deshacer</button>` : ""}</span></div>`,
               )
               .join("")
           : `<p class="ag-free">Aún no hay ventas apuntadas.</p>`
       }`,
   );
   $("#rp-sell").onclick = () => staffShop("");
+  bindPedidos($("#od-list"), () => render());
+  $$("[data-odf]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        pedFiltro = b.dataset.odf;
+        render();
+      }),
+  );
   $("#rp-web")?.addEventListener("click", () => ropaRecogidas(r));
   $("#rp-new").onclick = () => prendaSheet(null, r);
   $$("[data-ed]").forEach((b) => (b.onclick = () => prendaSheet(r.prendas.find((p) => p.id === b.dataset.ed), r)));
@@ -1887,16 +2000,20 @@ async function staffRopa() {
 
 function prendaSheet(p, r) {
   const TALLAS = ["XS", "S", "M", "L", "XL", "XXL", "3XL"];
+  let photo = "",
+    quitar = false;
   const has = (t) => p?.tallas.find((x) => x.talla === t);
   const sh = sheet(
     `<p class="eyebrow">${p ? "Prenda" : "Nueva prenda"}</p><h2>${p ? esc(ropaNombre(p)) : "Añadir prenda"}</h2>
-    ${p && ropaFoto(r, p) ? `<img class="rp-big" src="${esc(ropaFoto(r, p))}" alt="">` : ""}
     <form id="rp-form">
+      <label class="pr-photo" id="rp-photo">${p && ropaFoto(r, p) ? `<img src="${esc(ropaFoto(r, p))}" alt="">` : `<span>${svg(ICONS.camera)}Hacer o elegir foto</span>`}<input type="file" accept="image/*" class="sr-only" id="rp-file"></label>
+      ${p?.img ? `<button type="button" class="btn small secondary" id="rp-nophoto">Quitar la foto</button>` : ""}
       <div class="form-row2"><div><label for="rp-n" style="margin-top:0">Nombre</label><input id="rp-n" name="nombre" required maxlength="40" value="${esc(p?.nombre || "")}" placeholder="Camiseta"></div>
       <div><label for="rp-v" style="margin-top:0">Variante</label><input id="rp-v" name="variante" maxlength="30" value="${esc(p?.variante || "")}" placeholder="Gris"></div></div>
       <div class="form-row2"><div><label for="rp-c">Color <small>(una palabra)</small></label><input id="rp-c" name="color" maxlength="20" value="${esc(p?.color || "")}" placeholder="gris"></div>
-      <div><label for="rp-p">Precio (€)</label><input id="rp-p" name="precio" inputmode="decimal" value="${p?.precio != null ? Number(p.precio).toFixed(2).replace(".", ",") : ""}"></div></div>
-      <label for="rp-e">Estado</label><select id="rp-e" name="estado">${Object.entries(ESTADO_ROPA)
+      <div><label for="rp-p">Precio (€)</label><input id="rp-p" name="precio" inputmode="decimal" value="${p ? (p.precio != null ? Number(p.precio).toFixed(2).replace(".", ",") : "") : ""}"></div></div>
+      <label for="rp-d">Descripción <small>(la ven los clientes en la app)</small></label><textarea id="rp-d" name="descripcion" rows="3" maxlength="300" placeholder="Algodón pesado, corte boxy…">${esc(p?.descripcion || "")}</textarea>
+      <label for="rp-e">Estado <small>(«Oculta» = inactiva: los clientes no la ven)</small></label><select id="rp-e" name="estado">${Object.entries(ESTADO_ROPA)
         .map(([k, [l]]) => `<option value="${k}" ${(p?.estado || "disponible") === k ? "selected" : ""}>${l}</option>`)
         .join("")}</select>
       <p class="section-label">Tallas y unidades en el estudio</p>
@@ -1907,16 +2024,57 @@ function prendaSheet(p, r) {
       }).join("")}</div>
       ${p ? "" : `<label for="rp-f">Foto <small>(nombre del archivo en la web de la tienda, p. ej. gris-delante.jpg)</small></label><input id="rp-f" name="foto" maxlength="80">`}
       <button class="btn wide" style="margin-top:16px" type="submit">Guardar</button>
-      <p class="muted" style="font-size:12px;margin-top:10px">Los cambios se ven también en novasupply.es.</p>
+      ${p ? `<button type="button" class="btn wide danger" style="margin-top:10px" id="rp-del">Borrar prenda</button>` : ""}
+      <p class="muted" style="font-size:12px;margin-top:10px">Ojo: el catálogo es el mismo que lee novasupply.es, así que el precio (y todo lo de aquí) cambia también en la web. La promo no se toca aquí: la lleva la web. Los socios NOVA+ pagan lo mejor entre su descuento y la promo (no se suman).</p>
     </form>`,
   );
+  sh.el.querySelector("#rp-file").onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      photo = await shrinkImage(file, 640);
+      quitar = false;
+      const box = sh.el.querySelector("#rp-photo");
+      box.querySelector("img, span")?.remove();
+      box.insertAdjacentHTML("afterbegin", `<img src="${photo}" alt="">`);
+    } catch {
+      toast("No se ha podido leer esa foto.");
+    }
+  };
+  const nop = sh.el.querySelector("#rp-nophoto");
+  if (nop)
+    nop.onclick = () => {
+      quitar = true;
+      photo = "";
+      const box = sh.el.querySelector("#rp-photo");
+      box.querySelector("img")?.remove();
+      box.insertAdjacentHTML("afterbegin", `<span>${svg(ICONS.camera)}Hacer o elegir foto</span>`);
+      nop.remove();
+    };
+  const del = sh.el.querySelector("#rp-del");
+  if (del)
+    del.onclick = async () => {
+      if (del.dataset.sure !== "1") {
+        del.dataset.sure = "1";
+        del.textContent = "¿Seguro? Se borra también su stock. Pulsa otra vez";
+        return;
+      }
+      try {
+        await api("staff/ropa/prenda/borrar", { id: p.id });
+        sh.close();
+        toast("Prenda borrada.");
+        render();
+      } catch (err) {
+        toast(err.message);
+      }
+    };
   sh.el.querySelector("#rp-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const d = new FormData(e.target),
       tallas = TALLAS.filter((t) => d.get("t-" + t)),
       stock = Object.fromEntries(tallas.map((t) => [t, String(d.get("s-" + t) || "").trim()]));
     try {
-      await api("staff/ropa/prenda", { id: p?.id, nombre: d.get("nombre"), variante: d.get("variante"), color: d.get("color"), precio: d.get("precio"), estado: d.get("estado"), tallas, stock, foto: d.get("foto") || "" });
+      await api("staff/ropa/prenda", { id: p?.id, nombre: d.get("nombre"), variante: d.get("variante"), color: d.get("color"), precio: d.get("precio"), estado: d.get("estado"), descripcion: d.get("descripcion"), tallas, stock, foto: d.get("foto") || "", photo, quitarFoto: quitar });
       sh.close();
       toast("Guardado. Ya se ve en la tienda.");
       render();
