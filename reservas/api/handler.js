@@ -6,29 +6,21 @@ import * as T from "./_lib/time.js";
 import { codeMail, send, bookingLines, mailReady } from "./_lib/mail.js";
 import * as Card from "./_lib/stripe.js";
 import * as Sup from "./_lib/supply.js";
+import { accessPolicy, MAIL_NOT_READY } from "./_lib/access.js";
 
 const ON_VERCEL = !!process.env.VERCEL;
-// Para entrar (y para darse de alta) siempre hace falta el código de 6 cifras
-// que se manda al correo: así cada cuenta es de verdad de quien la usa. En
-// Vercel eso necesita RESEND_API_KEY (+ MAIL_FROM con un dominio verificado);
-// en el ordenador el código sale por la consola.
-// Por qué medios se puede recibir el código. El teléfono está preparado en la
-// API (auth/request acepta `phone`) pero apagado hasta elegir cómo mandar SMS
-// o WhatsApp: el día que se encienda, la cuenta de teléfono se guardaría con la
-// clave `tel:+34…` en lugar del correo, y habría que revisar lo que manda
-// correos a `u.email` (recordatorios, avisos) y lo que lo enseña en el panel.
-// Interruptor del código: mientras LOGIN_CON_CODIGO no sea "1" (decisión del
-// dueño, 2026-11-13: el correo aún no está montado), se entra y se da de alta
-// solo con el correo, sin código. El día que haya RESEND_API_KEY + MAIL_FROM
-// con dominio verificado, se pone LOGIN_CON_CODIGO=1 en Vercel y vuelve el
-// código sin tocar nada más. OJO: sin código, quien sepa un correo puede entrar
-// en esa cuenta.
-const LOGIN_CON_CODIGO = process.env.LOGIN_CON_CODIGO === "1";
-const authChannels = () => ({ email: !LOGIN_CON_CODIGO || mailReady() || !ON_VERCEL, phone: false, code: LOGIN_CON_CODIGO });
+// Para entrar hace falta el código de 6 cifras del correo. En Vercel no hay
+// forma de saltárselo. El teléfono está preparado en la API (auth/request
+// acepta `phone`) pero apagado hasta elegir cómo mandar SMS o WhatsApp.
+const authChannels = () => accessPolicy();
 const SESSION = "nova_s",
   STAFF = "nova_staff",
   MONTH = 30 * 86400,
-  YEAR = 365 * 86400; // la sesión dura un año y se renueva sola cada vez que se abre la app
+  YEAR = 365 * 86400, // la sesión del cliente dura un año y se renueva sola
+  CAJA_TTL = 12 * 3600, // la tablet de caja caduca a las 12 h, no al año
+  PIN_FAILS = 5,
+  PIN_WINDOW = 1800; // 5 claves mal puestas bloquean 30 minutos
+const staffTtl = (st) => (st?.caja ? CAJA_TTL : YEAR);
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const PHONE = /^\+?[\d\s().-]{7,22}$/;
 
@@ -64,8 +56,14 @@ function cookies(req) {
   return out;
 }
 function cookie(res, req, name, value, maxAge) {
-  const secure = ON_VERCEL || req.headers["x-forwarded-proto"] === "https";
-  const c = `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure ? "; Secure" : ""}`;
+  const proto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+  const secure = ON_VERCEL || proto === "https";
+  // Expires además de Max-Age: la PWA de iOS a veces ignora Max-Age solo.
+  // SameSite=Lax y Secure: es cookie de primera parte, la guarda Safari, la
+  // app de la pantalla de inicio (iOS) y Chrome instalada (Android), y el
+  // service worker no la intercepta. Cada visita la renueva (/api/me).
+  const exp = new Date(Date.now() + Math.max(0, maxAge) * 1000).toUTCString();
+  const c = `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}; Expires=${exp}${secure ? "; Secure" : ""}`;
   const prev = res.getHeader("Set-Cookie");
   res.setHeader("Set-Cookie", prev ? [].concat(prev, c) : c);
 }
@@ -137,6 +135,9 @@ const pinOf = (p) =>
 const pinHash = (id, pin) => sha("pin:" + id + ":" + pin);
 const pinOk = (p, pin) => (p.pinHash ? same(pinHash(p.id, pin), p.pinHash) : !!pinOf(p) && same(pin, pinOf(p)));
 async function startSession(req, res, email) {
+  // Una clave nueva. No borra las otras de ese correo: entrar en otro móvil,
+  // o pedir otro código, no cierra la sesión que ya estaba abierta. Solo
+  // «Cerrar sesión» borra la de este dispositivo.
   const t = token();
   await cmd("SET", "sess:" + sha(t), email, "EX", YEAR);
   cookie(res, req, SESSION, t, YEAR);
@@ -1696,6 +1697,9 @@ const routes = {
     };
   },
 
+  // Aviso legal: nombre y NIF del titular. No van en /api/catalog.
+  "GET legal": async () => ({ holder: BUSINESS.holder, nif: BUSINESS.nif }),
+
   // Se pide cada vez que se abre la app: va en tres viajes a la base de datos
   // (sesiones, cuenta y renovar), no en ocho.
   "GET me": async ({ req, res }) => {
@@ -1714,8 +1718,9 @@ const routes = {
       cookie(res, req, SESSION, ck[SESSION], YEAR);
     }
     if (st) {
-      renew.push(["EXPIRE", "staffsess:" + sha(ck[STAFF]), YEAR]);
-      cookie(res, req, STAFF, ck[STAFF], YEAR);
+      const ttl = staffTtl(st);
+      renew.push(["EXPIRE", "staffsess:" + sha(ck[STAFF]), ttl]);
+      cookie(res, req, STAFF, ck[STAFF], ttl);
     }
     if (renew.length) await pipe(renew);
     // Si el correo de esta cuenta es el de alguien del equipo, se le ofrece su panel
@@ -2217,11 +2222,13 @@ const routes = {
     }
     const email = normEmail(body.email);
     if (!EMAIL.test(email)) fail(400, "Revisa tu correo.");
+    const policy = accessPolicy();
+    // En producción, sin correo configurado, no se abre sesión ni se guarda el código.
+    if (policy.code && process.env.VERCEL && !mailReady()) fail(503, MAIL_NOT_READY);
     await limit("auth:" + email, 5, 900);
     await limit("authip:" + ip(req), 20, 900);
-    // Sin código (ver LOGIN_CON_CODIGO): se entra ya, y si falta el nombre la app lo pide.
-    // La cuenta no queda marcada como `verified`: nadie ha comprobado que el correo sea suyo.
-    if (!LOGIN_CON_CODIGO) {
+    // LOGIN_CON_CODIGO=0 solo en local: se entra ya, sin comprobar el correo.
+    if (policy.direct) {
       const fresh = !(await getJSON("user:" + email));
       const u = await ensureUser(email);
       await startSession(req, res, email);
@@ -2272,6 +2279,8 @@ const routes = {
     if (!u) fail(401, "Entra en tu cuenta.");
     const name = clean(body.name, 60);
     if (name.length < 2) fail(400, "Falta tu nombre.");
+    const phone = body.phone === undefined ? u.phone || "" : clean(body.phone, 30);
+    if (phone && !PHONE.test(phone)) fail(400, "Revisa tu teléfono.");
     const code = String(body.ref || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
     let by = null;
     if (code && !u.referredBy) {
@@ -2281,7 +2290,7 @@ const routes = {
       if (referrer !== u.email && !(await cmd("SMEMBERS", "ubk:" + u.email)).length) by = referrer;
     }
     const first = !u.name;
-    u = { ...u, name, ...(by ? { referredBy: by } : {}) };
+    u = { ...u, name, phone, ...(by ? { referredBy: by } : {}) };
     // La cuenta se creó sin nombre (código NOVA123): ahora que lo hay, uno con su nombre (CARLOS482).
     const oldRef = first && /^NOVA/.test(u.ref || "") ? u.ref : "";
     if (oldRef) u.ref = await makeRefCode(u.email, name);
@@ -2301,22 +2310,22 @@ const routes = {
 
   // ── Equipo ──────────────────────────────────────────────────────────────
   "POST staff/login": async ({ req, res, body }) => {
-    await limit("staff:" + ip(req), 8, 900);
+    await limit("staff:" + ip(req), PIN_FAILS, PIN_WINDOW);
     // Además del límite por conexión, uno por cuenta que solo cuenta los fallos:
     // cambiar de red no sirve para ir probando claves de 4 cifras.
     const who = String(body.provider || "").replace(/[^a-z0-9_-]/gi, "").slice(0, 30);
     const failKey = "rl:pinfail:" + who;
-    if ((Number(await cmd("GET", failKey)) || 0) >= 10) fail(429, "Demasiadas claves incorrectas. Espera 15 minutos.");
+    if ((Number(await cmd("GET", failKey)) || 0) >= PIN_FAILS) fail(429, "Demasiadas claves incorrectas. Espera 30 minutos.");
     const wrong = async (msg) => {
-      await hit(failKey, 900);
+      await hit(failKey, PIN_WINDOW);
       fail(400, msg);
     };
     if (body.provider === "caja") {
       const pin = String(body.pin || "");
       if (!pin || !activeTeam().some((x) => pinOk(x, pin))) await wrong("Clave incorrecta. Vale la de cualquiera del equipo.");
       const t = token();
-      await cmd("SET", "staffsess:" + sha(t), "caja", "EX", YEAR);
-      cookie(res, req, STAFF, t, YEAR);
+      await cmd("SET", "staffsess:" + sha(t), "caja", "EX", CAJA_TTL);
+      cookie(res, req, STAFF, t, CAJA_TTL);
       return { ok: true };
     }
     const p = provider(body.provider);
@@ -2870,7 +2879,7 @@ const routes = {
       email = normEmail(body.email),
       insta = clean(body.instagram, 40).replace(/^@/, "");
     if (!name) fail(400, "Falta tu nombre.");
-    if (!PHONE.test(phone)) fail(400, "Revisa tu teléfono.");
+    if (phone && !PHONE.test(phone)) fail(400, "Revisa tu teléfono.");
     if (email && !EMAIL.test(email)) fail(400, "Revisa tu correo.");
     if (body.consent !== true) fail(400, "Tienes que aceptar que te contactemos.");
     const pick = (v, list) => (list.some((x) => (x.id || x) === v) ? v : "");
@@ -2879,8 +2888,9 @@ const routes = {
       format = pick(body.format, TRAINING.formats);
     if (!level) fail(400, "Dinos tu nivel.");
     await limit("train:" + ip(req), 6, 3600);
-    const key = "trphone:" + phone.replace(/\D/g, "");
-    const prevId = await cmd("GET", key);
+    const digits = phone.replace(/\D/g, "");
+    const key = digits ? "trphone:" + digits : "";
+    const prevId = key && (await cmd("GET", key));
     const prev = prevId && (await getJSON("tr:" + prevId));
     const now = T.nowLocal().stamp;
     const t = {
@@ -2899,11 +2909,7 @@ const routes = {
       status: prev?.status || "new",
       note: prev?.note || "",
     };
-    await pipe([
-      ["SET", "tr:" + t.id, JSON.stringify(t)],
-      ["SET", key, t.id],
-      ["SADD", "trall", t.id],
-    ]);
+    await pipe([["SET", "tr:" + t.id, JSON.stringify(t)], ...(key ? [["SET", key, t.id]] : []), ["SADD", "trall", t.id]]);
     if (!prev) {
       const H = htmlEsc;
       const lv = TRAINING.levels.find((x) => x.id === level)?.name || level;
@@ -4267,6 +4273,9 @@ export default async function handler(req, res) {
     if (!hit) fail(404, "No existe.");
     if (req.method === "POST" && !String(req.headers["content-type"] || "").includes("application/json"))
       fail(415, "Petición incorrecta.");
+    // Sin correo en producción no se toca la base ni se abre sesión.
+    if (path === "auth/request" && req.method === "POST" && accessPolicy().code && process.env.VERCEL && !mailReady())
+      fail(503, MAIL_NOT_READY);
     const body = req.method === "POST" ? await readBody(req) : {};
     await loadTeam();
     const out = await hit.fn({ req, res, body, q: url.searchParams, params: hit.params });
@@ -4285,7 +4294,7 @@ export default async function handler(req, res) {
     res.end(JSON.stringify(out ?? {}));
   } catch (e) {
     const status = e.status || 500;
-    if (status >= 500) console.error(e);
+    if (status >= 500 && status !== 503) console.error(e);
     res.setHeader("Cache-Control", "no-store"); // un error nunca se queda guardado en el CDN
     res.statusCode = status;
     res.end(

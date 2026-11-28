@@ -137,7 +137,7 @@ let staffHint = null; // la cuenta es de alguien del equipo que aún no ha puest
 let catalog = null,
   user = null,
   staff = false,
-  authCh = { email: true, phone: false }, // por dónde puede llegar el código para entrar
+  authCh = { email: true, phone: false, code: true }, // por defecto se entra con código; /api/me lo confirma
   draft = load("nova_draft") || {},
   calMonth = "",
   selectedDate = "",
@@ -181,7 +181,8 @@ async function api(path, body, { timeout = 15000 } = {}) {
       method: body ? "POST" : "GET",
       headers: body ? { "Content-Type": "application/json" } : {},
       body: body ? JSON.stringify(body) : undefined,
-      credentials: "same-origin",
+      // include: la PWA instalada (iOS y Android) manda y guarda la cookie de sesión.
+      credentials: "include",
       signal: ctl.signal,
     });
     j = await r.json().catch(() => ({}));
@@ -349,7 +350,7 @@ function sheet(html) {
 
 // ── Navegación ─────────────────────────────────────────────────────────────
 function nav() {
-  const item = (to, label, icon) => `<a href="#${to}" data-sect="${to}" aria-label="${label}" title="${label}">${icon}</a>`;
+  const item = (to, label, icon) => `<a href="#${to}" data-sect="${to}" aria-label="${label}"><span class="nav-ic">${icon}</span><span class="nav-lb">${label}</span></a>`;
   const me = user?.photo
     ? `<img class="nav-initial" src="${esc(user.photo)}" alt="">`
     : user?.name
@@ -361,12 +362,12 @@ function nav() {
     : `${svg(ICONS.user)}<span>Entrar</span>`;
   $("#book-link").textContent = L("Reservar", "Book");
   $("#nav").innerHTML =
-    item("home", "Inicio", svg(ICONS.home)) +
-    item("bookings", "Mis citas", svg(ICONS.cal)) +
-    item("rewards", "Puntos y premios", svg(ICONS.gift)) +
-    item("ranking", "Ranking", svg(ICONS.trophy)) +
-    item("profile", "Perfil", me) +
-    (staff || staffHint ? item("equipo", staff ? "Agenda" : "Tu panel", svg(ICONS.agenda)) : "");
+    item("home", L("Inicio", "Home"), svg(ICONS.home)) +
+    item("bookings", L("Citas", "Visits"), svg(ICONS.cal)) +
+    item("rewards", L("Puntos", "Points"), svg(ICONS.gift)) +
+    item("ranking", L("Ranking", "Rank"), svg(ICONS.trophy)) +
+    item("profile", L("Perfil", "Profile"), me) +
+    (staff || staffHint ? item("equipo", staff ? L("Agenda", "Diary") : L("Panel", "Panel"), svg(ICONS.agenda)) : "");
 }
 function markNav(page) {
   const sect =
@@ -469,7 +470,7 @@ function homeHero() {
       team = catalog.providers;
   return `<section class="hero" aria-labelledby="hero-title">
     <div class="hero-media" id="hero-media">
-      <picture><source media="(orientation: landscape)" srcset="${pic("hero-wide")}"><img class="hero-photo" src="${pic("hero")}" alt="Herramientas de barbería de NOVA Studio con el logo" fetchpriority="high"></picture>
+      ${heroPicture()}
     </div>
     <div class="hero-grain" aria-hidden="true"></div>
     <div class="hero-in" id="hero-in">
@@ -765,6 +766,15 @@ function gcalLink(b) {
 // app con los datos (un proveedor nuevo, otro correo automático, otra cosa
 // guardada en el móvil), hay que contarlo aquí y cambiar LEGAL_DATE.
 const LEGAL_DATE = ["12 de noviembre de 2026", "12 November 2026"];
+// Nombre y NIF del titular: solo para el aviso legal, no vienen en el catálogo.
+let aviso = { holder: "", nif: "" };
+async function loadAviso() {
+  if (aviso.nif) return aviso;
+  try {
+    aviso = await api("legal");
+  } catch {}
+  return aviso;
+}
 const lgMail = () => `<a href="mailto:${esc(catalog.business.email)}">${esc(catalog.business.email)}</a>`;
 const lgAddr = () => `${esc(catalog.business.street)}, ${esc(catalog.business.city)}`;
 const lgRows = (rows) =>
@@ -780,16 +790,16 @@ const lgWho = (en) => {
   return lgRows(
     en
       ? [
-          ["Owner", esc(B.holder)],
-          ["Tax ID (NIF)", esc(B.nif)],
+          ["Owner", esc(aviso.holder)],
+          ["Tax ID (NIF)", esc(aviso.nif)],
           ["Address", lgAddr()],
           ["Phone", esc(B.phone)],
           ["Email", lgMail()],
           ["Trade name", `${esc(B.name)} (barbershop) and NOVA Supply Clothing (clothing)`],
         ]
       : [
-          ["Titular", esc(B.holder)],
-          ["NIF", esc(B.nif)],
+          ["Titular", esc(aviso.holder)],
+          ["NIF", esc(aviso.nif)],
           ["Domicilio", lgAddr()],
           ["Teléfono", esc(B.phone)],
           ["Correo", lgMail()],
@@ -831,7 +841,7 @@ const LEGAL = {
     <p>No vendemos tus datos ni compramos listas. Todos los datos nos los das tú, salvo las compras de ropa y los cobros, que apunta el equipo cuando pagas en el estudio.</p>
 
     <h3>3 · Quién del equipo ve tus datos</h3>
-    <p>${esc(catalog.business.holder)}, como titular, puede verlo todo. Cada barbero, que es trabajador del estudio, ve las citas y los datos de contacto de quienes atiende, y le llega un aviso con tu nombre, el servicio y la hora a su correo y al calendario de su móvil. La tableta de caja solo ve los cobros del día y la agenda (nombre, servicio y hora, sin teléfono ni correo). Todo el equipo tiene deber de confidencialidad.</p>
+    <p>${esc(aviso.holder)}, como titular, puede verlo todo. Cada barbero, que es trabajador del estudio, ve las citas y los datos de contacto de quienes atiende, y le llega un aviso con tu nombre, el servicio y la hora a su correo y al calendario de su móvil. La tableta de caja solo ve los cobros del día y la agenda (nombre, servicio y hora, sin teléfono ni correo). Todo el equipo tiene deber de confidencialidad.</p>
 
     <h3>4 · Con quién los compartimos</h3>
     <p>Para funcionar nos apoyamos en estos proveedores. Tratan los datos por encargo nuestro y solo para lo que les pedimos:</p>
@@ -958,7 +968,7 @@ const LEGAL = {
     ${
       cardOn()
         ? `<p>Para reservar online dejas una tarjeta en garantía. Al guardarla no se cobra nada. La custodia Stripe, nuestro proveedor de pagos, y queda en tu perfil para tus próximas citas. Puedes cambiarla o quitarla cuando quieras, salvo que tengas citas pendientes garantizadas con ella.</p>
-    <p><b>Si no vienes a la cita, o la cancelas con menos de ${esc(R.cancelHours)} horas de antelación, autorizas a ${esc(catalog.business.holder)} (${esc(catalog.business.name)}) a cobrar en esa tarjeta ${pctText(R.noShowFeePct)} del servicio reservado si no vienes, y ${pctText(R.lateFeePct)} si cancelas tarde</b>, sin que tengas que estar presente. Nunca se cobra más que el precio del servicio reservado.</p>
+    <p><b>Si no vienes a la cita, o la cancelas con menos de ${esc(R.cancelHours)} horas de antelación, autorizas a ${esc(aviso.holder)} (${esc(catalog.business.name)}) a cobrar en esa tarjeta ${pctText(R.noShowFeePct)} del servicio reservado si no vienes, y ${pctText(R.lateFeePct)} si cancelas tarde</b>, sin que tengas que estar presente. Nunca se cobra más que el precio del servicio reservado.</p>
     <p>El cobro no es automático: tu barbero revisa cada caso y, si hay un motivo justificado, no se cobra. Si tu banco pide confirmación o rechaza el cargo, te avisamos y puedes pagarlo desde «Mis citas». Si crees que un cobro es un error, escríbenos y lo revisamos. Si procede, te devolvemos el dinero en la misma tarjeta.</p>`
         : `<p>Si faltas varias veces sin avisar, podremos pedirte una garantía o limitar tus reservas online.</p>`
     }
@@ -1042,7 +1052,7 @@ const LEGAL_EN = {
     <p>We don't sell your data or buy lists. All data comes from you, except clothing purchases and payments, which the team records when you pay at the studio.</p>
 
     <h3>3 · Who in the team sees your data</h3>
-    <p>${esc(catalog.business.holder)}, as owner, can see everything. Each barber is an employee of the studio. They see the bookings and contact details of the clients they serve, and get a notice with your name, service and time in their email and phone calendar. The front-desk tablet only sees the day's payments. Everyone in the team is bound by confidentiality.</p>
+    <p>${esc(aviso.holder)}, as owner, can see everything. Each barber is an employee of the studio. They see the bookings and contact details of the clients they serve, and get a notice with your name, service and time in their email and phone calendar. The front-desk tablet only sees the day's payments. Everyone in the team is bound by confidentiality.</p>
 
     <h3>4 · Who we share it with</h3>
     <p>We rely on these providers, who process data on our behalf and only for what we ask of them:</p>
@@ -1169,7 +1179,7 @@ const LEGAL_EN = {
     ${
       cardOn()
         ? `<p>To book online you leave a guarantee card. Nothing is charged when you save it. It is held by Stripe, our payment provider, and stays on your profile for your next bookings. You can change or remove it at any time, unless you have upcoming bookings guaranteed with it.</p>
-    <p><b>If you don't come to your appointment, or cancel less than ${esc(R.cancelHours)} hours in advance, you authorise ${esc(catalog.business.holder)} (${esc(catalog.business.name)}) to charge that card ${pctText(R.noShowFeePct)} of the booked service if you don't show up, and ${pctText(R.lateFeePct)} if you cancel late</b>, without you needing to be present. We never charge more than the price of the booked service.</p>
+    <p><b>If you don't come to your appointment, or cancel less than ${esc(R.cancelHours)} hours in advance, you authorise ${esc(aviso.holder)} (${esc(catalog.business.name)}) to charge that card ${pctText(R.noShowFeePct)} of the booked service if you don't show up, and ${pctText(R.lateFeePct)} if you cancel late</b>, without you needing to be present. We never charge more than the price of the booked service.</p>
     <p>The charge isn't automatic: your barber reviews each case and, if there's a good reason, nothing is charged. If your bank asks for confirmation or declines the charge, we'll let you know and you can pay it from “My bookings”. If you think a charge is a mistake, write to us and we'll review it. Where appropriate, we'll refund it to the same card.</p>`
         : `<p>If you miss several appointments without notice, we may ask for a guarantee or limit your online bookings.</p>`
     }
@@ -1373,7 +1383,7 @@ const pages = {
           `<div id="auth" class="auth-box"></div>` +
           (user
             ? ""
-            : `<div class="club-card"><span class="club-tag">CLUB</span><h2>${L("Entras en el Club al reservar", "You join the Club when you book")}</h2><p>${L("Con tu correo, sin contraseñas.", "With your email, no passwords.")}</p><ul class="club-perks"><li>${L(`${catalog.points.welcome} puntos de regalo al entrar`, `${catalog.points.welcome} welcome points when you join`)}</li><li>${L(`${catalog.points.perEuro} puntos por cada euro, en la silla y en ${esc(catalog.shop.name)}`, `${catalog.points.perEuro} points per euro, in the chair and at ${esc(catalog.shop.name)}`)}</li><li>${L("Un ranking con todo el Club y con tus amigos", "A ranking with the whole Club and with your friends")}</li></ul></div>`),
+            : `<div class="club-card"><span class="club-tag">CLUB</span><h2>${L("Entras en el Club al reservar", "You join the Club when you book")}</h2><p>${authCh.code === false ? L("Con tu correo, sin contraseñas.", "With your email, no passwords.") : L("Con un código a tu correo, sin contraseñas.", "With a code sent to your email, no passwords.")}</p><ul class="club-perks"><li>${L(`${catalog.points.welcome} puntos de regalo al entrar`, `${catalog.points.welcome} welcome points when you join`)}</li><li>${L(`${catalog.points.perEuro} puntos por cada euro, en la silla y en ${esc(catalog.shop.name)}`, `${catalog.points.perEuro} points per euro, in the chair and at ${esc(catalog.shop.name)}`)}</li><li>${L("Un ranking con todo el Club y con tus amigos", "A ranking with the whole Club and with your friends")}</li></ul></div>`),
       );
       authFlow($("#auth"), {
         step: user ? "name" : "",
@@ -1508,19 +1518,10 @@ const pages = {
             }</div>`
           : "") +
         calButtons({ ...b, end: addMin(b.start, b.service.duration) }) +
-        `<a class="btn wide" style="margin-top:10px" href="#booking/${esc(b.id)}">Ver, cambiar o cancelar mi cita</a>` +
-        (user && !user.phone
-          ? `<form id="bk-phone" class="card complete"><strong>Completa tu perfil</strong><span>Déjanos tu teléfono por si hay algún cambio con tu cita. Solo te lo pedimos esta vez.</span>
-              <div class="form-actions" style="margin-top:10px"><input name="phone" type="tel" inputmode="tel" required maxlength="25" autocomplete="tel" placeholder="+34 600 000 000" aria-label="Teléfono"><button class="btn" type="submit">Guardar</button></div></form>`
-          : ""),
+        `<a class="btn wide" style="margin-top:10px" href="#booking/${esc(b.id)}">Ver, cambiar o cancelar mi cita</a>`,
     );
     confetti();
-    if ($("#bk-phone"))
-      onForm("bk-phone", async (d, f) => {
-        await api("profile", { name: user.name, phone: d.phone });
-        await refreshMe();
-        f.outerHTML = `<p class="charge-note ok">Teléfono guardado. Gracias.</p>`;
-      });
+    installAfterBooking();
   },
 
   async bookings() {
@@ -1701,8 +1702,8 @@ const pages = {
       </div>
       <p class="section-label">Tus datos</p>
       <form id="profile" class="card">
-        <label for="p-name" style="margin-top:0">${tl("Nombre o apodo", "Name or nickname")} <small class="opt">${tl("(así sales en el ranking)", "(shown in the ranking)")}</small></label><input id="p-name" name="name" required maxlength="60" autocomplete="name" value="${esc(user.name || "")}">
-        <label for="p-phone">Teléfono</label><input id="p-phone" name="phone" type="tel" maxlength="30" autocomplete="tel" value="${esc(user.phone || "")}">
+        <label for="p-name" style="margin-top:0">${tl("Nombre o apodo", "Name or nickname")} <small class="opt">${tl("(la reserva y el ranking)", "(your booking and the ranking)")}</small></label><input id="p-name" name="name" required maxlength="60" autocomplete="name" value="${esc(user.name || "")}">
+        <label for="p-phone">${tl("Teléfono", "Phone")} <small class="opt">${tl("(opcional, por si el estudio necesita contactarte)", "(optional, in case the studio needs to reach you)")}</small></label><input id="p-phone" name="phone" type="tel" inputmode="tel" maxlength="30" autocomplete="tel" value="${esc(user.phone || "")}">
         <label for="p-email">Correo</label><input id="p-email" value="${esc(user.email)}" readonly>
         <button class="btn wide" style="margin-top:18px" type="submit">Guardar</button>
       </form>
@@ -1901,6 +1902,7 @@ const pages = {
 };
 for (const k of Object.keys(LEGAL))
   pages[k] = async () => {
+    await loadAviso();
     const [title, body] = (LANG === "en" ? LEGAL_EN : LEGAL)[k];
     show(back("home", "Volver") + heading(title, catalog.business.name) + `<article class="legal-page">${body()}</article>` + legalLinks());
   };
@@ -1999,7 +2001,7 @@ async function calendar({ backTo, backLabel }) {
       `<div class="cal-card"><div class="cal-head"><button type="button" class="cal-nav" id="prev-month" aria-label="Mes anterior" ${calMonth <= thisMonth ? "disabled" : ""}>‹</button><strong>${monthName}</strong><button type="button" class="cal-nav" id="next-month" aria-label="Mes siguiente" ${calMonth >= maxMonth ? "disabled" : ""}>›</button></div><div class="cal-week">${L("LMXJVSD", "MTWTFSS")
         .split("")
         .map((c) => `<span>${c}</span>`)
-        .join("")}</div><div class="cal-grid">${cells}</div></div>` +
+        .join("")}</div><div class="cal-grid">${cells}</div><div class="cal-legend"><span><i></i>Muchas horas</span><span><i class="mid"></i>Algunas horas</span><span><i class="low"></i>Pocas horas</span></div></div>` +
       (selectedDate && full.has(selectedDate) && !times.length
         ? `<div class="times"><h2 class="times-title">${esc(longDay(selectedDate))}</h2>
             <div class="wl-box" id="wl-box"><strong>Este día está completo</strong><span>Si alguien cancela, te escribimos al momento para que elijas hora antes que nadie.</span>
@@ -2008,7 +2010,7 @@ async function calendar({ backTo, backLabel }) {
         : selectedDate
         ? `<div class="times"><h2 class="times-title">${esc(longDay(selectedDate))}</h2>${morning.length ? `<p class="times-label">${L("Mañana", "Morning")}</p><div class="time-grid">${morning.map(pill).join("")}</div>` : ""}${afternoon.length ? `<p class="times-label">${L("Tarde", "Afternoon")}</p><div class="time-grid">${afternoon.map(pill).join("")}</div>` : ""}</div>`
         : '<p class="empty">No quedan horas libres este mes. Prueba el mes siguiente.</p>') +
-      `<div style="height:90px"></div>`,
+      `<div style="height:150px"></div>`,
   );
   $("#prev-month").onclick = () => ((calMonth = shiftMonth(calMonth, -1)), (dayPicked = false), render());
   $("#next-month").onclick = () => ((calMonth = shiftMonth(calMonth, 1)), (dayPicked = false), render());
@@ -2032,9 +2034,8 @@ async function calendar({ backTo, backLabel }) {
 
   // Elegir hora solo la marca; se avanza con «Continuar» por si se equivoca.
   const bar = document.createElement("div");
-  bar.className = "continue-bar";
-  bar.innerHTML = `<div class="continue-info"><span>${draft.moving ? "Nueva hora" : "Tu cita"}</span><strong id="continue-when"></strong></div><button type="button" class="btn" id="continue-btn">${draft.moving ? "Cambiar" : "Continuar"}</button>`;
-  bar.hidden = true;
+  bar.className = "continue-bar visible";
+  bar.innerHTML = `<div class="continue-info"><span>${draft.moving ? "Nueva hora" : "Tu cita"}</span><strong id="continue-when">Elige una hora</strong></div><button type="button" class="btn" id="continue-btn" disabled>${draft.moving ? "Cambiar" : "Continuar"}</button>`;
   $("#app").append(bar);
   const pick = (b) => {
     $$(".time-pill.selected").forEach((x) => (x.classList.remove("selected"), x.setAttribute("aria-pressed", "false")));
@@ -2044,13 +2045,20 @@ async function calendar({ backTo, backLabel }) {
     draft.start = b.dataset.time;
     saveDraft();
     $("#continue-when").textContent = `${shortDay(selectedDate)} · ${b.dataset.time}`;
-    bar.hidden = false;
-    requestAnimationFrame(() => bar.classList.add("visible"));
+    $("#continue-btn").disabled = false;
   };
   $$("[data-time]").forEach((b) => {
     b.setAttribute("aria-pressed", "false");
     b.onclick = () => pick(b);
     if (draft.date === selectedDate && draft.start === b.dataset.time) pick(b);
+  });
+  // Las horas quedan por encima de la barra fija, sin taparla.
+  requestAnimationFrame(() => {
+    const times = document.querySelector(".times, .empty");
+    const bar = document.querySelector(".continue-bar");
+    if (!times || !bar) return;
+    const gap = times.getBoundingClientRect().bottom - bar.getBoundingClientRect().top + 12;
+    if (gap > 0) window.scrollBy({ top: gap, behavior: "smooth" });
   });
   $("#continue-btn").onclick = async (e) => {
     if (draft.date !== selectedDate || !draft.start) return;
@@ -2661,7 +2669,10 @@ function loginScreen(reason, next) {
   show(
     heading(
       L("Entra o crea tu cuenta", "Log in or sign up"),
-      reason || L("Solo con tu correo, sin contraseñas. Si es tu primera vez, la cuenta se crea al entrar.", "Just your email, no passwords. If it's your first time, your account is created as you log in."),
+      reason ||
+        (authCh.code === false
+          ? L("Solo con tu correo, sin contraseñas. Si es tu primera vez, la cuenta se crea al entrar.", "Just your email, no passwords. If it's your first time, your account is created as you log in.")
+          : L("Te mandamos un código de 6 cifras a tu correo. Si es tu primera vez, la cuenta se crea al entrar.", "We'll send a 6-digit code to your email. The first time, your account is created as you log in.")),
     ) +
       `<div id="auth" class="auth-box"></div>` +
       `<p class="muted" style="margin-top:26px;text-align:center">¿Trabajas en el estudio? <a href="#equipo">Entra en tu panel</a></p>` +
@@ -2826,9 +2837,12 @@ function authFlow(host, { step = "", onDone, onStep } = {}) {
     draw(
       `<form id="au-name" class="auth-step" novalidate>
         ${st.fresh ? `<p class="auth-welcome">${L(`¡Ya eres del Club! Tienes <b>${catalog.points.welcome} puntos</b> de regalo.`, `You're in the Club! You've got <b>${catalog.points.welcome} points</b> as a gift.`)}</p>` : ""}
-        <label for="au-n">${L("¿Cómo quieres que te llamemos?", "What should we call you?")}</label>
+        <label for="au-n">${L("Tu nombre", "Your name")}</label>
         <input id="au-n" name="name" required minlength="2" maxlength="60" autocomplete="name" autocapitalize="words" placeholder="${L("Tu nombre o un apodo", "Your name or a nickname")}" value="${esc(user?.name || "")}">
+        <p class="auth-note">${L("Solo te lo pedimos esta vez. Es el nombre de tu reserva y el que sale en el ranking del Club.", "We only ask once. It's the name on your booking and in the Club ranking.")}</p>
         <p class="auth-note" id="au-prev"></p>
+        <label for="au-p">${L("Teléfono", "Phone")} <small class="opt">${L("(opcional, por si el estudio necesita contactarte)", "(optional, in case the studio needs to reach you)")}</small></label>
+        <input id="au-p" name="phone" type="tel" inputmode="tel" maxlength="30" autocomplete="tel" placeholder="+34 600 000 000" value="${esc(user?.phone || "")}">
         ${st.fresh || step === "name" ? refBoxHtml() : ""}
         <button class="btn wide" type="submit">${L("Continuar", "Continue")}</button>
       </form>`,
@@ -2847,7 +2861,7 @@ function authFlow(host, { step = "", onDone, onStep } = {}) {
       if (!n.reportValidity()) return;
       const code = await ref.value();
       if (code === false) return toast(L("Ese código de amigo no existe. Revísalo o bórralo.", "That friend code doesn't exist. Check it or clear it."));
-      await api("auth/name", { name: String(d.name || "").trim(), ref: code || "" });
+      await api("auth/name", { name: String(d.name || "").trim(), ref: code || "", phone: String(d.phone || "").trim() });
       try {
         localStorage.removeItem("nova_ref");
       } catch {}
@@ -3068,6 +3082,16 @@ async function initHabit(h) {
 
 // ── Aviso temporal, logo y galería (lo que Airam cambia en «Web») ──────────
 function siteChrome() {
+  let flag = $("#demo-flag");
+  if (authCh.demo) {
+    if (!flag) {
+      flag = document.createElement("div");
+      flag.id = "demo-flag";
+      flag.className = "demo-flag";
+      flag.textContent = "Modo demo";
+      document.body.prepend(flag);
+    }
+  } else flag?.remove();
   const n = catalog?.site?.notice;
   let bar = $("#site-notice");
   if (n && !document.body.dataset.page?.startsWith("equipo")) {
@@ -3105,6 +3129,15 @@ function galleryBlock() {
 // (pestaña «Web»), sale la suya; si no, la original.
 const PIC_DEFAULT = { hero: "/assets/hero-plata.jpg", "hero-wide": "/assets/hero-plata-wide.jpg", cabina: "/assets/cabina.jpg", acabado: "/assets/acabado.jpg", oficio: "/assets/oficio.jpg", casa: "/assets/casa.jpg", supply: "/assets/supply.jpg", "supply-rosa": "/assets/supply-rosa.jpg", formacion: "/assets/oficio.jpg" };
 const PIC_ROSA = { hero: "/assets/hero-rosa.jpg", "hero-wide": "/assets/hero-rosa-wide.jpg" };
+const webpOf = (url) => (String(url).startsWith("/assets/") && url.endsWith(".jpg") ? url.replace(/\.jpg$/, ".webp") : "");
+// WebP primero (más ligero en el móvil) y el JPEG si el navegador no lo entiende.
+function heroPicture() {
+  const wide = pic("hero-wide"),
+    port = pic("hero"),
+    land = ' media="(orientation: landscape)"';
+  const webp = (url, media = "") => (webpOf(url) ? `<source type="image/webp"${media} srcset="${esc(webpOf(url))}">` : "");
+  return `<picture>${webp(wide, land)}<source${land} srcset="${esc(wide)}">${webp(port)}<img class="hero-photo" src="${esc(port)}" alt="Herramientas de barbería de NOVA Studio con el logo" fetchpriority="high" width="780" height="1692"></picture>`;
+}
 const pic = (slot) => {
   const v = catalog?.site?.photos?.[slot];
   if (v) return `/api/site/${slot}/photo?v=${encodeURIComponent(v)}`;
@@ -3152,7 +3185,7 @@ function trainForm(T) {
   return `<form id="train" class="card tr-form" novalidate>
     <p class="eyebrow">Lista de interesados</p><h2>Apúntate <em class="serif">sin compromiso.</em></h2>
     <label for="t-name">Nombre</label><input id="t-name" name="name" required maxlength="120" autocomplete="name" value="${esc(user?.name || "")}">
-    <label for="t-phone">Teléfono <small>(te escribiremos por WhatsApp)</small></label><input id="t-phone" name="phone" type="tel" inputmode="tel" required maxlength="25" autocomplete="tel" value="${esc(user?.phone || "+34 ")}">
+    <label for="t-phone">Teléfono <small>(opcional, por si el estudio necesita contactarte)</small></label><input id="t-phone" name="phone" type="tel" inputmode="tel" maxlength="25" autocomplete="tel" value="${esc(user?.phone || "")}">
     <label for="t-email">Correo <small>(opcional)</small></label><input id="t-email" name="email" type="email" autocomplete="email" value="${esc(user?.email || "")}">
     <label for="t-insta">Instagram <small>(opcional, para ver tus cortes)</small></label><input id="t-insta" name="instagram" maxlength="40" autocapitalize="off" placeholder="@tuusuario">
     <fieldset class="tr-field"><legend>¿Cuál es tu nivel?</legend><div class="tr-levels pick">${T.levels
@@ -3622,8 +3655,11 @@ function show(html) {
 }
 
 async function render() {
-  const id = ++renderId,
-    route = (location.hash.slice(1) || "home").split("/"),
+  const id = ++renderId;
+  let hash = location.hash.slice(1) || "home";
+  const bookStart = hash === "reservar" || hash === "servicios";
+  if (bookStart) hash = "home";
+  const route = hash.split("/"),
     page = pages[route[0]] ? route[0] : "home",
     app = $("#app");
   nav();
@@ -3653,6 +3689,7 @@ async function render() {
   try {
     await loadCatalog();
     await pages[page](route.slice(1));
+    if (id === renderId && bookStart && page === "home") requestAnimationFrame(scrollToServices);
   } catch (err) {
     if (id !== renderId) return;
     if (err.status === 401) {
@@ -3709,18 +3746,43 @@ window.addEventListener("appinstalled", () => {
   $("#install-card")?.remove();
   toast(L("Lista: ya la tienes en tu pantalla de inicio.", "Done: it's on your home screen now."));
 });
-// La ventana para quien entra sin sesión, un momento después de ver el inicio.
+// Cuenta la visita una vez por pestaña. La hoja de instalar no sale en la primera.
+function countVisit() {
+  try {
+    if (sessionStorage.getItem("nova_visit_counted")) return Number(localStorage.getItem("nova_visits") || "1");
+    sessionStorage.setItem("nova_visit_counted", "1");
+    const n = Number(localStorage.getItem("nova_visits") || "0") + 1;
+    localStorage.setItem("nova_visits", String(n));
+    return n;
+  } catch {
+    return 1;
+  }
+}
+const installCooled = () => {
+  const seen = installSeen();
+  return seen === "done" || seen === "x" || (seen && Date.now() - Number(seen) < 30 * 864e5);
+};
+// La primera visita se deja libre para reservar. A partir de la segunda, en el
+// inicio y sin sesión, se ofrece a los 20 s. Tras reservar, se ofrece al momento.
 function installNudge(page) {
   clearTimeout(installTimer);
   if (page !== "home" || user || staff) return;
-  const how = installWhere(),
-    seen = installSeen();
-  if ((how !== "prompt" && how !== "ios") || seen === "done" || seen === "x" || Date.now() - Number(seen) < 30 * 864e5) return;
+  const how = installWhere();
+  if ((how !== "prompt" && how !== "ios") || installCooled() || countVisit() < 2) return;
   installTimer = setTimeout(() => {
     if (document.body.dataset.page !== "home" || user || staff || $(".sheet-back")) return;
     installMark(String(Date.now()));
     installSheet();
-  }, 2500);
+  }, 20000);
+}
+function installAfterBooking() {
+  const how = installWhere();
+  if ((how !== "prompt" && how !== "ios") || installCooled()) return;
+  setTimeout(() => {
+    if (document.body.dataset.page !== "booked" || $(".sheet-back")) return;
+    installMark(String(Date.now()));
+    installSheet();
+  }, 1800);
 }
 async function installNow() {
   const e = installEvt;
@@ -3778,7 +3840,7 @@ function installCard() {
 }
 
 // Rutas «bonitas» que llevan a una pantalla (por si se comparten).
-const entry = { "/acceder": "login", "/mis-citas": "bookings", "/perfil": "profile", "/equipo": "equipo", "/reservar": "home", "/formacion": "formacion", "/productos": "productos", "/privacidad": "privacidad", "/cookies": "cookies", "/condiciones": "condiciones", "/aviso-legal": "aviso-legal" }[location.pathname.replace(/\/$/, "")];
+const entry = { "/acceder": "login", "/mis-citas": "bookings", "/perfil": "profile", "/equipo": "equipo", "/reservar": "reservar", "/formacion": "formacion", "/productos": "productos", "/privacidad": "privacidad", "/cookies": "cookies", "/condiciones": "condiciones", "/aviso-legal": "aviso-legal" }[location.pathname.replace(/\/$/, "")];
 if (entry && !location.hash) history.replaceState(null, "", "/#" + entry);
 
 // Intro con el logo: solo la primera vez en cada visita y como mínimo un instante, para que se vea.
@@ -3798,13 +3860,18 @@ function hideSplash() {
 }
 setTimeout(hideSplash, 4000); // por si algo falla, que nunca se quede tapando
 
-// «Reservar» de la cabecera: baja a la lista de servicios (yendo antes al inicio si hace falta).
+function scrollToServices() {
+  const el = document.getElementById("servicios");
+  if (!el) return;
+  const y = el.getBoundingClientRect().top + window.scrollY - 76;
+  window.scrollTo({ top: Math.max(0, y), behavior: "smooth" });
+}
+// «Reservar» de la cabecera abre el flujo en la lista de servicios, no en la foto.
 $("#book-link").addEventListener("click", (e) => {
   e.preventDefault();
-  const down = () => document.getElementById("servicios")?.scrollIntoView({ behavior: "smooth", block: "start" });
-  if (document.body.dataset.page === "home") return down();
-  go("home");
-  setTimeout(down, 700);
+  const hash = location.hash.slice(1);
+  if (hash === "reservar") return scrollToServices();
+  location.hash = "reservar";
 });
 // ES / EN: se cambia el idioma y se repinta la pantalla en la que estás.
 $("#lang-btn").addEventListener("click", () => {

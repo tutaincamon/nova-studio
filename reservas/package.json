@@ -4,7 +4,8 @@
   "type": "module",
   "description": "App de reservas de NOVA Studio (nova.appflu.es)",
   "scripts": {
-    "dev": "node dev-server.js"
+    "dev": "node dev-server.js",
+    "test": "node --test test/*.test.js"
   },
   "engines": {
     "node": ">=20"
