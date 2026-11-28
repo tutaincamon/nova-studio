@@ -5,8 +5,8 @@
 //   móvil (no cambian; una versión nueva lleva otro «?v=»).
 // - La página: primero la red (para estrenar cambios al momento) y, sin red,
 //   lo guardado.
-const CACHE = "nova-v41";
-const SHELL = ["/", "/app.css?v=41", "/i18n.js?v=41", "/app.js?v=41", "/boot.js?v=41", "/assets/logo.png", "/assets/icon-192.png"];
+const CACHE = "nova-v43";
+const SHELL = ["/", "/app.css?v=42", "/i18n.js?v=42", "/app.js?v=42", "/boot.js?v=42", "/assets/logo.png", "/assets/icon-192.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

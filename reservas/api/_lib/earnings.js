@@ -76,12 +76,15 @@ export function netOf(income, exp, workers, defaultPct) {
   const extras = r2((exp.extras || []).reduce((a, e) => a + (Number(e.amount) || 0), 0));
   const commissions = workers.map((w) => {
     const pct = exp.pct?.[w.id] ?? defaultPct(w.id);
-    return { id: w.id, name: w.name, pct, amount: r2(((income.byBarber?.[w.id] || 0) * pct) / 100) };
+    // La comisión de un corte incluido en la membresía se calcula sobre su precio normal (income.inclBase), aunque el ingreso sea 0 €.
+    const incl = r2(((income.inclBase?.[w.id] || 0) * pct) / 100);
+    return { id: w.id, name: w.name, pct, amount: r2(((income.byBarber?.[w.id] || 0) * pct) / 100 + incl), included: incl };
   });
+  const includedCommission = r2(commissions.reduce((a, c) => a + c.included, 0));
   const comm = r2(commissions.reduce((a, c) => a + c.amount, 0));
   const costs = r2(fixed + salaries + extras);
   const net = r2(income.total - costs - comm);
-  return { fixed, salaries, extras, costs, commissions, commission: comm, net, margin: income.total > 0 ? Math.round((net / income.total) * 1000) / 10 : null };
+  return { fixed, salaries, extras, costs, commissions, commission: comm, includedCommission, net, margin: income.total > 0 ? Math.round((net / income.total) * 1000) / 10 : null };
 }
 
 // Diferencia con el mes anterior: en € y en % (null si no hay base).

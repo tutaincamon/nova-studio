@@ -136,6 +136,7 @@ document.body.insertAdjacentHTML(
 let staffHint = null; // la cuenta es de alguien del equipo que aún no ha puesto su clave
 let catalog = null,
   user = null,
+  memb = null, // su membresía Socio NOVA+ (cortes, días vista…), de /api/me
   staff = false,
   authCh = { email: true, phone: false, code: true }, // por defecto se entra con código; /api/me lo confirma
   draft = load("nova_draft") || {},
@@ -248,6 +249,7 @@ async function refreshMe() {
   try {
     const r = await api("me");
     user = r.user;
+    memb = r.membership || null;
     staff = r.staff;
     staffHint = r.staffHint || null;
     authCh = r.auth || authCh;
@@ -732,7 +734,7 @@ function bookingCard(b, now) {
     kind = canceled || past ? "is-past" : "is-active";
   return `<a class="appt ${kind}" href="#booking/${esc(b.id)}">
     <span class="appt-date"><small>${esc(fmtDay(b.date, { month: "short" }))}</small><strong>${dayDate(b.date).getDate()}</strong><small>${esc(fmtDay(b.date, { weekday: "short" }))}</small></span>
-    <span class="appt-body"><strong>${esc(b.service.name)}</strong><span>${esc(b.start)} · ${esc(b.provider.name)}</span><span class="appt-chips"><span class="appt-state ${state[1]}">${state[0]}</span></span></span>
+    <span class="appt-body"><strong>${esc(b.service.name)}</strong><span>${esc(b.start)} · ${esc(b.provider.name)}</span><span class="appt-chips"><span class="appt-state ${state[1]}">${state[0]}</span>${b.membership?.included ? `<span class="appt-state st-mem">NOVA+</span>` : ""}</span></span>
   </a>`;
 }
 // Botón de calendario: en iPhone/Mac abre el calendario del sistema (.ics);
@@ -1370,7 +1372,7 @@ const pages = {
     if (!draft.start || !draft.date) return go("home");
     const s = svcById(draft.service),
       p = provById(draft.provider);
-    const summary = `<div class="pick-summary">${face(p)}<div><strong>${esc(tx(s.name))} · ${euro(s.price)}</strong><span>${esc(p.name)} · ${esc(longDay(draft.date))} · ${esc(draft.start)}</span></div></div>`;
+    const summary = `<div class="pick-summary">${face(p)}<div><strong>${esc(tx(s.name))} · ${euro(s.price)}</strong><span>${esc(p.name)} · ${esc(longDay(draft.date))} · ${esc(draft.start)}</span></div></div>` + memberHint(s, draft.date);
     // Sin cuenta (o sin nombre): se entra aquí mismo con el correo y el código,
     // y al acabar se vuelve a esta pantalla, ya para confirmar con un toque.
     if (!user || !user.name) {
@@ -1476,7 +1478,7 @@ const pages = {
         return pickAlternative(err.data.alternatives);
       }
       availCache.clear();
-      lastBooked = { id: r.id, service: s, provider: (r.provider && provById(r.provider.id)) || r.provider || p, date: draft.date, start: draft.start, series: r.series };
+      lastBooked = { id: r.id, membership: r.membership, service: s, provider: (r.provider && provById(r.provider.id)) || r.provider || p, date: draft.date, start: draft.start, series: r.series };
       draft = {};
       saveDraft();
       go("booked");
@@ -1499,7 +1501,7 @@ const pages = {
             <div><small>Día</small><strong>${esc(cap(fmtDay(b.date, { weekday: "short", day: "numeric", month: "short" })))}</strong></div>
             <div><small>Hora</small><strong>${esc(b.start)}</strong></div>
             <div><small>Servicio</small><strong>${esc(b.service.name)}</strong></div>
-            <div><small>Precio</small><strong>${euro(b.service.price)}</strong></div>
+            <div><small>${b.membership ? L("Membresía", "Membership") : "Precio"}</small><strong>${b.membership ? L("Incluida", "Included") : euro(b.service.price)}</strong></div>
           </div>
           <div class="tix-cut" aria-hidden="true"></div>
           <div class="tix-foot"><span>Ref. <b>${esc(b.id)}</b></span><span class="tix-pts">+${pts} ${pts === 1 ? L("punto", "point") : L("puntos", "points")} ${L("al pagar", "when you pay")}</span></div>
@@ -1562,7 +1564,7 @@ const pages = {
     show(
       back("bookings", "Mis citas") +
         heading(esc(tx(b.service.name)), `${esc(longDay(b.date))} · ${esc(b.start)}`) +
-        `<div class="pick-summary">${face(p)}<div><strong>${L("Con", "With")} ${esc(b.provider.name)}</strong><span>${b.service.duration} min · ${euro(b.service.price)} · ${L("pago en el local", "pay at the shop")}</span></div></div>` +
+        `<div class="pick-summary">${face(p)}<div><strong>${L("Con", "With")} ${esc(b.provider.name)}</strong><span>${b.service.duration} min · ${b.membership?.included ? L("incluida en tu membresía", "included in your membership") : `${euro(b.service.price)} · ${L("pago en el local", "pay at the shop")}`}</span></div></div>` +
         `<div class="card"><dl class="detail-list">
           <div><dt>Estado</dt><dd>${b.status === "canceled" ? (b.late ? "Cancelada tarde" : "Cancelada") : b.attendance === "absent" ? "No vino" : r.past ? "Realizada" : "Confirmada"}</dd></div>
           <div><dt>Referencia</dt><dd>${esc(b.id)}</dd></div>
@@ -1616,7 +1618,7 @@ const pages = {
           const x = await api(`bookings/${b.id}/cancel`, { series: allSeries });
           availCache.clear();
           sh.close();
-          toast(x.late ? "Cita cancelada. Tu barbero revisará si se cobra." : "Cita cancelada.");
+          toast(x.late ? "Cita cancelada. Tu barbero revisará si se cobra." : x.cutReturned ? L("Cita cancelada. Te devolvemos el corte de tu membresía.", "Booking cancelled. Your membership cut is back.") : "Cita cancelada.");
           render();
         } catch (err) {
           e.currentTarget.disabled = false;
@@ -1640,8 +1642,10 @@ const pages = {
 
   async profile() {
     if (!user) return loginScreen("", "profile");
-    const [m, bk] = await Promise.all([api("member"), api("bookings").catch(() => ({ upcoming: [] }))]);
+    const back_ = socioReturn === "ok" ? "membership?sync=1" : "membership";
+    const [m, bk, mem] = await Promise.all([api("member"), api("bookings").catch(() => ({ upcoming: [] })), api(back_).catch(() => null)]);
     user = m.user;
+    if (mem) memb = mem.mine;
     nav();
     const L = leagueOf(m.earned),
       got = m.medals.filter((x) => x.got).length;
@@ -1677,6 +1681,7 @@ const pages = {
       ${medalsBlock(m)}
       ${supplyBlock(L)}
       ${inviteBlock(m)}
+      ${memberBlock(mem)}
       ${
         cardOn()
           ? `<p class="section-label">Tu tarjeta</p>
@@ -1726,6 +1731,7 @@ const pages = {
       }
     };
     bindInvite();
+    bindMember(mem);
     bindAi();
     $("#rk-show").onchange = async (e) => {
       const box = e.currentTarget;
@@ -1894,7 +1900,7 @@ const pages = {
     if (!staff) return staffLogin();
     try {
       if (staff.caja) return await (args[0] === "agenda" ? staffAgenda : staffCobros)();
-      await ({ mas: staffMore, cobrar: staffCobros, caja: staffCaja, progreso: staffProgress, ganancias: staffEarnings, faltas: staffFaltas, formacion: staffTraining, productos: staffProducts, ajustes: staffTeam, web: staffWeb, servicios: staffServices, clientes: staffClients, ropa: staffRopa }[args[0]] || staffAgenda)();
+      await ({ mas: staffMore, cobrar: staffCobros, caja: staffCaja, progreso: staffProgress, ganancias: staffEarnings, socios: staffMembers, faltas: staffFaltas, formacion: staffTraining, productos: staffProducts, ajustes: staffTeam, web: staffWeb, servicios: staffServices, clientes: staffClients, ropa: staffRopa }[args[0]] || staffAgenda)();
     } catch (e) {
       if (e.status !== 401) throw e;
       staff = null;
@@ -1990,7 +1996,7 @@ async function calendar({ backTo, backLabel }) {
       [lv, lvLabel] = open ? level(n) : ["", ""];
     cells += `<button type="button" class="cal-cell${open ? " open" : ""}${isFull ? " full" : ""}${lv ? " lvl-" + lv : ""}${iso === selectedDate ? " selected" : ""}${iso === todayIso ? " today" : ""}" data-day="${iso}" ${open || isFull ? "" : "disabled"} aria-pressed="${iso === selectedDate}" aria-label="${esc(longDay(iso))}${open ? lvLabel : isFull ? L(", completo: puedes pedir aviso", ", fully booked: you can ask to be notified") : L(", sin horas", ", no times")}">${d}</button>`;
   }
-  const maxMonth = shiftMonth(monthKey(salonDate()), Math.ceil(catalog.rules.daysAhead / 30));
+  const maxMonth = shiftMonth(monthKey(salonDate()), Math.ceil(Math.max(catalog.rules.daysAhead, memb?.live ? memb.daysAhead : 0) / 30));
   show(
     back(backTo, backLabel) +
       heading(draft.moving ? "Elige la nueva hora" : "Día y hora") +
@@ -2360,6 +2366,105 @@ function inviteBlock(m) {
     }
   </section>`;
 }
+// ── Socio NOVA+ (membresía mensual de pago) ───────────────────────────────
+// Distinta del Club de puntos (gratis): aquí se paga una cuota al mes y a
+// cambio hay cortes incluidos, más días vista y un descuento. Sin Stripe va en
+// modo demo (alta y baja al momento, sin cobro).
+const socioReturn = new URLSearchParams(location.search).get("socio");
+const memDate = (d) => cap(fmtDay(d, { day: "numeric", month: "long" }));
+const planPerks = (pl) =>
+  [
+    pl.cuts ? L(`${pl.cuts} ${pl.cuts === 1 ? "corte incluido" : "cortes incluidos"} al mes (${pl.services.map((id) => esc(tx(svcById(id)?.name || id))).join(", ")})`, `${pl.cuts} ${pl.cuts === 1 ? "cut" : "cuts"} included per month (${pl.services.map((id) => esc(tx(svcById(id)?.name || id))).join(", ")})`) : "",
+    pl.daysAhead > catalog.rules.daysAhead ? L(`Reserva hasta ${pl.daysAhead} días vista (el resto, ${catalog.rules.daysAhead})`, `Book up to ${pl.daysAhead} days ahead (others: ${catalog.rules.daysAhead})`) : "",
+    pl.discountPct ? L(`${pl.discountPct} % de descuento en el resto de servicios y en la ropa`, `${pl.discountPct}% off other services and clothing`) : "",
+  ].filter(Boolean);
+// Aviso al reservar: la cita sale incluida si el socio tiene cortes (el servidor decide).
+function memberHint(s, date) {
+  if (!memb?.live || !memb.plan?.services?.includes(s.id)) return "";
+  if (memb.left > 0 && date < memb.renews) return `<p class="mem-hint">${L(`Incluida en tu membresía ${esc(memb.plan.name)}: no pagas nada en el local. Te quedan ${memb.left} ${memb.left === 1 ? "corte" : "cortes"} este mes.`, `Included in your ${esc(memb.plan.name)} membership: nothing to pay at the shop. ${memb.left} ${memb.left === 1 ? "cut" : "cuts"} left this month.`)}</p>`;
+  if (date >= memb.renews && !memb.cancelAtPeriodEnd) return `<p class="mem-hint">${L("Cae en tu próximo mes de membresía: saldrá incluida si se renueva.", "It falls in your next membership month: it will be included if it renews.")}</p>`;
+  return `<p class="mem-hint mem-hint-off">${L("Este mes ya has usado tus cortes incluidos: esta cita se paga en el local.", "You've used your included cuts this month: this one is paid at the shop.")}</p>`;
+}
+function memberBlock(mem) {
+  if (!mem?.plans?.length) return "";
+  const m = mem.mine;
+  const demo = mem.demo ? `<span class="mem-demo">${L("Modo demo · sin cobro real", "Demo mode · no real charge")}</span>` : "";
+  let body;
+  if (m?.live || m?.status === "past_due") {
+    body = `<div class="mem-top"><div><strong>${esc(m.plan.name)}</strong><span>${euro(m.plan.price)}${L("/mes", "/month")}</span></div>${m.demo ? demo : ""}</div>
+      ${m.status === "past_due" ? `<p class="warning">${L("No hemos podido cobrar tu cuota. Mientras tanto no tienes las ventajas: actualiza tu pago.", "We couldn't charge your fee. You don't have the perks until it's fixed: update your payment.")}</p>` : ""}
+      ${m.cuts ? `<div class="mem-cuts" aria-label="${L("Cortes", "Cuts")}">${Array.from({ length: Math.min(m.cuts, 12) }, (_, i) => `<i class="${i < m.used ? "used" : ""}"></i>`).join("")}</div><p class="mem-line"><b>${m.left}</b> ${L(`de ${m.cuts} ${m.cuts === 1 ? "corte disponible" : "cortes disponibles"} este mes`, `of ${m.cuts} ${m.cuts === 1 ? "cut" : "cuts"} left this month`)}</p>` : ""}
+      <ul class="mem-perks">${planPerks(m.plan).map((x) => `<li>${x}</li>`).join("")}</ul>
+      <p class="muted mem-line">${m.cancelAtPeriodEnd ? L(`Baja programada: tienes tus ventajas hasta el ${esc(memDate(m.renews))}.`, `Cancellation scheduled: you keep your perks until ${esc(memDate(m.renews))}.`) : L(`Próxima renovación: ${esc(memDate(m.renews))}.`, `Next renewal: ${esc(memDate(m.renews))}.`)}</p>
+      <div class="form-actions" style="margin-top:6px">
+        ${!m.demo ? `<button type="button" class="btn secondary" id="mem-portal">${L("Gestionar pago", "Manage payment")}</button>` : ""}
+        ${m.cancelAtPeriodEnd ? `<button type="button" class="btn secondary" id="mem-resume">${L("Mantener mi membresía", "Keep my membership")}</button>` : `<button type="button" class="btn danger" id="mem-cancel">${L("Darme de baja", "Cancel membership")}</button>`}
+      </div>`;
+  } else {
+    body =
+      (m?.status === "canceled" ? `<p class="muted" style="margin-top:0">${L("Tu membresía está de baja. Puedes volver cuando quieras.", "Your membership has ended. You can come back any time.")}</p>` : m?.status === "incomplete" ? `<p class="muted" style="margin-top:0">${L("Tu alta no llegó a completarse. Puedes intentarlo otra vez.", "Your sign-up wasn't completed. You can try again.")}</p>` : "") +
+      mem.plans
+        .map(
+          (pl) => `<div class="mem-plan"><div class="mem-top"><div><strong>${esc(pl.name)}</strong><span>${euro(pl.price)}${L("/mes", "/month")}</span></div>${demo}</div>
+          ${pl.desc ? `<p class="muted" style="margin:0 0 8px">${esc(pl.desc)}</p>` : ""}
+          <ul class="mem-perks">${planPerks(pl).map((x) => `<li>${x}</li>`).join("")}</ul>
+          <button type="button" class="btn wide" data-mem-join="${esc(pl.id)}">${L(`Hacerme socio · ${euro(pl.price)}/mes`, `Join · ${euro(pl.price)}/month`)}</button></div>`,
+        )
+        .join("");
+  }
+  return `<p class="section-label" id="socio">${esc(mem.name || "Socio NOVA+")}</p>
+    <div class="card mem-box">${socioReturn === "cancel" && !m?.live ? `<p class="muted" style="margin-top:0">${L("No se ha hecho ningún cobro.", "Nothing was charged.")}</p>` : ""}${body}
+      <p class="muted mem-fine">${L("Es aparte del Club de puntos, que sigue siendo gratis.", "This is separate from the points Club, which stays free.")}</p></div>`;
+}
+function bindMember(mem) {
+  if (!mem?.plans?.length) return;
+  if (socioReturn === "ok") {
+    toast(mem.mine?.live ? L("¡Ya eres socio NOVA+!", "You're a NOVA+ member!") : L("Estamos confirmando tu pago. Vuelve a abrir el perfil en un momento.", "We're confirming your payment. Reopen your profile in a moment."));
+    history.replaceState(null, "", "/#profile");
+  }
+  $$("[data-mem-join]").forEach(
+    (b) =>
+      (b.onclick = async () => {
+        b.disabled = true;
+        try {
+          const r = await api("membership/join", { plan: b.dataset.memJoin });
+          if (r.url) return void (location.href = r.url); // Stripe Checkout
+          await refreshMe();
+          toast(L("¡Ya eres socio NOVA+! (modo demo, sin cobro)", "You're a NOVA+ member! (demo mode, no charge)"));
+          render();
+        } catch (e) {
+          b.disabled = false;
+          toast(e.message);
+        }
+      }),
+  );
+  const act = (id, path, body, msg) => {
+    const el = $(id);
+    if (el)
+      el.onclick = async () => {
+        if (el.classList.contains("danger") && el.dataset.sure !== "1") {
+          el.dataset.sure = "1";
+          el.textContent = L("¿Seguro? Pulsa otra vez", "Sure? Tap again");
+          return;
+        }
+        el.disabled = true;
+        try {
+          const r = await api(path, body);
+          if (r.url) return void (location.href = r.url);
+          await refreshMe();
+          toast(msg);
+          render();
+        } catch (e) {
+          el.disabled = false;
+          toast(e.message);
+        }
+      };
+  };
+  act("#mem-cancel", "membership/cancel", {}, L("Baja hecha.", "Membership cancelled."));
+  act("#mem-resume", "membership/cancel", { resume: true }, L("Tu membresía sigue en marcha.", "Your membership continues."));
+  act("#mem-portal", "membership/portal", {}, "");
+}
+
 // ── Conectar mi asistente de IA ───────────────────────────────────────────
 // El cliente genera un token para que su asistente (Claude, ChatGPT, Grok…)
 // reserve por él en /api/mcp. El token se enseña una sola vez; luego solo se
