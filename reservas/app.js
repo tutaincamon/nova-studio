@@ -953,7 +953,7 @@ const LEGAL = {
     <h3>3 · Reservas</h3>
     <ul>
       <li>Eliges servicio, barbero (o «Sin preferencia»), día y hora entre los huecos libres. La cita queda confirmada al terminar, la ves en «Mis citas» y te llega un correo.</li>
-      <li>Se puede reservar con al menos ${esc(R.leadMinutes ?? 60)} minutos de antelación y hasta ${esc(R.daysAhead ?? 60)} días vista, con un máximo de ${esc(R.maxActive ?? 3)} citas pendientes a la vez.</li>
+      <li>Se puede reservar con al menos ${esc(R.leadMinutes ?? 15)} minutos de antelación y hasta ${esc(R.daysAhead ?? 60)} días vista, con un máximo de ${esc(R.maxActive ?? 3)} citas pendientes a la vez.</li>
       ${R.recurring ? `<li>Si eliges repetir la cita cada cierto tiempo, cada una de las citas cuenta como una reserva independiente, con las mismas normas de cambio y cancelación.</li>` : ""}
       <li>Si un día está completo puedes apuntarte a la lista de espera. Te avisamos si se libera un hueco, pero eso no lo reserva: se lo queda quien lo coja antes.</li>
       <li>Pulsar «Reservar» supone aceptar estas condiciones y la <a href="#privacidad">política de privacidad</a>.</li>
@@ -1165,7 +1165,7 @@ const LEGAL_EN = {
     <h3>3 · Bookings</h3>
     <ul>
       <li>You choose a service, a barber (or “No preference”), a day and a time from the free slots. The booking is confirmed when you finish: you'll see it in “My bookings” and get an email.</li>
-      <li>You can book at least ${esc(R.leadMinutes ?? 60)} minutes ahead and up to ${esc(R.daysAhead ?? 60)} days in advance, with at most ${esc(R.maxActive ?? 3)} upcoming bookings at a time.</li>
+      <li>You can book at least ${esc(R.leadMinutes ?? 15)} minutes ahead and up to ${esc(R.daysAhead ?? 60)} days in advance, with at most ${esc(R.maxActive ?? 3)} upcoming bookings at a time.</li>
       ${R.recurring ? `<li>If you choose to repeat a booking regularly, each booking counts separately and follows the same change and cancellation rules.</li>` : ""}
       <li>If a day is full you can join the waitlist. We'll tell you if a slot opens up, but that doesn't reserve it: it goes to whoever books it first.</li>
       <li>Tapping “Book” means you accept these terms and the <a href="#privacidad">privacy policy</a>.</li>

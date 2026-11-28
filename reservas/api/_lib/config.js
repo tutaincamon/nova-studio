@@ -53,7 +53,7 @@ export const BUSINESS = {
 // Reglas de la agenda.
 export const RULES = {
   step: 30, // cada cuántos minutos empieza una hora libre para el cliente (10:00, 10:30, 11:00…)
-  leadMinutes: 60, // antelación mínima para reservar
+  leadMinutes: 15, // antelación mínima para reservar
   daysAhead: 60, // hasta cuántos días vista se puede reservar
   cancelHours: 24, // hasta cuántas horas antes se cambia o cancela desde la app
   maxActive: 3, // citas futuras a la vez por cliente

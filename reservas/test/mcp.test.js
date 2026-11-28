@@ -1,10 +1,10 @@
 // Servidor MCP (/api/mcp) y tokens de asistente de IA, con la base en memoria.
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { after, before, describe, test } from "node:test";
+import { after, before, describe, mock, test } from "node:test";
 import handler from "../api/handler.js";
 import { cmd, dumpKeys, getJSON, scanKeys, setJSON } from "../api/_lib/store.js";
-import { SERVICES } from "../api/_lib/config.js";
+import { RULES, SERVICES } from "../api/_lib/config.js";
 import * as T from "../api/_lib/time.js";
 
 function http(method, route, { body, raw, ip = "198.51.100.10", headers = {} } = {}) {
@@ -119,6 +119,27 @@ describe("servidor MCP", { concurrency: 1 }, () => {
     for (const p of b.result.structuredContent.barbers) {
       for (const k of ["email", "pinHash", "commission", "hours"]) assert.equal(k in p, false);
     }
+  });
+
+  test("antelación mínima de 15 min: el mismo día no salen huecos que empiecen antes", async () => {
+    assert.equal(RULES.leadMinutes, 15);
+    const date = "2026-12-02"; // miércoles; el salón abre de 10 a 20 (hora de Canarias, UTC+0 en invierno)
+    const slotsAt = async (hhmm) => {
+      mock.timers.enable({ apis: ["Date"], now: new Date(`${date}T${hhmm}:00Z`) });
+      try {
+        const r = await tool("get_availability", { service_id: "corte", date, barber_id: "airam" });
+        assert.equal(r.result.isError, false, r.text);
+        return r.result.structuredContent.days[0].slots.map((x) => x.time);
+      } finally {
+        mock.timers.reset();
+      }
+    };
+    const a = await slotsAt("12:15"); // 12:30 empieza justo a 15 min: sale
+    assert.equal(a.includes("12:30"), true);
+    assert.equal(a.includes("12:00"), false);
+    const b = await slotsAt("12:16"); // 12:30 empieza a 14 min: no sale
+    assert.equal(b.includes("12:30"), false);
+    assert.equal(b.includes("13:00"), true);
   });
 
   test("get_availability devuelve huecos de varios días y valida los argumentos", async () => {
