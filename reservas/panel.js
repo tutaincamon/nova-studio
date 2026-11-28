@@ -1685,7 +1685,7 @@ function staffSheet(b) {
 const ESTADO_ROPA = { disponible: ["A la venta", "st-ok"], agotado: ["Agotada", "st-cancel"], proximamente: ["Próximamente", "st-wait"], oculto: ["Oculta", ""] };
 
 // La foto subida desde la app manda; si no hay, la de la web de la tienda.
-const ropaFoto = (r, p) => (p.img ? `/api/supply/${encodeURIComponent(p.id)}/photo?v=${encodeURIComponent(p.img)}` : p.foto ? `${r.tienda.replace(/\/$/, "")}/${encodeURIComponent(p.foto)}` : "");
+const ropaFoto = (r, p) => (p.img || p.foto ? `/api/supply/${encodeURIComponent(p.id)}/photo?v=${encodeURIComponent(p.img || p.foto)}` : "");
 
 // ── Pedidos de NOVA Supply hechos en la app ────────────────────────────────
 const PED_ESTADO = { pendiente: ["Pendiente de pago", "st-wait"], pagado: ["Pagado", "st-ok"], listo: ["Listo para recoger", "st-ok"], entregado: ["Entregado", ""], cancelado: ["Cancelado", "st-cancel"] };

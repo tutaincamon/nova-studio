@@ -77,7 +77,7 @@ export function publicItem(p, discountPct = 0, ctx = {}) {
     precioSocio: x.socio,
     precioFinal: x.unit,
     aplicado: x.aplicado,
-    img: p.img || "",
+    img: p.img || Sup.fotoSegura(p.foto),
     tallas: p.tallas.map((t) => ({ talla: t.talla, max: t.libres === null ? MAX_QTY : Math.min(MAX_QTY, t.libres) })),
   };
 }

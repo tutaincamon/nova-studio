@@ -199,6 +199,10 @@ La app **no tiene precios ni promos propios**: usa los de la web NOVA Supply.
 
 ---
 
+### Fotos de la tienda (catálogo)
+
+Las prendas del catálogo compartido guardan en `foto` el nombre de archivo de la web (`rosa-delante.jpg`). `GET /api/supply/:id/photo` sirve primero la foto subida desde el panel y, si no hay, la de catálogo desde `reservas/assets/supply/` (o, si falta el archivo, desde `https://www.novasupply.es/<nombre>`), siempre en el mismo origen para cumplir la CSP. Solo se aceptan nombres seguros (`[A-Za-z0-9._-]` con extensión de imagen). Sin variables de entorno nuevas.
+
 ## Probar
 
 ```bash
