@@ -8,7 +8,7 @@ export const mailReady = () => !!process.env.RESEND_API_KEY;
 const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
-function shell(title, body) {
+export function shell(title, body) {
   return `<!doctype html><html><body style="margin:0;background:#f5f4f0;font-family:Arial,Helvetica,sans-serif;color:#171717">
 <div style="max-width:520px;margin:0 auto;padding:28px 20px">
 <p style="font-size:11px;letter-spacing:2px;font-weight:700;color:#64645e;margin:0 0 6px">${esc(BUSINESS.name.toUpperCase())}</p>
@@ -18,9 +18,10 @@ function shell(title, body) {
 </div></body></html>`;
 }
 
-export async function send(to, subject, title, bodyHtml, replyTo, attachments) {
-  if (!mailReady()) return false;
-  if (/\.invalid$/i.test(String(to || "").trim())) return false; // clientes de prueba: nunca se les escribe
+// Igual que send, pero dice por qué falló (mensaje de Resend, sin secretos ni cabeceras).
+export async function sendDetailed(to, subject, title, bodyHtml, replyTo, attachments) {
+  if (!mailReady()) return { ok: false, error: "El correo no está activado (falta RESEND_API_KEY)." };
+  if (/\.invalid$/i.test(String(to || "").trim())) return { ok: false, error: "Las direcciones .invalid no reciben correo." }; // clientes de prueba: nunca se les escribe
   try {
     const r = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -34,13 +35,21 @@ export async function send(to, subject, title, bodyHtml, replyTo, attachments) {
         ...(attachments?.length ? { attachments } : {}),
       }),
     });
-    if (!r.ok) console.error("Resend", r.status, await r.text());
-    return r.ok;
+    if (r.ok) return { ok: true };
+    const text = await r.text();
+    console.error("Resend", r.status, text);
+    let msg = "";
+    try {
+      msg = JSON.parse(text)?.message || "";
+    } catch {}
+    return { ok: false, error: `Resend (${r.status}): ${String(msg || "error sin detalle").slice(0, 200)}` };
   } catch (e) {
     console.error("Resend", e);
-    return false;
+    return { ok: false, error: "No se pudo conectar con Resend." };
   }
 }
+
+export const send = async (...args) => (await sendDetailed(...args)).ok;
 
 export const codeMail = (to, code) =>
   send(

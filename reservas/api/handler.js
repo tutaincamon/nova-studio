@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { cmd, pipe, getJSON, setJSON, hgetall, usingMemory, scanKeys, dumpKeys, claim, hit } from "./_lib/store.js";
 import { SERVICES, PROVIDERS, RULES, BUSINESS, POINTS, MEDALS, REWARDS, COMMISSION, TRAINING, EXTRAS, PAY_METHODS, SHOP, MEMBERSHIP, publicCatalog } from "./_lib/config.js";
 import * as T from "./_lib/time.js";
-import { codeMail, send, bookingLines, mailReady } from "./_lib/mail.js";
+import { codeMail, send, sendDetailed, shell, bookingLines, mailReady } from "./_lib/mail.js";
 import * as Card from "./_lib/stripe.js";
 import * as Sup from "./_lib/supply.js";
 import * as Shop from "./_lib/shop.js";
@@ -1833,6 +1833,7 @@ async function unsubFoot(email, host) {
   return `<p style="margin:12px 0 0;color:#64645e;font-size:12px">¿No quieres más correos así? ${host ? `<a href="https://${host}/api/unsub/${encodeURIComponent(email)}/${t}">Darte de baja</a>` : "Respóndenos y te quitamos."}</p>`;
 }
 // ¿Se manda de verdad? En MODO_DEMO o sin RESEND_API_KEY no: el aviso se registra como «simulado».
+const TEST_MAX = 10; // pruebas de «Enviarme una prueba» por hora
 const simMail = () => !mailReady() || process.env.MODO_DEMO === "1";
 // Registro de avisos (dormidos y reseñas) para el panel del dueño.
 async function logNotice(e) {
@@ -1840,6 +1841,30 @@ async function logNotice(e) {
   const entry = { id: newId(), at: now.stamp, ...e };
   await setJSON("avisos:log", R.pushLog(await getJSON("avisos:log"), entry));
   return entry;
+}
+// Plantilla del aviso a un cliente dormido: la usan el envío real y «Enviarme una prueba».
+function winbackContent(c, host, foot, test = false) {
+  const base = host ? `https://${host}` : "";
+  const off = NORMS.winbackOffer ? `<p style="margin:0 0 12px;padding:12px;border:1px solid #dcdad3;background:#f5f4f0"><b>${htmlEsc(NORMS.winbackOffer)}</b></p>` : "";
+  const link = R.bookLink(host, c.habit, { service: (id) => !!service(id) && service(id).active !== false, provider: (id) => !!provider(id) && provider(id).active !== false });
+  return {
+    subject: `${test ? "[Prueba] " : ""}Publi · ${c.name ? c.name.split(" ")[0] + ", t" : "T"}e echamos de menos en ${BUSINESS.short}`,
+    title: "Te echamos de menos",
+    html: `<p style="margin:0 0 12px">${c.name ? "Hola " + htmlEsc(c.name.split(" ")[0]) + ": " : ""}${htmlEsc(NORMS.winbackText)}</p>${off}
+       ${base ? `<p style="margin:0 0 12px"><a href="${htmlEsc(link)}" style="display:inline-block;background:#171717;color:#fff;padding:12px 18px;text-decoration:none">Reservar cita</a></p>` : ""}` + foot,
+  };
+}
+// Plantilla de la petición de reseña (`href` = a dónde lleva el botón).
+function reviewContent(b, href, foot, test = false) {
+  const first = b.name ? String(b.name).split(" ")[0] : "";
+  return {
+    subject: `${test ? "[Prueba] " : ""}¿Qué tal tu ${b.service.name.toLowerCase()}?`,
+    title: `Gracias por venir${first ? ", " + first : ""}`,
+    html: `<p style="margin:0 0 12px">Esperamos que ${htmlEsc(b.provider.name.split(" ")[0])} te haya dejado como querías.</p>
+       <p style="margin:0 0 14px">Si te ha gustado, nos ayudas muchísimo contándolo. Es un minuto:</p>
+       <p style="margin:0 0 12px"><a href="${htmlEsc(href)}" style="display:inline-block;background:#171717;color:#fff;padding:12px 18px;text-decoration:none">Dejar mi reseña</a></p>
+       <p style="margin:0;color:#64645e;font-size:13px">Y si algo no fue bien, responde a este correo: lo lee el equipo.</p>` + foot,
+  };
 }
 // Aviso a un cliente dormido, con enlace de reserva directa (su barbero y servicio de siempre).
 // Devuelve "enviado" | "simulado" | "fallido". Anota el aviso en `winback:` (que es lo que
@@ -1849,18 +1874,8 @@ async function winbackMail(c, host, by = "auto") {
   const sim = simMail();
   let status = "simulado";
   if (!sim) {
-    const t = await unsubToken(c.email);
-    const base = host ? `https://${host}` : "";
-    const off = NORMS.winbackOffer ? `<p style="margin:0 0 12px;padding:12px;border:1px solid #dcdad3;background:#f5f4f0"><b>${htmlEsc(NORMS.winbackOffer)}</b></p>` : "";
-    const link = R.bookLink(host, c.habit, { service: (id) => !!service(id) && service(id).active !== false, provider: (id) => !!provider(id) && provider(id).active !== false });
-    const ok = await send(
-      c.email,
-      `Publi · ${c.name ? c.name.split(" ")[0] + ", t" : "T"}e echamos de menos en ${BUSINESS.short}`,
-      "Te echamos de menos",
-      `<p style="margin:0 0 12px">${c.name ? "Hola " + htmlEsc(c.name.split(" ")[0]) + ": " : ""}${htmlEsc(NORMS.winbackText)}</p>${off}
-       ${base ? `<p style="margin:0 0 12px"><a href="${htmlEsc(link)}" style="display:inline-block;background:#171717;color:#fff;padding:12px 18px;text-decoration:none">Reservar cita</a></p>` : ""}
-       <p style="margin:12px 0 0;color:#64645e;font-size:12px">¿No quieres más correos así? ${base ? `<a href="${base}/api/unsub/${encodeURIComponent(c.email)}/${t}">Darte de baja</a>` : "Respóndenos y te quitamos."}</p>`,
-    );
+    const m = winbackContent(c, host, await unsubFoot(c.email, host));
+    const ok = await send(c.email, m.subject, m.title, m.html);
     status = ok ? "enviado" : "fallido";
   }
   await logNotice({ type: "dormido", email: c.email, name: c.name || "", status, by });
@@ -1891,18 +1906,9 @@ async function reviewRequest(b, host, { by = "auto", force = false } = {}) {
   await cmd("SET", "revmail:" + b.email, JSON.stringify({ at: T.nowLocal().stamp, booking: b.id }), "EX", Math.max(NORMS.reviewGapDays, 1) * 86400);
   let status = "simulado";
   if (!sim) {
-    const first = b.name ? String(b.name).split(" ")[0] : "";
     const href = `https://${host}/api/resena/${encodeURIComponent(b.email)}/${await reviewToken(b.email)}`;
-    const ok = await send(
-      b.email,
-      `¿Qué tal tu ${b.service.name.toLowerCase()}?`,
-      `Gracias por venir${first ? ", " + first : ""}`,
-      `<p style="margin:0 0 12px">Esperamos que ${htmlEsc(b.provider.name.split(" ")[0])} te haya dejado como querías.</p>
-       <p style="margin:0 0 14px">Si te ha gustado, nos ayudas muchísimo contándolo. Es un minuto:</p>
-       <p style="margin:0 0 12px"><a href="${htmlEsc(href)}" style="display:inline-block;background:#171717;color:#fff;padding:12px 18px;text-decoration:none">Dejar mi reseña</a></p>
-       <p style="margin:0;color:#64645e;font-size:13px">Y si algo no fue bien, responde a este correo: lo lee el equipo.</p>` + (await unsubFoot(b.email, host)),
-      await ownerMail(),
-    );
+    const m = reviewContent(b, href, await unsubFoot(b.email, host));
+    const ok = await send(b.email, m.subject, m.title, m.html, await ownerMail());
     status = ok ? "enviado" : "fallido";
   }
   await logNotice({ type: "resena", email: b.email, name: b.name || "", status, by, bookingId: b.id, service: b.service.name, date: b.date });
@@ -4086,16 +4092,24 @@ const routes = {
     for (const person of people) {
       if (person.owner) continue;
       const h = hist[person.id];
-      let commission = 0;
+      let commission = 0,
+        includedCuts = 0,
+        includedCommission = 0;
       for (const r of person.rows) {
         r.pct = rateAt(person.id, h, r.date);
-        r.commission = cents((r.price * r.pct) / 100);
+        r.commission = cents((r.base * r.pct) / 100);
         commission += r.commission;
+        if (r.included) {
+          includedCuts++;
+          includedCommission += r.commission;
+        }
       }
       Object.assign(person, {
         pct: rateAt(person.id, h, to),
         commission: cents(commission),
-        expectedCommission: cents(person.upcomingRows.reduce((a, r) => a + (r.price * rateAt(person.id, h, r.date)) / 100, 0)),
+        includedCuts,
+        includedCommission: cents(includedCommission),
+        expectedCommission: cents(person.upcomingRows.reduce((a, r) => a + (r.base * rateAt(person.id, h, r.date)) / 100, 0)),
         paid: (month && paid[workers.findIndex((w) => w.id === person.id)]) || "",
       });
     }
@@ -4112,6 +4126,8 @@ const routes = {
         salon: cents(people.reduce((a, p) => a + p.billed, 0)),
         own: cents(own),
         commissions,
+        includedCuts: people.reduce((a, p) => a + (p.includedCuts || 0), 0),
+        includedCommission: cents(people.reduce((a, p) => a + (p.includedCommission || 0), 0)),
         pendingCommissions: month ? cents(people.filter((p) => !p.owner && !p.paid).reduce((a, p) => a + p.commission, 0)) : 0,
         income: cents(own + commissions),
       },
@@ -4166,7 +4182,7 @@ const routes = {
       const addComm = (a, m) => {
         if (!boss) return;
         let comm = 0;
-        for (const [pid, x] of Object.entries(a.people)) if (pid !== boss.id && hist[pid]) comm += (x.billed * rateAt(pid, hist[pid], m + "-01")) / 100;
+        for (const [pid, x] of Object.entries(a.people)) if (pid !== boss.id && hist[pid]) comm += ((x.billed + (x.inclBase || 0)) * rateAt(pid, hist[pid], m + "-01")) / 100;
         const o = (a.people[boss.id] ||= { billed: 0, services: 0, clients: 0, booked: 0, cap: 0, heat: {} });
         o.comm = cents(comm);
       };
@@ -4216,8 +4232,10 @@ const routes = {
       inherited: ex.inherited,
       inheritedFrom: ex.from,
       fixedLabels: E.FIXED,
-      workers: workers.list.map((w) => ({ ...w, defaultPct: workers.pct(w.id), billed: a.forNet.byBarber[w.id] || 0 })),
+      workers: workers.list.map((w) => ({ ...w, defaultPct: workers.pct(w.id), billed: a.forNet.byBarber[w.id] || 0, inclBase: a.forNet.inclBase[w.id] || 0 })),
       net: netA,
+      // Cortes incluidos en la membresía: ingreso 0 € (va en la cuota), pero el barbero cobra comisión por su precio normal.
+      included: { cuts: a.inclCuts, base: cents(Object.values(a.forNet.inclBase).reduce((x, y) => x + y, 0)), commission: netA.includedCommission },
     };
   },
 
@@ -4521,7 +4539,7 @@ const routes = {
     const reviews = [];
     const seen = new Set();
     for (const e of entries) {
-      if (e.type !== "resena" || seen.has(e.bookingId)) continue;
+      if (e.type !== "resena" || e.test || seen.has(e.bookingId)) continue;
       seen.add(e.bookingId);
       reviews.push(e);
       if (reviews.length >= 20) break;
@@ -4534,6 +4552,52 @@ const routes = {
       log: entries.slice(0, 100),
       mail: mailReady(),
       sim: simMail(),
+      testEmail: await ownerMail(),
+      testLimit: TEST_MAX,
+    };
+  },
+  // «Enviarme una prueba»: los mismos correos con datos de ejemplo, solo al correo escrito.
+  // No toca a ningún cliente ni la deduplicación (winback:, revreq:, revmail:); queda en el historial como prueba.
+  "POST staff/avisos/prueba": async ({ req, body }) => {
+    const me = await needStaff(req);
+    if (!me.owner) fail(403, "Los avisos los lleva el dueño.");
+    const email = normEmail(body.email);
+    if (!EMAIL.test(email) || email.length > 120) fail(400, "Escribe un correo válido para la prueba.");
+    const kind = String(body.kind || "ambos");
+    if (!["dormido", "resena", "ambos"].includes(kind)) fail(400, "Elige qué quieres probar.");
+    const host = hostOf(req);
+    const link = (await reviewLink()).url;
+    if (kind !== "dormido" && !link) fail(400, "Falta el enlace de reseñas: ponlo en «Avisos y reseñas» o define GOOGLE_REVIEW_URL.");
+    await limit("avisotest:" + me.id, TEST_MAX, 3600, `Has mandado ${TEST_MAX} pruebas en la última hora. Espera un rato.`);
+    // Servicio y barbero reales del catálogo (los primeros activos).
+    const svc = SVCS.find((x) => x.active !== false) || SVCS[0];
+    const pro = TEAM.find((x) => x.active !== false && !x.owner) || TEAM.find((x) => x.active !== false) || TEAM[0];
+    const name = "Carlos (ejemplo)";
+    const now = T.nowLocal();
+    const foot = `<p style="margin:12px 0 0;color:#64645e;font-size:12px">¿No quieres más correos así? <u>Darte de baja</u> <i>(en los envíos reales, aquí va el enlace de baja)</i></p>`;
+    const sim = simMail();
+    const out = [];
+    for (const k of kind === "ambos" ? ["dormido", "resena"] : [kind]) {
+      const m =
+        k === "dormido"
+          ? winbackContent({ email, name, habit: { service: svc.id, provider: pro.id } }, host, foot, true)
+          : reviewContent({ name, service: { name: svc.name }, provider: { name: pro.name } }, link, foot, true);
+      let status = "simulado",
+        error = "";
+      if (!sim) {
+        const r = await sendDetailed(email, m.subject, m.title, m.html, k === "resena" ? await ownerMail() : undefined);
+        status = r.ok ? "enviado" : "fallido";
+        error = r.error || "";
+      }
+      await logNotice({ type: k, email, name, status, by: me.id, test: true });
+      out.push({ kind: k, status, error, subject: m.subject, title: m.title, html: shell(m.title, m.html), link: k === "dormido" ? R.bookLink(host, { service: svc.id, provider: pro.id }) : link });
+    }
+    return {
+      ok: out.every((x) => x.status !== "fallido"),
+      sim,
+      mail: mailReady(),
+      example: { name, lastVisit: T.addDays(now.date, -49), weeks: 7, service: svc.name, provider: pro.name },
+      sent: out,
     };
   },
   // Reenviar la petición de reseña de una cita (aunque ya se pidiera).
@@ -4921,6 +4985,10 @@ const cents = (n) => Math.round(n * 100) / 100;
 // Lo que vale una cita para la caja y las ganancias: una incluida en la membresía no suma
 // (su dinero ya entró con la cuota mensual, que sale como línea propia).
 const svcPrice = (b) => (b.membership?.included ? 0 : Number(b.service.price) || 0);
+// Base de la comisión del barbero: el precio NORMAL del servicio, aunque el socio pague 0 € (corte incluido en la membresía).
+const commBase = (b) => (b.membership?.included ? Number(b.service.price) || 0 : svcPrice(b));
+// Lo mismo para un cobro de caja de una cita incluida: lo que valían sus servicios (guardado en `normal`; si falta, el precio del catálogo).
+const payNormal = (x) => cents(x.normal ?? x.items.reduce((a, it) => a + (Number(service(it.id)?.price ?? EXTRAS.find((e) => e.id === it.id)?.price) || 0), 0));
 
 async function monthBookings(month) {
   const [y, m] = month.split("-").map(Number);
@@ -4960,7 +5028,7 @@ function progressOf({ list, pays }, from, to) {
   const inside = (stamp) => stamp >= from && stamp < to;
   const cobradas = new Set(pays.map((x) => x.booking).filter(Boolean));
   const people = {};
-  const P = (id) => (people[id] ||= { billed: 0, services: 0, clients: 0, booked: 0, cap: 0, heat: {}, _who: new Set(), _days: {} });
+  const P = (id) => (people[id] ||= { billed: 0, inclCuts: 0, inclBase: 0, services: 0, clients: 0, booked: 0, cap: 0, heat: {}, _who: new Set(), _days: {} });
   const day = (id, date) => (P(id)._days[date] ||= { busy: new Set(), off: new Set() });
   const mark = (set, a, b) => {
     for (let t = Math.floor(a / LOCK_MIN) * LOCK_MIN; t < b; t += LOCK_MIN) set.add(t);
@@ -4975,6 +5043,10 @@ function progressOf({ list, pays }, from, to) {
     if (!inside(b.date + " " + b.start) || cobradas.has(b.id)) continue;
     const p = P(b.provider.id);
     p.billed += svcPrice(b);
+    if (b.membership?.included) {
+      p.inclCuts++;
+      p.inclBase += commBase(b);
+    }
     p.services++;
     p._who.add(who(b));
   }
@@ -4987,6 +5059,10 @@ function progressOf({ list, pays }, from, to) {
     if (!inside(x.date + " " + x.time)) continue;
     const p = P(x.provider.id);
     p.billed += x.amount;
+    if (x.included) {
+      p.inclCuts++;
+      p.inclBase += payNormal(x);
+    }
     p.services++;
     p._who.add(who(x));
   }
@@ -5015,6 +5091,7 @@ function progressOf({ list, pays }, from, to) {
   }
   for (const [id, p] of Object.entries(people)) {
     p.billed = cents(p.billed);
+    p.inclBase = cents(p.inclBase);
     p.clients = p._who.size;
     delete p._who;
     delete p._days;
@@ -5045,11 +5122,12 @@ function readPay(body, included = false) {
     if (e) items.push({ id: e.id, name: e.name, price: e.price, extra: true });
   }
   if (!items.length) fail(400, "Elige el servicio que se ha hecho.");
+  const normal = cents(items.reduce((a, it) => a + it.price, 0));
   if (included) items.forEach((it) => (it.price = 0));
   const amount = included ? 0 : Math.round(Number(String(body.amount ?? "").replace(",", ".")) * 100) / 100;
   if (!included && !(amount > 0 && amount <= 1000)) fail(400, "Pon el importe cobrado, en euros.");
   if (!included && !PAY_METHODS.some((m) => m.id === body.method)) fail(400, "Elige cómo ha pagado.");
-  return { provider: { id: p.id, name: p.name }, items, amount, method: included ? "membresia" : body.method, ...(included ? { included: true } : {}), name: clean(body.name, 60) || "Cliente sin cita", booking: clean(body.booking, 20) };
+  return { provider: { id: p.id, name: p.name }, items, amount, method: included ? "membresia" : body.method, ...(included ? { included: true, normal } : {}), name: clean(body.name, 60) || "Cliente sin cita", booking: clean(body.booking, 20) };
 }
 // Engancha el cobro a su cita: así la agenda la enseña como cobrada y el Club
 // da los puntos por lo que se pagó de verdad.
@@ -5096,8 +5174,8 @@ function statsOf(list, now, pays = []) {
   const live = list.filter((b) => b.status === "confirmed");
   const done = live.filter((b) => isPast(b, now) && b.attendance !== "absent");
   const upcoming = live.filter((b) => !isPast(b, now));
-  const row = (b) => ({ id: b.id, date: b.date, start: b.start, name: b.name, service: b.service.name, price: svcPrice(b), marked: b.attendance === "done", unpaid: true });
-  const payRow = (x) => ({ id: x.id, date: x.date, start: x.time, name: x.name, service: payLabel(x), price: x.amount, method: x.method, pay: true });
+  const row = (b) => ({ id: b.id, date: b.date, start: b.start, name: b.name, service: b.service.name, price: svcPrice(b), base: commBase(b), ...(b.membership?.included ? { included: true } : {}), marked: b.attendance === "done", unpaid: true });
+  const payRow = (x) => ({ id: x.id, date: x.date, start: x.time, name: x.name, service: payLabel(x), price: x.amount, base: x.included ? payNormal(x) : x.amount, ...(x.included ? { included: true } : {}), method: x.method, pay: true });
   const byService = {};
   const add = (name, n, total) => {
     const x = (byService[name] ||= { name, count: 0, total: 0 });
@@ -5206,7 +5284,8 @@ async function monthEarnings(month, now, withClients) {
   const income = { services: billed, other, otherTotal, total: cents(billed + otherTotal) };
   const view = { income, services, ticket: services ? cents(billed / services) : 0, occupancy: cap ? pct1(booked / cap) : null, bookedMin: booked, capMin: cap, byBarber: rows.sort((x, y) => y.billed - x.billed) };
   if (withClients) view.clients = await newVsReturning(data, start, end);
-  return { view, people, forNet: { total: income.total, byBarber: Object.fromEntries(rows.map((x) => [x.id, x.billed])) } };
+  const inclBase = Object.fromEntries(Object.entries(people).filter(([, x]) => x.inclBase).map(([id, x]) => [id, x.inclBase]));
+  return { view, people, forNet: { total: income.total, byBarber: Object.fromEntries(rows.map((x) => [x.id, x.billed])), inclBase }, inclCuts: Object.values(people).reduce((a, x) => a + x.inclCuts, 0) };
 }
 
 // Clientes del mes: nuevos (sin ningún servicio hecho antes del mes) y recurrentes.

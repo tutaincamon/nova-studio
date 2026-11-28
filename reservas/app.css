@@ -2185,3 +2185,5 @@ main:has(.ag-wide) { max-width: 1180px; }
 .od-tab.on { background: var(--ink); color: #fff; border-color: var(--ink); }
 .od-alert { margin: 8px 0 0; padding: 8px 10px; background: #fdecea; color: #8a1f17; font-size: 13px; }
 .rp-photo { margin: 6px 0; }
+.mail-preview { margin: 12px 0 0; border: 1px solid var(--line, #dcdad3); max-height: 460px; overflow: auto; }
+.mail-preview a { pointer-events: auto; }
