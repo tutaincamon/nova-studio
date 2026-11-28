@@ -3233,8 +3233,11 @@ async function loadShop(force) {
 }
 const supImg = (p, cls = "") => (p.img ? `<img class="${cls}" src="/api/supply/${esc(p.id)}/photo?v=${esc(p.img)}" alt="${esc(p.nombre)}" loading="lazy">` : `<span class="${cls} pr-noimg" aria-hidden="true">${svg(ICONS.shirt)}</span>`);
 const supName = (p) => p.nombre + (p.variante ? " · " + p.variante : "");
-const supUnit = (p) => (p.precioSocio != null ? p.precioSocio : p.precio);
-const supPrice = (p) => (p.precioSocio != null ? `<s>${euro(p.precio)}</s> <b>${euro(p.precioSocio)}</b>` : `<b>${euro(p.precio)}</b>`);
+// Precio final que calcula el servidor: promo de novasupply.es o descuento de socio (el mejor, no se suman).
+const supUnit = (p) => (p.precioFinal != null ? p.precioFinal : p.precio);
+const supPrice = (p) => (supUnit(p) < p.precio ? `<s>${euro(p.precio)}</s> <b>${euro(supUnit(p))}</b>` : `<b>${euro(p.precio)}</b>`);
+// «Black Friday · Del 23 al 30 de noviembre» (solo si esa prenda tiene la promo aplicada).
+const supPromo = (p, shop) => (p.aplicado === "promo" && shop?.oferta ? `<span class="sup-promo">${esc(shop.oferta.nombre)} · ${esc(shop.oferta.fechas)}</span>` : "");
 const cartTotal = (shop) => Math.round(cart.reduce((a, l) => a + supUnit(shop.prendas.find((p) => p.id === l.prenda) || { precio: 0 }) * l.cantidad, 0) * 100) / 100;
 const ORDER_STATE = {
   pendiente: ["Pendiente de pago", "Awaiting payment", "st-wait"],
@@ -3264,7 +3267,8 @@ function supplyCartBox(shop) {
       })
       .join("")}
     <div class="sup-total"><span>Total</span><strong>${euro(total)}</strong></div>
-    ${shop.discountPct ? `<p class="mem-hint">${L(`Incluye tu ${shop.discountPct} % de descuento de socio NOVA+.`, `Includes your ${shop.discountPct}% NOVA+ member discount.`)}</p>` : ""}
+    ${cart.some((l) => shop.prendas.find((p) => p.id === l.prenda)?.aplicado === "socio") ? `<p class="mem-hint">${L(`Incluye tu ${shop.discountPct} % de descuento de socio NOVA+.`, `Includes your ${shop.discountPct}% NOVA+ member discount.`)}</p>` : ""}
+    ${cart.some((l) => shop.prendas.find((p) => p.id === l.prenda)?.aplicado === "promo") ? `<p class="mem-hint">${L(`Incluye la promo ${esc(shop.oferta.nombre)} (${esc(shop.oferta.fechas)}). No se suma al descuento de socio: se aplica el mejor.`, `Includes the ${esc(shop.oferta.nombre)} offer (${esc(shop.oferta.fechas)}). It doesn't stack with the member discount: the better one applies.`)}</p>` : ""}
     <div class="sup-pay">${pays.map(([v, t, d], i) => `<label class="sup-pay-opt"><input type="radio" name="sup-pay" value="${v}" ${i === 0 ? "checked" : ""}><span><b>${t}</b><small>${d}</small></span></label>`).join("")}</div>
     <p class="muted" style="font-size:12px">${L(`Sumas ${nf(Math.round(total * catalog.points.perEuro))} puntos del Club cuando se cobre. Entrega: recoger en el local.`, `You earn ${nf(Math.round(total * catalog.points.perEuro))} Club points once it's paid. Delivery: pick up at the studio.`)}</p>
     <button type="button" class="btn wide" id="sup-go">${L("Hacer el pedido", "Place order")}</button></div>`;
@@ -3273,7 +3277,7 @@ function supplyCartBox(shop) {
 function supplySheet(shop, p, redraw) {
   const open = p.tallas.filter((t) => t.max > 0);
   const sh = sheet(`<div class="pr-sheet"><span class="pr-big">${supImg(p)}</span>
-    <h2>${esc(supName(p))}</h2><p class="pr-price">${supPrice(p)}</p>
+    <h2>${esc(supName(p))}</h2><p class="pr-price">${supPrice(p)}</p>${supPromo(p, shop) ? `<p class="sup-promo-row">${supPromo(p, shop)}</p>` : ""}
     ${p.descripcion ? `<p>${esc(p.descripcion)}</p>` : ""}
     ${
       open.length
@@ -3327,9 +3331,10 @@ async function supplyPage() {
     show(
       back("home", "Inicio") +
         heading("NOVA Supply", L("La ropa de la casa. La pides aquí y la recoges en el local, en tu cita o cuando quieras.", "The house clothing. Order here and pick it up at the studio, at your visit or whenever you like.")) +
-        (shop.discountPct ? `<p class="mem-hint">${L(`Como socio NOVA+ tienes ${shop.discountPct} % de descuento: ya está en los precios.`, `As a NOVA+ member you get ${shop.discountPct}% off: it's already in the prices.`)}</p>` : "") +
+        (shop.discountPct ? `<p class="mem-hint">${L(`Como socio NOVA+ tienes ${shop.discountPct} % de descuento (si hay promo, se aplica la mejor de las dos): ya está en los precios.`, `As a NOVA+ member you get ${shop.discountPct}% off (if there's an offer, the better of the two applies): it's already in the prices.`)}</p>` : "") +
+        (shop.oferta?.activa ? `<p class="mem-hint">${esc(shop.oferta.nombre)} · ${esc(shop.oferta.fechas)}: −${shop.oferta.descuento} %</p>` : "") +
         (shop.prendas.length
-          ? `<div class="pr-grid">${shop.prendas.map((p) => `<button type="button" class="pr-card" data-sup="${esc(p.id)}"><span class="pr-pic">${supImg(p)}</span><strong>${esc(supName(p))}</strong><span class="pr-p">${supPrice(p)}</span></button>`).join("")}</div>`
+          ? `<div class="pr-grid">${shop.prendas.map((p) => `<button type="button" class="pr-card" data-sup="${esc(p.id)}"><span class="pr-pic">${supImg(p)}</span><strong>${esc(supName(p))}</strong><span class="pr-p">${supPrice(p)}</span>${supPromo(p, shop)}</button>`).join("")}</div>`
           : `<p class="ag-free">${L("Ahora mismo no hay prendas para pedir. Vuelve pronto.", "Nothing to order right now. Check back soon.")}</p>`) +
         `<div id="sup-cart">${shop.prendas.length ? supplyCartBox(shop) : ""}</div>` +
         (orders.length
@@ -3395,7 +3400,7 @@ function merchBox(shop) {
     ${shop.prendas
       .map((p) => {
         const open = p.tallas.filter((t) => t.max > 0);
-        return `<div class="merch-row"><span class="merch-pic">${supImg(p)}</span><div class="merch-txt"><strong>${esc(supName(p))}</strong><span>${supPrice(p)}</span>
+        return `<div class="merch-row"><span class="merch-pic">${supImg(p)}</span><div class="merch-txt"><strong>${esc(supName(p))}</strong><span>${supPrice(p)}</span>${supPromo(p, shop)}
           ${
             open.length
               ? `<div class="merch-pick"><select name="mt-${esc(p.id)}" aria-label="${L("Talla", "Size")}"><option value="">${L("Talla…", "Size…")}</option>${open.map((t) => `<option value="${esc(t.talla)}">${esc(t.talla)}</option>`).join("")}</select><select name="mq-${esc(p.id)}" aria-label="${L("Cantidad", "Quantity")}">${[1, 2, 3, 4, 5].map((n) => `<option>${n}</option>`).join("")}</select></div>`

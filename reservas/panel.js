@@ -1769,6 +1769,21 @@ async function pedidosSheet() {
   bindPedidos(box, () => (sh.close(), render()));
 }
 
+// Precio que se cobra hoy (la promo de novasupply.es si aplica a esa prenda).
+const ropaPrecio = (p) => (p.precioOferta != null ? p.precioOferta : p.precio);
+const ropaEuro = (n) => Number(n).toFixed(2).replace(".", ",");
+const OF_FUENTE = { web: "leída ahora de la web", cache: "leída de la web (guardada hasta 10 min)", respaldo: "la web no responde: se usa la última lectura buena", ninguna: "sin oferta (la web no responde o no hay)", desactivada: "desactivada (SUPPLY_OFERTA_URL=off)" };
+const ofFecha = (iso) => (iso ? new Date(iso).toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "nunca");
+// De dónde sale el precio y cómo va la promo. Solo lectura: la promo se cambia en la web.
+function ofertaBox(r) {
+  const o = r.oferta || {};
+  const estado = !o.hay ? "Sin promo" : o.activa ? `Activa · −${o.descuento} %` : Date.parse(o.desde) > Date.now() ? "Programada" : "Terminada";
+  return `<div class="card of-box"><p class="section-label" style="margin-top:0">Precios y promo</p>
+    <p class="caja-meta">El precio base es el del <b>catálogo compartido</b> con novasupply.es (una sola fuente: lo que cambies aquí se cambia también en la web). La promo se lee de <b>novasupply.es</b> y <b>no se edita desde la app</b>: se cambia en la web.</p>
+    ${o.hay ? `<p class="of-line"><b>${esc(o.nombre)}</b> · ${esc(o.fechas)} <span class="appt-state ${o.activa ? "st-ok" : ""}">${esc(estado)}</span></p>
+    <p class="caja-meta">−${o.descuento} % en: ${(o.prendas || []).map((id) => esc(id)).join(", ") || "—"}. Desde ${esc(ofFecha(o.desde))} hasta ${esc(ofFecha(o.hasta))}. Un socio NOVA+ no suma su descuento a la promo: se le aplica el mejor de los dos.</p>` : `<p class="of-line"><span class="appt-state">${esc(estado)}</span></p>`}
+    <p class="caja-meta">Fuente: ${esc(o.url || "—")} · ${esc(OF_FUENTE[o.fuente] || o.fuente || "")} · última lectura: ${esc(ofFecha(o.leida))}${o.error && o.fuente !== "web" && o.fuente !== "cache" ? ` · ${esc(o.error)}` : ""}</p></div>`;
+}
 const ropaNombre = (p) => p.nombre + (p.variante ? " · " + p.variante : "");
 
 async function staffShop(email) {
@@ -1808,7 +1823,7 @@ async function staffShop(email) {
           })
           .join("")}</div>
         <div class="form-row2" style="margin-top:6px"><div><label for="sp-n">Cuántas</label><select id="sp-n" name="cantidad">${[1, 2, 3, 4, 5].map((n) => `<option>${n}</option>`).join("")}</select></div>
-          <div><label for="sp-amount">Cobrado (€)</label><input id="sp-amount" name="importe" required inputmode="decimal" value="${p.precio != null ? Number(p.precio).toFixed(2).replace(".", ",") : ""}" autocomplete="off"></div></div>
+          <div><label for="sp-amount">Cobrado (€)</label><input id="sp-amount" name="importe" required inputmode="decimal" value="${ropaPrecio(p) != null ? ropaEuro(ropaPrecio(p)) : ""}" autocomplete="off"></div></div>
         <label for="sp-socio">Socio del Club <small>(opcional: correo o código, para sumarle puntos)</small></label>
         <input id="sp-socio" name="socio" autocomplete="off" autocapitalize="none" spellcheck="false" value="${esc(email || "")}" placeholder="cliente@correo.com o CARLOS482">
         <p class="sp-preview" id="sp-preview"></p>
@@ -1819,7 +1834,7 @@ async function staffShop(email) {
     flow.querySelector("#sp-app")?.addEventListener("click", () => (sh.close(), pedidosSheet()));
     const f = flow.querySelector("#sp-sale");
     if (!f) return;
-    const price = () => (p.precio != null ? p.precio : 0);
+    const price = () => (ropaPrecio(p) != null ? ropaPrecio(p) : 0);
     const pv = flow.querySelector("#sp-preview");
     const upd = () => {
       const n = Number(String(f.importe.value).replace(",", "."));
@@ -1827,7 +1842,7 @@ async function staffShop(email) {
     };
     flow.querySelectorAll("[data-pr]").forEach((b) => (b.onclick = () => ((pick.prenda = b.dataset.pr), (pick.talla = ""), draw())));
     f.cantidad.onchange = () => {
-      if (p.precio != null) f.importe.value = (price() * Number(f.cantidad.value)).toFixed(2).replace(".", ",");
+      if (ropaPrecio(p) != null) f.importe.value = (price() * Number(f.cantidad.value)).toFixed(2).replace(".", ",");
       upd();
     };
     f.importe.oninput = upd;
@@ -1929,12 +1944,13 @@ async function staffRopa() {
       <p class="caja-meta">${sp.mes.pedidos} ${sp.mes.pedidos === 1 ? "pedido cobrado" : "pedidos cobrados"} este mes · ${euro(sp.mes.importe)} (suman en «Merch NOVA Supply» de Ganancias)</p>
       <div class="od-tabs"><button type="button" class="od-tab${pedFiltro === "abiertos" ? " on" : ""}" data-odf="abiertos">Abiertos</button><button type="button" class="od-tab${pedFiltro === "todos" ? " on" : ""}" data-odf="todos">Todos</button></div>
       <div id="od-list">${pedidoCards(sp.orders, sp.owner)}</div>
+      ${ofertaBox(r)}
       <p class="section-label">Stock</p>
       <div class="rp-list">${r.prendas
         .map((p) => {
           const [st, cls] = ESTADO_ROPA[p.efectivo] || ESTADO_ROPA.oculto;
           return `<button type="button" class="ag-item rp-row" data-ed="${esc(p.id)}">${ropaFoto(r, p) ? `<img class="pr-thumb" src="${esc(ropaFoto(r, p))}" alt="" loading="lazy">` : `<span class="pr-thumb pr-noimg">${svg(ICONS.shirt)}</span>`}
-            <div><strong>${esc(ropaNombre(p))}</strong><span>${p.tallas.length ? p.tallas.map((t) => `${esc(t.talla)} ${t.stock === null ? "·" : `<b>${t.libres}</b>`}`).join(" &nbsp; ") : "Sin tallas"}${p.precio != null ? " · " + euro(p.precio) : ""}</span></div>
+            <div><strong>${esc(ropaNombre(p))}</strong><span>${p.tallas.length ? p.tallas.map((t) => `${esc(t.talla)} ${t.stock === null ? "·" : `<b>${t.libres}</b>`}`).join(" &nbsp; ") : "Sin tallas"}${p.precio != null ? " · " + (p.precioOferta != null ? `<s>${euro(p.precio)}</s> <b>${euro(p.precioOferta)}</b> (${esc(r.oferta.nombre)})` : euro(p.precio)) : ""}</span></div>
             <span class="appt-state ${cls}">${st}</span></button>`;
         })
         .join("")}</div>
@@ -1995,7 +2011,7 @@ function prendaSheet(p, r) {
       <div class="form-row2"><div><label for="rp-n" style="margin-top:0">Nombre</label><input id="rp-n" name="nombre" required maxlength="40" value="${esc(p?.nombre || "")}" placeholder="Camiseta"></div>
       <div><label for="rp-v" style="margin-top:0">Variante</label><input id="rp-v" name="variante" maxlength="30" value="${esc(p?.variante || "")}" placeholder="Gris"></div></div>
       <div class="form-row2"><div><label for="rp-c">Color <small>(una palabra)</small></label><input id="rp-c" name="color" maxlength="20" value="${esc(p?.color || "")}" placeholder="gris"></div>
-      <div><label for="rp-p">Precio (€)</label><input id="rp-p" name="precio" inputmode="decimal" value="${p ? (p.precio != null ? Number(p.precio).toFixed(2).replace(".", ",") : "") : "40"}"></div></div>
+      <div><label for="rp-p">Precio (€)</label><input id="rp-p" name="precio" inputmode="decimal" value="${p ? (p.precio != null ? Number(p.precio).toFixed(2).replace(".", ",") : "") : ""}"></div></div>
       <label for="rp-d">Descripción <small>(la ven los clientes en la app)</small></label><textarea id="rp-d" name="descripcion" rows="3" maxlength="300" placeholder="Algodón pesado, corte boxy…">${esc(p?.descripcion || "")}</textarea>
       <label for="rp-e">Estado <small>(«Oculta» = inactiva: los clientes no la ven)</small></label><select id="rp-e" name="estado">${Object.entries(ESTADO_ROPA)
         .map(([k, [l]]) => `<option value="${k}" ${(p?.estado || "disponible") === k ? "selected" : ""}>${l}</option>`)
@@ -2009,7 +2025,7 @@ function prendaSheet(p, r) {
       ${p ? "" : `<label for="rp-f">Foto <small>(nombre del archivo en la web de la tienda, p. ej. gris-delante.jpg)</small></label><input id="rp-f" name="foto" maxlength="80">`}
       <button class="btn wide" style="margin-top:16px" type="submit">Guardar</button>
       ${p ? `<button type="button" class="btn wide danger" style="margin-top:10px" id="rp-del">Borrar prenda</button>` : ""}
-      <p class="muted" style="font-size:12px;margin-top:10px">Los cambios se ven también en novasupply.es. El precio es el de la app y la tienda; los socios NOVA+ pagan con su descuento.</p>
+      <p class="muted" style="font-size:12px;margin-top:10px">Ojo: el catálogo es el mismo que lee novasupply.es, así que el precio (y todo lo de aquí) cambia también en la web. La promo no se toca aquí: la lleva la web. Los socios NOVA+ pagan lo mejor entre su descuento y la promo (no se suman).</p>
     </form>`,
   );
   sh.el.querySelector("#rp-file").onchange = async (e) => {

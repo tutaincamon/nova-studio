@@ -7,6 +7,7 @@ import { codeMail, send, sendDetailed, shell, bookingLines, mailReady } from "./
 import * as Card from "./_lib/stripe.js";
 import * as Sup from "./_lib/supply.js";
 import * as Shop from "./_lib/shop.js";
+import * as Of from "./_lib/oferta.js";
 import { accessPolicy, MAIL_NOT_READY } from "./_lib/access.js";
 import * as Tokens from "./_lib/assistant.js";
 import * as E from "./_lib/earnings.js";
@@ -1958,6 +1959,17 @@ async function shopClub(o) {
   const units = o.items.reduce((a, l) => a + l.cantidad, 0);
   return u && o.total > 0 ? clubPurchase(u, o.total, units, o.paidBy || "app") : null;
 }
+// Precio de una reserva de la web: el que guardó la web en la reserva (si lo trae) o, si no, el de hoy (con la promo si aplica).
+function pedidoPrecio(ped, p, ctx) {
+  const guardado = Of.numero(ped.precioNum ?? ped.precio ?? ped.importe);
+  if (guardado != null && guardado >= 0) return guardado;
+  return p?.precio == null ? null : Shop.priceOf(p, 0, ctx).unit;
+}
+// Estado de la promo para el panel (de dónde sale y cuándo se leyó).
+function ofertaInfo(ctx) {
+  const l = ctx.lectura || {};
+  return { ...(Of.publica(ctx.oferta, ctx.now) || {}), hay: !!ctx.oferta, fuente: l.fuente || "ninguna", leida: l.leida || null, error: l.error || "", url: Of.desactivada() ? "" : Of.oferUrl() };
+}
 const shopHooks = { club: shopClub, dropClub: dropClubPurchase };
 // Pago online: Stripe si hay clave; sin clave, simulado solo en demo/local; si no, no hay.
 const shopOnlineMode = () => (Card.shopOnline() ? "stripe" : process.env.MODO_DEMO === "1" || !ON_VERCEL ? "demo" : null);
@@ -1970,13 +1982,18 @@ async function shopDiscount(email) {
   const sub = email ? await memberOf(email) : null;
   return M.isLive(sub, T.nowLocal().date) ? sub.plan?.discountPct || 0 : 0;
 }
+// La promo de novasupply.es (única fuente, ver _lib/oferta.js) para fijar precios ahora mismo.
+async function shopCtx() {
+  const r = await Of.leerOferta().catch(() => ({ oferta: null }));
+  return { oferta: r.oferta, now: new Date(), lectura: r };
+}
 // Pedido que se hace al reservar la cita: se paga en el local, en la cita.
 async function merchForBooking(user, raw) {
   if (!Array.isArray(raw) || !raw.length) return null;
   try {
     const r = await Sup.leer({ ventas: 1 });
-    const pre = Shop.prepare(r.prendas, raw, await shopDiscount(user.email));
-    return await Shop.create({ user, ...pre, discountPct: await shopDiscount(user.email), pay: "local" });
+    const pre = Shop.prepare(r.prendas, raw, await shopDiscount(user.email), await shopCtx());
+    return await Shop.create({ user, ...pre, pay: "local" });
   } catch (e) {
     return shopErr(e);
   }
@@ -3285,18 +3302,21 @@ const routes = {
   "GET staff/ropa": async ({ req }) => {
     const me = await needCaja(req);
     const r = await Sup.leer({ ventas: 80 });
+    const ctx = await shopCtx();
+    const conOferta = (p) => (p ? Shop.priceOf(p, 0, ctx).promo : null);
     const pendientes = r.pedidos
       .filter((x) => !x.estado || x.estado === "pendiente")
       .map(({ _raw, _i, ...x }) => {
         const p = Sup.prendaDePedido(r.prendas, x);
-        return { ...x, prendaId: p?.id || "", prendaNombre: p ? p.nombre + (p.variante ? " · " + p.variante : "") : x.color, precio: p?.precio ?? null };
+        return { ...x, prendaId: p?.id || "", prendaNombre: p ? p.nombre + (p.variante ? " · " + p.variante : "") : x.color, precio: pedidoPrecio(x, p, ctx) };
       });
     const mes = T.nowLocal().date.slice(0, 7);
     const delMes = r.ventas.filter((v) => String(v.fecha || "").startsWith(mes));
     return {
       owner: !!me.owner,
       tienda: SHOP.url,
-      prendas: r.prendas,
+      prendas: r.prendas.map((p) => ({ ...p, precioOferta: conOferta(p) })),
+      oferta: ofertaInfo(ctx),
       pendientes,
       ventas: r.ventas.slice(0, 40),
       mes: { unidades: delMes.reduce((a, v) => a + (v.cantidad || 1), 0), importe: cents(delMes.reduce((a, v) => a + (Number(v.importe) || 0), 0)), estudio: delMes.filter((v) => v.canal === "estudio").length, web: delMes.filter((v) => v.canal === "web").length },
@@ -3370,7 +3390,8 @@ const routes = {
     const u = await currentUser(req);
     const disc = u ? await shopDiscount(u.email) : 0;
     const r = await Sup.leer({ ventas: 1 });
-    return { name: SHOP.name, prendas: Shop.orderable(r.prendas).map((p) => Shop.publicItem(p, disc)), discountPct: disc, online: shopOnlineMode(), perEuro: POINTS.perEuro, demo: shopOnlineMode() === "demo" };
+    const ctx = await shopCtx();
+    return { name: SHOP.name, prendas: Shop.orderable(r.prendas).map((p) => Shop.publicItem(p, disc, ctx)), oferta: Shop.publicOferta(ctx), discountPct: disc, online: shopOnlineMode(), perEuro: POINTS.perEuro, demo: shopOnlineMode() === "demo" };
   },
   "GET supply/:id/photo": async ({ params }) => {
     const data = await cmd("GET", "prodimg:sup-" + String(params.id).replace(/[^a-z0-9-]/g, ""));
@@ -3396,8 +3417,8 @@ const routes = {
     let o;
     try {
       const r = await Sup.leer({ ventas: 1 });
-      const pre = Shop.prepare(r.prendas, body.items, disc);
-      o = await Shop.create({ user: u, ...pre, discountPct: disc, pay: pay === "stripe" ? "stripe" : "local", note: clean(body.note, 200) });
+      const pre = Shop.prepare(r.prendas, body.items, disc, await shopCtx());
+      o = await Shop.create({ user: u, ...pre, pay: pay === "stripe" ? "stripe" : "local", note: clean(body.note, 200) });
       if (pay === "stripe") {
         try {
           o = await Shop.startCheckout(o, { base: publicBase(req) });
@@ -3523,7 +3544,7 @@ const routes = {
     const ped0 = r.pedidos.find((x) => x.ref === ref);
     if (!ped0) fail(404, "No encontramos esa reserva.");
     const p = Sup.prendaDePedido(r.prendas, ped0);
-    const importe = body.importe === undefined || body.importe === "" ? (p?.precio ?? 0) : Math.round(Number(String(body.importe).replace(",", ".")) * 100) / 100;
+    const importe = body.importe === undefined || body.importe === "" ? (pedidoPrecio(ped0, p, await shopCtx()) ?? 0) : Math.round(Number(String(body.importe).replace(",", ".")) * 100) / 100;
     if (!(importe >= 0 && importe <= 5000)) fail(400, "Revisa el importe.");
     const now = T.nowLocal();
     const ped = await Sup.marcarPedido(ref, { estado: "recogida", recogida: now.stamp, por: me.id });

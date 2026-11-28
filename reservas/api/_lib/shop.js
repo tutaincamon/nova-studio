@@ -23,6 +23,7 @@ import { cmd, pipe, getJSON, setJSON, sharedPipe } from "./store.js";
 import * as Sup from "./supply.js";
 import * as Card from "./stripe.js";
 import * as T from "./time.js";
+import * as Of from "./oferta.js";
 
 export const ESTADOS = ["pendiente", "pagado", "listo", "entregado", "cancelado"];
 export const ABIERTOS = ["pendiente", "pagado", "listo"];
@@ -30,7 +31,6 @@ export const MAX_QTY = 10; // unidades por línea
 export const MAX_LINES = 8;
 export const STRIPE_MINUTES = 35; // Stripe exige al menos 30 minutos de vida a la sesión
 export const LOCAL_DAYS = 7; // un pedido «pagar en el local» sin cita se libera pasados estos días
-export const PRECIO_DEFECTO = 40; // camisetas
 
 export class ShopError extends Error {
   constructor(status, message) {
@@ -45,28 +45,50 @@ const r2 = (n) => Math.round(n * 100) / 100;
 const key = (id) => "sord:" + id;
 
 // ── Precio ──────────────────────────────────────────────────────────────────
+// UNA SOLA FUENTE: el precio base es el de supply:catalogo (el mismo que lee la
+// web) y la promo es la de novasupply.es (oferta.js, ver oferta.js). El descuento
+// de socio NOVA+ NO se acumula con la promo: se aplica el MEJOR de los dos.
+// `ctx` = { oferta, now } (la oferta ya leída; sin ella, no hay promo).
 // Precio de una unidad con el descuento de socio NOVA+ (si lo tiene).
 export const unitPrice = (precio, discountPct = 0) => r2(Number(precio) * (1 - (Number(discountPct) || 0) / 100));
 
+// → { base, promo, socio, unit, aplicado: "promo" | "socio" | "" }
+export function priceOf(p, discountPct = 0, ctx = {}) {
+  const base = Number(p.precio);
+  const promo = Of.aplica(ctx.oferta, p.id, ctx.now) ? Of.rebajado(ctx.oferta, base) : null;
+  const socio = discountPct ? unitPrice(base, discountPct) : null;
+  let unit = base,
+    aplicado = "";
+  if (promo != null && promo < unit) (unit = promo), (aplicado = "promo");
+  if (socio != null && socio < unit) (unit = socio), (aplicado = "socio");
+  return { base, promo, socio, unit, aplicado };
+}
+
 // Lo que se enseña de una prenda a los clientes (sin stock exacto: solo cuántas pueden pedir).
-export function publicItem(p, discountPct = 0) {
+export function publicItem(p, discountPct = 0, ctx = {}) {
+  const x = priceOf(p, discountPct, ctx);
   return {
     id: p.id,
     nombre: p.nombre,
     variante: p.variante || "",
     descripcion: p.descripcion || "",
     precio: p.precio,
-    precioSocio: discountPct ? unitPrice(p.precio, discountPct) : null,
+    precioOferta: x.promo,
+    precioSocio: x.socio,
+    precioFinal: x.unit,
+    aplicado: x.aplicado,
     img: p.img || "",
     tallas: p.tallas.map((t) => ({ talla: t.talla, max: t.libres === null ? MAX_QTY : Math.min(MAX_QTY, t.libres) })),
   };
 }
+// La promo tal como la ve el cliente (null si no hay ninguna oferta leída).
+export const publicOferta = (ctx = {}) => Of.publica(ctx.oferta, ctx.now);
 // Prendas que se pueden pedir: a la venta, con precio y alguna talla libre.
 export const orderable = (prendas) => prendas.filter((p) => p.efectivo === "disponible" && p.precio != null && Number(p.precio) >= 0 && p.tallas.length);
 
 // ── Validar lo que pide el cliente ──────────────────────────────────────────
 // Devuelve las líneas con su precio (juntando las repetidas). Lanza ShopError.
-export function prepare(prendas, raw, discountPct = 0) {
+export function prepare(prendas, raw, discountPct = 0, ctx = {}) {
   const list = Array.isArray(raw) ? raw : [];
   if (!list.length) bad(400, "Elige al menos una prenda.");
   const lines = new Map();
@@ -79,7 +101,9 @@ export function prepare(prendas, raw, discountPct = 0) {
     if (!Number.isInteger(n) || n < 1 || n > MAX_QTY) bad(400, `Puedes pedir de 1 a ${MAX_QTY} unidades de cada talla.`);
     const k = p.id + "|" + t.talla;
     const prev = lines.get(k);
-    lines.set(k, { prenda: p.id, nombre: p.nombre + (p.variante ? " · " + p.variante : ""), talla: t.talla, cantidad: (prev?.cantidad || 0) + n, base: Number(p.precio), unit: unitPrice(p.precio, discountPct) });
+    // El precio se fija aquí y se guarda en el pedido (como hace la web con la reserva).
+    const pr = priceOf(p, discountPct, ctx);
+    lines.set(k, { prenda: p.id, nombre: p.nombre + (p.variante ? " · " + p.variante : ""), talla: t.talla, cantidad: (prev?.cantidad || 0) + n, base: pr.base, unit: pr.unit, aplicado: pr.aplicado, ...(pr.aplicado === "promo" ? { oferta: ctx.oferta.nombre } : {}) });
   }
   if (lines.size > MAX_LINES) bad(400, `Como mucho ${MAX_LINES} prendas distintas por pedido.`);
   const items = [...lines.values()].map((l) => {
@@ -88,7 +112,10 @@ export function prepare(prendas, raw, discountPct = 0) {
   });
   const subtotal = r2(items.reduce((a, l) => a + l.base * l.cantidad, 0));
   const total = r2(items.reduce((a, l) => a + l.importe, 0));
-  return { items, subtotal, total };
+  // Solo cuenta como «descuento de socio» si de verdad se ha aplicado en alguna línea.
+  const socio = items.some((l) => l.aplicado === "socio");
+  const promo = items.find((l) => l.aplicado === "promo");
+  return { items, subtotal, total, discountPct: socio ? Number(discountPct) || 0 : 0, ...(promo ? { oferta: { nombre: ctx.oferta.nombre, fechas: ctx.oferta.fechas, descuento: ctx.oferta.descuento } } : {}) };
 }
 
 // ── Apartar y soltar unidades (supply:apartadas) ────────────────────────────
@@ -134,7 +161,7 @@ const stampOf = () => T.nowLocal().stamp;
 const log = (o, estado, by) => ({ ...o, estado, history: [...(o.history || []), { estado, at: stampOf(), by: by || "" }].slice(-20) });
 
 // Crea el pedido: aparta las unidades y lo guarda. `pay`: «local» | «stripe» | «demo».
-export async function create({ user, items, subtotal, total, discountPct = 0, pay = "local", booking = "", note = "" }) {
+export async function create({ user, items, subtotal, total, discountPct = 0, oferta = null, pay = "local", booking = "", note = "" }) {
   await reserve(items);
   const now = T.nowLocal();
   const o = {
@@ -146,6 +173,7 @@ export async function create({ user, items, subtotal, total, discountPct = 0, pa
     items,
     subtotal,
     discountPct,
+    ...(oferta ? { oferta } : {}),
     total,
     pay,
     entrega: booking ? "cita" : "local",
@@ -391,9 +419,10 @@ export const viewFor = (o) => ({
   id: o.id,
   created: o.created,
   estado: o.estado,
-  items: o.items.map((l) => ({ prenda: l.prenda, nombre: l.nombre, talla: l.talla, cantidad: l.cantidad, unit: l.unit, importe: l.importe })),
+  items: o.items.map((l) => ({ prenda: l.prenda, nombre: l.nombre, talla: l.talla, cantidad: l.cantidad, unit: l.unit, base: l.base, aplicado: l.aplicado || "", importe: l.importe })),
   subtotal: o.subtotal,
   discountPct: o.discountPct || 0,
+  ...(o.oferta ? { oferta: o.oferta } : {}),
   total: o.total,
   pay: o.pay,
   entrega: o.entrega,

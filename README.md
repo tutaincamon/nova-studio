@@ -65,6 +65,7 @@ Solo los nombres. Los valores van en Vercel, nunca en el repo.
 | `LOGIN_CON_CODIGO` | En Vercel no cambia nada. En local, `0` entra sin código (solo para pruebas) |
 | `MODO_DEMO` | Si vale `1`, se entra solo con el correo también en producción y la app muestra «Modo demo». Sin esta variable, en producción hace falta el código |
 | `CRON_SECRET` | El cron de Vercel lo manda como `Authorization: Bearer …` |
+| `SUPPLY_OFERTA_URL` | (Opcional) Dónde leer la promo de NOVA Supply; por defecto `https://www.novasupply.es/oferta.js`, `off` la apaga |
 | `STRIPE_SECRET_KEY` | Cobro de faltas y tarjeta en garantía (sin las dos claves, no se pide tarjeta), membresía y pago online de los pedidos de NOVA Supply (Checkout en modo `payment`) |
 | `STRIPE_PUBLISHABLE_KEY` | La clave pública que carga el móvil |
 | `STRIPE_WEBHOOK_SECRET` | Secreto de firma (`whsec_…`) del webhook `/api/stripe/webhook` de la membresía. Sin él, el webhook responde 503 y no acepta nada |
@@ -171,16 +172,30 @@ Capa **nueva y distinta del Club** (puntos, ligas y medallas, que siguen gratis)
 
 Los clientes piden ropa desde la app (`#supply`, y un paso opcional al reservar: «Añade algo para recoger en el local») y la recogen en el local. **No hay un segundo inventario**: se usa el de la tienda web (`supply:catalogo`, `supply:stock`, `supply:apartadas`, `supply:ventas`; ver `api/_lib/supply.js`). Los pedidos y su lógica están en `api/_lib/shop.js` (claves `sord:*`, `usord:*`, `sordbk:*`, `sordall`).
 
-- **Catálogo (solo el dueño)**: en **Ropa** cada prenda tiene nombre, variante, descripción, precio (40 € por defecto en las nuevas), foto (misma mecánica que los productos del estudio: `prodimg:sup-<id>`, servida en `/api/supply/<id>/photo`; si no hay, la de la web de la tienda), tallas con stock por talla y estado (`A la venta` = activa, `Oculta` = inactiva). Se puede borrar una prenda si no tiene pedidos abiertos. Barbero y caja reciben 403/401.
-- **Cliente**: elige talla y cantidad (sin pasar del stock libre). Entrega: recoger en el local (en la cita o, sin cita, cuando quiera). El socio NOVA+ paga con el descuento de su plan (el que ya define para «el resto de servicios y la ropa»).
+- **Catálogo (solo el dueño)**: en **Ropa** cada prenda tiene nombre, variante, descripción, precio (sin valor por defecto: lo pones tú; es el del catálogo compartido y cambia también en la web), foto (misma mecánica que los productos del estudio: `prodimg:sup-<id>`, servida en `/api/supply/<id>/photo`; si no hay, la de la web de la tienda), tallas con stock por talla y estado (`A la venta` = activa, `Oculta` = inactiva). Se puede borrar una prenda si no tiene pedidos abiertos. Barbero y caja reciben 403/401.
+- **Cliente**: elige talla y cantidad (sin pasar del stock libre). Entrega: recoger en el local (en la cita o, sin cita, cuando quiera). El socio NOVA+ paga con el descuento de su plan (el que ya define para «el resto de servicios y la ropa»), **sin sumarlo a la promo de la web: se aplica el mejor de los dos**.
 - **Stock**: al hacer el pedido se **apartan** las unidades (`supply:apartadas`, como las reservas de la web), así que nadie las vende dos veces. Se liberan si se cancela el pedido, si caduca el pago o si se cancela la cita a la que iban ligados. El stock real baja al cobrarse.
 - **Pago**: «pagar en el local» siempre. Con `STRIPE_SECRET_KEY`, Checkout en modo `payment` (sesión de 35 min; si caduca, se cancela y se libera). Sin Stripe, **en MODO_DEMO (o en local) el pago online es simulado** y se cobra al momento; en producción sin Stripe solo se ofrece pagar en el local. El webhook `/api/stripe/webhook` (el mismo de la membresía) atiende también `checkout.session.completed` y `checkout.session.expired` de los pedidos; el importe se comprueba contra el pedido.
 - **Estados** (panel → Ropa → «Pedidos de la app», y desde la caja «Pedidos de la app»): pendiente de pago → pagado → listo para recoger → entregado, y cancelado. «Cobrado en el local» (con el importe real) apunta la venta en la lista de ventas de ropa de la caja (canal `app`, con `pedido`), baja el stock y suma los puntos del Club como cualquier venta de ropa. Entregar un pedido sin cobrar lo cobra a la vez. Cancelar un pedido ya cobrado (solo el dueño) deshace venta, stock y puntos; si fue con Stripe, el dinero se devuelve a mano desde Stripe (queda marcado).
 - **Cuánto gana Nova**: los pedidos cobrados salen en la línea «Merch NOVA Supply» del mes. Cada pedido se apunta **una sola vez** en `supply:ventas`; la línea «Ropa (NOVA Supply)» ya no incluye las ventas con `pedido`, así que nada se cuenta dos veces. Los puntos de los cobrados por Stripe se dan al abrir el panel de pedidos o en el cron.
 - **Cron horario**: suelta los pagos online sin completar, los pedidos de una cita cancelada o pasada hace más de 2 días y los «en el local» sin cita que llevan 7 días sin cobrarse.
 - API cliente: `GET /api/shop`, `GET|POST /api/shop/orders`, `GET /api/shop/orders/:id` (`?sync=1` pregunta a Stripe), `POST /api/shop/orders/:id/cancel`; `POST /api/book` acepta `merch: [{ prenda, talla, cantidad }]`. Equipo: `GET /api/staff/shop`, `POST /api/staff/shop/:id/estado|cobrar`, `POST /api/staff/ropa/prenda[/borrar]`.
-- Sin variables de entorno nuevas ni dependencias. El precio de partida de las camisetas del catálogo inicial (solo si la base aún no tiene catálogo) es 40 €. Las pantallas de cliente llevan texto en español e inglés (`L(es, en)`); el panel está solo en castellano.
+- Sin dependencias nuevas. El catálogo inicial (solo si la base aún no tiene catálogo) lleva las camisetas a 47,50 €, como la web. Las pantallas de cliente llevan texto en español e inglés (`L(es, en)`); el panel está solo en castellano.
 - Tests: `test/shop.test.js`.
+
+### Precios enlazados a novasupply.es (una sola fuente de verdad)
+
+La app **no tiene precios ni promos propios**: usa los de la web NOVA Supply.
+
+- **Precio base**: el de `supply:catalogo` (el catálogo compartido que también lee `https://www.novasupply.es/api/catalogo`). El dueño lo puede editar en Ropa; **cambia también en la web**.
+- **Promo (p. ej. Black Friday)**: vive en el archivo publicado `https://www.novasupply.es/oferta.js`. El **servidor** de la app lo descarga (`api/_lib/oferta.js`, espera máxima 3 s) y lo lee **sin ejecutar nada remoto**: extrae el literal `OFERTA = { … }` y lo convierte a datos con un parser propio (nada de `eval`, `new Function` ni `vm`); si el archivo está roto o es raro, se ignora. Se valida cada campo. Se guarda 10 minutos en Redis, y la última lectura buena queda como respaldo por si la web no responde. El navegador nunca carga nada de novasupply.es (la CSP no cambia).
+- **Mismas reglas que la web**: activa desde `desde` (incluido) hasta `hasta` (excluido), solo en las prendas de `prendas`, y precio rebajado `Math.round(n·(100−descuento))/100`.
+- **Qué ve el cliente**: precio normal tachado + rebajado + «Black Friday · Del 23 al 30 de noviembre» en la tienda, el detalle de la prenda, el paso al reservar y el total del pedido. El precio **se fija en el pedido al crearlo** (no cambia si la promo termina después). La caja y las recogidas de reservas web proponen el precio de hoy (con promo si aplica).
+- **Socio NOVA+**: no se acumula con la promo; se aplica el mejor de los dos.
+- **Panel del dueño** (Ropa → «Precios y promo»): de dónde sale el precio, la promo, su estado (activa o no, fechas), la dirección leída y la última lectura. Es solo lectura: la promo se cambia en la web.
+- **Comprobar con curl**: `GET /api/shop` devuelve por prenda `precio`, `precioOferta`, `precioSocio`, `precioFinal` y `aplicado` (`promo`/`socio`/vacío), y arriba `oferta { nombre, fechas, desde, hasta, descuento, activa, prendas }` (`null` si no hay).
+- Variable de entorno nueva (opcional): `SUPPLY_OFERTA_URL` (por defecto `https://www.novasupply.es/oferta.js`; `off` la desactiva). Sin red (local/demo) simplemente no hay promo.
+- Tests: `test/oferta.test.js` y la parte «precios enlazados» de `test/shop.test.js`.
 
 ---
 

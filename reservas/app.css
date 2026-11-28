@@ -2187,3 +2187,9 @@ main:has(.ag-wide) { max-width: 1180px; }
 .rp-photo { margin: 6px 0; }
 .mail-preview { margin: 12px 0 0; border: 1px solid var(--line, #dcdad3); max-height: 460px; overflow: auto; }
 .mail-preview a { pointer-events: auto; }
+
+/* Promo de NOVA Supply (la lleva la web) y caja de precios del panel */
+.sup-promo { display: block; margin-top: 2px; font-size: 12px; font-weight: 600; color: #8a1f17; }
+.sup-promo-row { margin: 0 0 8px; }
+.of-box { margin: 14px 0; }
+.of-line { margin: 4px 0; }

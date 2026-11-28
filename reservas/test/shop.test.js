@@ -9,6 +9,7 @@ import * as M from "../api/_lib/membership.js";
 import * as Sup from "../api/_lib/supply.js";
 import * as Shop from "../api/_lib/shop.js";
 import * as T from "../api/_lib/time.js";
+import * as Of from "../api/_lib/oferta.js";
 
 function http(method, route, { body, raw, cookie, headers = {}, ip = "198.51.100.60" } = {}) {
   const hdrs = new Map();
@@ -43,7 +44,16 @@ async function client(email) {
   await setJSON("user:" + email, { ...u, card: { brand: "visa", last4: "4242", exp: "12/30", pm: "pm_test" } });
   return { cookie, ip, email };
 }
-const ENV = ["MODO_DEMO", "VERCEL", "STAFF_PIN", "STAFF_PIN_EHEDEY", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "RESEND_API_KEY"];
+// La web (oferta.js) simulada: sin red y sin promo salvo que un test ponga `webOferta`.
+let webOferta = null;
+Of.usarFetch(async () => (webOferta === null ? { ok: false, status: 404, text: async () => "" } : { ok: true, status: 200, text: async () => webOferta }));
+const ofertaTxt = (o = {}) => {
+  const d = (ms) => new Date(Date.now() + ms).toISOString();
+  const x = { nombre: "Black Friday", desde: d(-86400000), hasta: d(86400000), fechas: "Del 23 al 30 de noviembre", descuento: 30, prendas: ["camiseta", "camiseta-rosa"], destacada: "camiseta-rosa", ...o };
+  return `/* oferta */\n(function (raiz) {\n  var OFERTA = {\n    nombre: '${x.nombre}', // x\n    desde: '${x.desde}',\n    hasta: '${x.hasta}',\n    fechas: '${x.fechas}',\n    descuento: ${x.descuento},\n    prendas: [${x.prendas.map((i) => `'${i}'`).join(", ")}],\n    destacada: '${x.destacada}'\n  };\n})(this);`;
+};
+const ponOferta = async (t) => ((webOferta = t), await Of.borrarCache());
+const ENV = ["MODO_DEMO", "SUPPLY_OFERTA_URL", "VERCEL", "STAFF_PIN", "STAFF_PIN_EHEDEY", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "RESEND_API_KEY"];
 const saved = {};
 let owner, barber, caja;
 before(async () => {
@@ -84,11 +94,14 @@ describe("catálogo de NOVA Supply (solo el dueño)", { concurrency: 1 }, () => 
     assert.equal((await http("POST", "staff/ropa/prenda/borrar", { body: { id: "camiseta-rosa" } })).status, 401);
   });
 
-  test("la camiseta por defecto cuesta 40 €", async () => {
+  test("el catálogo de partida lleva el precio de la web (47,50 €), no uno inventado por la app", async () => {
+    assert.ok(Sup.SEED.filter((p) => p.color).every((p) => p.precio === 47.5));
     const r = await shop();
     assert.equal(r.status, 200);
     const c = r.json.prendas.find((p) => p.id === "camiseta-rosa");
-    assert.equal(c.precio, 40);
+    assert.equal(c.precio, 47.5);
+    assert.equal(c.precioOferta, null);
+    assert.equal(r.json.oferta, null);
     assert.equal(r.json.demo, true);
     assert.equal(r.json.online, "demo");
   });
@@ -447,5 +460,111 @@ describe("pago online con Stripe (webhook)", { concurrency: 1 }, () => {
     const r = await Shop.maintain({ bookingState: async () => null, club: async () => null });
     assert.ok(r.released >= 1);
     assert.equal(await estadoOf(old.id), "cancelado");
+  });
+});
+
+describe("precios enlazados a novasupply.es (promo de la web)", { concurrency: 1 }, () => {
+  before(async () => {
+    await prenda({ id: "camiseta-rosa", nombre: "Camiseta", variante: "Rosa", color: "rosa", precio: "47,50", estado: "disponible", tallas: ["L", "XL", "XXL"], stock: { L: 20, XL: 20, XXL: 20 } });
+    await prenda({ id: "camiseta", nombre: "Camiseta", variante: "Gris", color: "gris", precio: "47,50", estado: "disponible", tallas: ["L"], stock: { L: 5 } });
+    await prenda({ nombre: "Gorra", variante: "Azul", precio: "20", estado: "disponible", tallas: ["M"], stock: { M: 9 } });
+  });
+  after(() => ponOferta(null));
+  const rosa = async (c) => (await shop(c)).json.prendas.find((p) => p.id === "camiseta-rosa");
+
+  test("sin promo: precio base del catálogo compartido", async () => {
+    await ponOferta(null);
+    const j = (await shop()).json;
+    assert.equal(j.oferta, null);
+    const p = await rosa();
+    assert.deepEqual([p.precio, p.precioOferta, p.precioFinal, p.aplicado], [47.5, null, 47.5, ""]);
+  });
+
+  test("con la promo activa: base tachado + rebajado + nombre y fechas, solo en las prendas de la oferta", async () => {
+    await ponOferta(ofertaTxt());
+    const j = (await shop()).json;
+    assert.deepEqual({ ...j.oferta, desde: "", hasta: "" }, { nombre: "Black Friday", fechas: "Del 23 al 30 de noviembre", desde: "", hasta: "", descuento: 30, activa: true, prendas: ["camiseta", "camiseta-rosa"] });
+    const p = j.prendas.find((x) => x.id === "camiseta-rosa");
+    assert.deepEqual([p.precio, p.precioOferta, p.precioFinal, p.aplicado], [47.5, 33.25, 33.25, "promo"]);
+    const g = j.prendas.find((x) => x.id === "gorra-azul");
+    assert.deepEqual([g.precio, g.precioOferta, g.precioFinal], [20, null, 20]);
+  });
+
+  test("el pedido guarda el precio rebajado y no cambia si la promo termina después", async () => {
+    await ponOferta(ofertaTxt());
+    const c = await client("promo-1@example.com");
+    const r = await order(c, [{ prenda: "camiseta-rosa", talla: "XL", cantidad: 2 }, { prenda: "gorra-azul", talla: "M", cantidad: 1 }]);
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    const o = r.json.order;
+    assert.equal(o.subtotal, 115);
+    assert.equal(o.total, 86.5); // 2 × 33,25 + 20
+    assert.deepEqual(o.items.map((l) => [l.unit, l.aplicado]), [[33.25, "promo"], [20, ""]]);
+    assert.equal(o.oferta.nombre, "Black Friday");
+    assert.equal(o.discountPct, 0);
+    await ponOferta(ofertaTxt({ desde: "2020-01-01T00:00:00Z", hasta: "2020-02-01T00:00:00Z" })); // ya terminada
+    assert.equal((await Shop.get(o.id)).total, 86.5);
+    assert.equal((await rosa()).precioFinal, 47.5);
+    await http("POST", `shop/orders/${o.id}/cancel`, { cookie: c.cookie, ip: c.ip });
+  });
+
+  test("sin promo: el pedido es a precio normal", async () => {
+    await ponOferta(null);
+    const c = await client("promo-2@example.com");
+    const r = await order(c, [{ prenda: "camiseta-rosa", talla: "L", cantidad: 1 }]);
+    assert.equal(r.json.order.total, 47.5);
+    assert.equal(r.json.order.oferta, undefined);
+    await http("POST", `shop/orders/${r.json.order.id}/cancel`, { cookie: c.cookie, ip: c.ip });
+  });
+
+  test("socio NOVA+ y promo NO se acumulan: se aplica el mejor de los dos", async () => {
+    const c = await client("promo-socio@example.com");
+    assert.equal((await http("POST", "membership/join", { body: { plan: "club-nova" }, cookie: c.cookie, ip: c.ip })).status, 200);
+    const pct = (await http("GET", "membership", { cookie: c.cookie, ip: c.ip })).json.mine.plan.discountPct;
+    // Promo mejor que el socio (pct + 20 %): paga solo la promo.
+    const mejor = Math.min(90, pct + 20);
+    await ponOferta(ofertaTxt({ descuento: mejor }));
+    let p = await rosa(c);
+    assert.equal(p.aplicado, "promo");
+    assert.equal(p.precioFinal, Math.round(47.5 * (100 - mejor)) / 100);
+    let r = await order(c, [{ prenda: "camiseta-rosa", talla: "L", cantidad: 1 }]);
+    assert.equal(r.json.order.total, p.precioFinal);
+    assert.equal(r.json.order.discountPct, 0);
+    await http("POST", `shop/orders/${r.json.order.id}/cancel`, { cookie: c.cookie, ip: c.ip });
+    // Socio mejor que la promo (5 %): paga el del socio, nunca los dos juntos.
+    await ponOferta(ofertaTxt({ descuento: 5 }));
+    p = await rosa(c);
+    assert.equal(p.aplicado, "socio");
+    assert.equal(p.precioFinal, Math.round(47.5 * (1 - pct / 100) * 100) / 100);
+    r = await order(c, [{ prenda: "camiseta-rosa", talla: "L", cantidad: 1 }]);
+    assert.equal(r.json.order.total, p.precioFinal);
+    assert.equal(r.json.order.discountPct, pct);
+    assert.equal(r.json.order.oferta, undefined);
+    await http("POST", `shop/orders/${r.json.order.id}/cancel`, { cookie: c.cookie, ip: c.ip });
+  });
+
+  test("si la web no responde se usa la última promo buena; sin ninguna, precio normal", async () => {
+    await ponOferta(ofertaTxt());
+    assert.equal((await rosa()).aplicado, "promo");
+    webOferta = null; // la web «se cae» (404)
+    await cmd("DEL", "supply:oferta:cache"); // caduca la caché de 10 minutos
+    const caida = await Of.leerOferta({ forzar: true });
+    assert.equal(caida.fuente, "respaldo");
+    assert.equal((await rosa()).aplicado, "promo");
+    await Of.borrarCache(); // y sin respaldo
+    assert.equal((await rosa()).aplicado, "");
+  });
+
+  test("el panel enseña de dónde sale el precio y la promo (solo lectura)", async () => {
+    await ponOferta(ofertaTxt());
+    const r = await http("GET", "staff/ropa", { cookie: caja });
+    assert.equal(r.status, 200);
+    assert.equal(r.json.oferta.hay, true);
+    assert.equal(r.json.oferta.activa, true);
+    assert.equal(r.json.oferta.fuente, "web");
+    assert.ok(r.json.oferta.leida);
+    assert.equal(r.json.prendas.find((p) => p.id === "camiseta-rosa").precioOferta, 33.25);
+    // La promo no se edita desde la app.
+    for (const route of ["staff/oferta", "staff/ropa/oferta"]) assert.notEqual((await http("POST", route, { body: { descuento: 1 }, cookie: owner })).status, 200);
+    assert.equal((await rosa()).precioOferta, 33.25);
   });
 });

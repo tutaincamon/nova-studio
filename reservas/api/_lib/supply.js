@@ -23,10 +23,11 @@ export const K = { cat: "supply:catalogo", stock: "supply:stock", apart: "supply
 export const ESTADOS = ["disponible", "proximamente", "agotado", "oculto"];
 
 // Lo que había en prendas.js de la tienda el día que se conectaron las dos
-// partes. Sirve solo para arrancar: a partir de ahí manda la base.
-const SEED = [
-  { id: "camiseta", nombre: "Camiseta", variante: "Gris", color: "gris", precio: 40, estado: "agotado", tallas: ["L", "XL", "XXL"], foto: "gris-delante.jpg" },
-  { id: "camiseta-rosa", nombre: "Camiseta", variante: "Rosa", color: "rosa", precio: 40, estado: "disponible", tallas: ["L", "XL", "XXL"], foto: "rosa-delante.jpg" },
+// partes (47,50 €, como en la web). Sirve solo para arrancar: a partir de ahí
+// manda la base compartida, no la app.
+export const SEED = [
+  { id: "camiseta", nombre: "Camiseta", variante: "Gris", color: "gris", precio: 47.5, estado: "agotado", tallas: ["L", "XL", "XXL"], foto: "gris-delante.jpg" },
+  { id: "camiseta-rosa", nombre: "Camiseta", variante: "Rosa", color: "rosa", precio: 47.5, estado: "disponible", tallas: ["L", "XL", "XXL"], foto: "rosa-delante.jpg" },
   { id: "sudadera", nombre: "Sudadera", variante: "", color: "", precio: null, estado: "proximamente", tallas: [], foto: "sud-delante.jpg" },
   { id: "p-camisa", nombre: "Camisa", variante: "", color: "", precio: null, estado: "proximamente", tallas: [], foto: "d2-camisa-delante.jpg" },
   { id: "p-tirantes", nombre: "Tirantes", variante: "", color: "", precio: null, estado: "proximamente", tallas: [], foto: "d2-tirantes-delante.jpg" },
