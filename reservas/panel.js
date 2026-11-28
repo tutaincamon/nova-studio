@@ -53,6 +53,7 @@ const staffMoreGroups = () =>
         ["progreso", "Progreso", "Ingresos, ocupación y horas flojas", ICONS.bolt],
         staff.owner && ["ganancias", "Cuánto gana Nova", "Ingresos, gastos y beneficio neto del mes", ICONS.till],
         staff.owner && ["socios", "Socios NOVA+", "Membresías de pago: socios, cortes y cuota mensual", ICONS.gem || ICONS.users],
+        staff.owner && ["avisos", "Avisos y reseñas", "Clientes dormidos, peticiones de reseña de Google e historial de envíos", ICONS.bolt],
         staff.owner && ["clientes", "Clientes", "A quién le toca volver y quién se ha perdido", ICONS.users],
         ["faltas", "Faltas", "Quien no vino o canceló tarde, y si se cobra", ICONS.clock],
       ],
@@ -875,7 +876,7 @@ async function staffEarnings() {
       <p class="caja-meta">Ocupación: minutos con cita entre los minutos del horario de cada barbero en el mes (sin horas bloqueadas ni «No vino»).</p>
 
       <p class="section-label">Clientes dormidos</p>
-      <p class="caja-meta">Llevan más de 6 semanas sin venir y no tienen cita: <b>${dorm.count}</b>. ${dorm.count ? `<a href="#equipo/clientes">Verlos en Clientes</a>` : ""}</p>
+      <p class="caja-meta">Llevan ${dorm.weeks || 6} semanas o más sin venir y no tienen cita: <b>${dorm.count}</b>. ${dorm.count ? `<a href="#equipo/clientes">Verlos en Clientes</a>` : ""}</p>
       ${dorm.list.length ? `<ul class="caja-rows en-lines">${dorm.list.slice(0, 5).map((d) => `<li><span>${esc(d.name)}</span><b>hace ${Math.round(d.since / 7)} sem.</b></li>`).join("")}</ul>` : ""}
 
       <p class="section-label">Gastos de ${esc(monthLabel(r.month))}</p>
@@ -2375,23 +2376,13 @@ async function staffClients() {
                   ${c.contacted ? `<p class="tr-line muted">Contactado el ${esc(shortDate(c.contacted.at.slice(0, 10)))} por ${c.contacted.channel === "email" ? "correo" : "WhatsApp"}${c.contacted.by === "auto" ? " (automático)" : ""}</p>` : ""}
                   ${c.status !== "con-cita" ? `<div class="form-actions" style="margin-top:10px">${
                     c.phone ? `<a class="btn small wa-btn" target="_blank" rel="noopener" data-wa="${esc(c.email)}" href="https://wa.me/${esc(c.phone.replace(/\D/g, ""))}?text=${encodeURIComponent(msg(c))}">WhatsApp</a>` : ""
-                  }${c.email && !c.optout ? `<button type="button" class="btn small secondary" data-mail="${esc(c.email)}" ${r.mail ? "" : "disabled title='El envío de correos aún no está activado'"}>Enviar correo</button>` : c.optout ? `<span class="muted" style="font-size:12px">No quiere correos</span>` : ""}</div>` : ""}
+                  }${c.email && !c.optout ? `<button type="button" class="btn small secondary" data-mail="${esc(c.email)}" >${r.sim ? "Enviar correo (simulado)" : "Enviar correo"}</button>` : c.optout ? `<span class="muted" style="font-size:12px">No quiere correos</span>` : ""}</div>` : ""}
                 </article>`;
               })
               .join("")
           : `<p class="ag-free">Nadie en esta lista. 🙌</p>`
       }
-      <p class="section-label">Recuperar clientes</p>
-      <form id="wb" class="card norms">
-        <label for="wb-days" style="margin-top:0">Alguien «se ha perdido» si lleva sin venir más de</label>
-        <div class="pct-field"><input id="wb-days" name="lapseDays" inputmode="numeric" value="${n.lapseDays}"><span>días</span></div>
-        <p class="muted" style="font-size:12px;margin:6px 0 0">O el doble de lo que suele tardar en volver, si es más.</p>
-        <label for="wb-text">Mensaje</label><textarea id="wb-text" name="winbackText" rows="3" maxlength="600">${esc(n.winbackText)}</textarea>
-        <label for="wb-offer">Oferta <small>(opcional)</small></label><input id="wb-offer" name="winbackOffer" maxlength="200" value="${esc(n.winbackOffer)}" placeholder="Ej.: 10 % en tu próximo corte esta semana">
-        <label class="check"><input type="checkbox" name="winbackAuto" ${n.winbackAuto ? "checked" : ""}><span>Mandárselo por correo automáticamente (como mucho una vez cada 60 días, y con enlace para darse de baja)</span></label>
-        ${n.mail ? "" : `<p class="warning">El envío de correos aún no está activado: por ahora usa el botón de WhatsApp.</p>`}
-        <button class="btn wide" style="margin-top:14px" type="submit">Guardar</button>
-      </form>
+      <p class="muted" style="font-size:13px;margin:14px 0 0">Cuántas semanas sin venir son «perdido», el mensaje y el envío automático se ajustan en <a href="#equipo/avisos">Avisos y reseñas</a>.</p>
       <p class="section-label">Borrar los datos de un cliente</p>
       <div class="card"><p class="muted" style="margin:0 0 12px;font-size:14px;line-height:1.5">Si alguien te pide que borres sus datos, búscalo aquí. Se borran su cuenta y sus puntos; sus citas se quedan sin nombre ni contacto (para que cuadren las cuentas) y los cobros se guardan, como manda la ley. Las cuentas que pasan 3 años sin uso se borran solas.</p>
       <button type="button" class="btn wide secondary" id="cl-erase">Buscar a quién borrar</button></div>`,
@@ -2404,8 +2395,8 @@ async function staffClients() {
       (b.onclick = async () => {
         b.disabled = true;
         try {
-          await api("staff/clients/contact", { email: b.dataset.mail, channel: "email" });
-          toast("Correo enviado.");
+          const x = await api("staff/clients/contact", { email: b.dataset.mail, channel: "email" });
+          toast(x.status === "simulado" ? "Simulado: anotado en el historial, no se ha enviado." : "Correo enviado.");
           render();
         } catch (e) {
           b.disabled = false;
@@ -2413,12 +2404,172 @@ async function staffClients() {
         }
       }),
   );
-  onForm("wb", async (d) => {
-    await api("staff/rules", { lapseDays: d.lapseDays, winbackText: d.winbackText, winbackOffer: d.winbackOffer, winbackAuto: d.winbackAuto === "on" });
+}
+
+// Vista previa de un correo sin scripts ni iframes (respeta la CSP): se lee con DOMParser (no ejecuta nada)
+// y solo se copian etiquetas y atributos de una lista permitida.
+const MAIL_TAGS = new Set(["DIV", "P", "H1", "B", "STRONG", "I", "EM", "U", "A", "SPAN", "BR"]);
+function mailPreview(html) {
+  const doc = new DOMParser().parseFromString(String(html), "text/html");
+  const copy = (src) => {
+    const out = document.createDocumentFragment();
+    for (const n of src.childNodes) {
+      if (n.nodeType === 3) out.append(document.createTextNode(n.nodeValue));
+      else if (n.nodeType === 1 && MAIL_TAGS.has(n.tagName)) {
+        const el = document.createElement(n.tagName.toLowerCase());
+        const style = n.getAttribute("style");
+        if (style && !/url\s*\(|expression|@import/i.test(style)) el.setAttribute("style", style);
+        if (n.tagName === "A") {
+          const href = n.getAttribute("href") || "";
+          if (/^https?:\/\//i.test(href)) {
+            el.setAttribute("href", href);
+            el.setAttribute("target", "_blank");
+            el.setAttribute("rel", "noopener noreferrer");
+          }
+        }
+        el.append(copy(n));
+        out.append(el);
+      }
+    }
+    return out;
+  };
+  const wrap = document.createElement("div");
+  wrap.className = "mail-preview";
+  wrap.append(copy(doc.body));
+  return wrap;
+}
+
+// ── Avisos y reseñas (solo el dueño) ───────────────────────────────────────
+// Clientes dormidos, peticiones de reseña de Google y registro de envíos. Sin
+// correo activo (o en demo) los avisos no salen: quedan «simulados» en el registro.
+const NOTICE_ST = { enviado: ["Enviado", "st-ok"], simulado: ["Simulado", "st-wait"], fallido: ["Falló", "st-cancel"] };
+const REVIEW_SRC = { panel: "el enlace de arriba", env: "GOOGLE_REVIEW_URL", google: "tu ficha de Google (pestaña Web)", "": "ninguno todavía" };
+async function staffAvisos() {
+  if (!staff.owner) return show(staffTop("avisos") + `<p class="ag-free">Esto lo lleva el dueño.</p>`);
+  const [r, n] = await Promise.all([api("staff/avisos"), api("staff/rules")]);
+  const c = r.config;
+  const st = (x) => {
+    const [t, cls] = NOTICE_ST[x] || NOTICE_ST.enviado;
+    return `<span class="appt-state ${cls}">${t}</span>`;
+  };
+  const noticeTxt = (x) => `${esc(shortDate(x.at.slice(0, 10)))} · ${x.test ? "Prueba · " : ""}${x.type === "resena" ? "Reseña" : "Dormido"}`;
+  show(
+    staffTop("avisos") +
+      (r.sim ? `<p class="warning">${r.mail ? "Modo demo" : "El correo no está activado"}: los avisos NO se envían, se anotan como «simulado» en el historial.</p>` : "") +
+      `<p class="section-label">Clientes dormidos <small>(${r.dormant.length})</small></p>
+      ${
+        r.dormant.length
+          ? r.dormant
+              .map(
+                (d) => `<article class="card cl-item">
+          <div class="tr-item-top"><div><strong>${esc(d.name)}</strong><span>Última visita ${esc(shortDate(d.last))} · ${d.weeks} semanas</span></div>${d.due ? `<span class="appt-state st-wait">Toca avisar</span>` : ""}</div>
+          <p class="tr-line muted">${d.lastNotice ? `Último aviso: ${esc(shortDate(d.lastNotice.at.slice(0, 10)))}${d.lastNotice.simulated ? " (simulado)" : ""}${d.lastNotice.by === "auto" ? " · automático" : ""}` : "Aún sin aviso"}</p>
+          <div class="form-actions" style="margin-top:10px">${d.optout ? `<span class="muted" style="font-size:12px">No quiere correos</span>` : `<button type="button" class="btn small secondary" data-notice="${esc(d.email)}">Enviar aviso</button>`}</div>
+        </article>`,
+              )
+              .join("")
+          : `<p class="ag-free">Nadie lleva ${c.dormantWeeks} semanas sin venir. 🙌</p>`
+      }
+      <p class="section-label">Peticiones de reseña recientes</p>
+      ${
+        r.reviews.length
+          ? r.reviews
+              .map(
+                (x) => `<article class="card cl-item">
+          <div class="tr-item-top"><div><strong>${esc(x.name || x.email)}</strong><span>${esc(x.service || "")} · cita del ${esc(shortDate(x.date))}</span></div>${st(x.status)}</div>
+          <p class="tr-line muted">Pedida el ${esc(shortDate(x.at.slice(0, 10)))}${x.reviewed ? " · ya ha pulsado «Dejar mi reseña»" : ""}</p>
+          <div class="form-actions" style="margin-top:10px"><button type="button" class="btn small secondary" data-resend="${esc(x.bookingId)}">Reenviar</button></div>
+        </article>`,
+              )
+              .join("")
+          : `<p class="ag-free">Todavía no se ha pedido ninguna reseña.</p>`
+      }
+      <p class="section-label">Configuración</p>
+      <form id="av" class="card norms">
+        <label class="check" style="margin-top:0"><input type="checkbox" name="winbackAuto" ${c.auto ? "checked" : ""}><span>Avisar solos a los clientes dormidos (un correo cada ese mismo número de semanas como mucho, con enlace para darse de baja; nunca a quien ya tiene cita)</span></label>
+        <label for="av-w">Un cliente está dormido si lleva sin venir</label>
+        <div class="pct-field"><input id="av-w" name="dormantWeeks" inputmode="numeric" value="${c.dormantWeeks}"><span>semanas</span></div>
+        <label for="av-t">Mensaje</label><textarea id="av-t" name="winbackText" rows="3" maxlength="600">${esc(n.winbackText)}</textarea>
+        <label for="av-o">Oferta <small>(opcional)</small></label><input id="av-o" name="winbackOffer" maxlength="200" value="${esc(n.winbackOffer)}" placeholder="Ej.: 10 % en tu próximo corte esta semana">
+        <label class="check"><input type="checkbox" name="reviews" ${c.reviews ? "checked" : ""}><span>Pedir reseña de Google por correo, una hora después de cada cita completada</span></label>
+        <label for="av-u">Enlace de reseña <small>(si lo pones aquí, manda sobre el resto)</small></label>
+        <input id="av-u" name="reviewUrl" type="url" inputmode="url" placeholder="https://g.page/r/…/review" value="${esc(c.reviewUrl)}">
+        <p class="muted" style="font-size:12px;margin:6px 0 0">Ahora se usa: ${esc(REVIEW_SRC[c.reviewSource] || "")}.</p>
+        <label for="av-g">Como mucho una petición a cada cliente cada</label>
+        <div class="pct-field"><input id="av-g" name="reviewGapDays" inputmode="numeric" value="${c.reviewGapDays}"><span>días</span></div>
+        <button class="btn wide" style="margin-top:14px" type="submit">Guardar</button>
+      </form>
+      <p class="section-label">Enviarme una prueba</p>
+      <form id="av-test" class="card norms">
+        <p class="muted" style="font-size:13px;margin:0 0 10px">Te mando el correo con datos de ejemplo («Carlos (ejemplo)», última visita hace 7 semanas) y con el enlace de reserva real. No toca a ningún cliente, no cuenta para no repetir avisos y queda en el historial como «prueba». Como mucho ${r.testLimit} pruebas por hora.</p>
+        <label for="avt-e">Mandar a este correo</label>
+        <input id="avt-e" name="email" type="email" inputmode="email" maxlength="120" required value="${esc(r.testEmail || "")}">
+        <label for="avt-k">Qué probar</label>
+        <select id="avt-k" name="kind"><option value="ambos">Los dos</option><option value="dormido">Aviso de cliente dormido</option><option value="resena">Petición de reseña</option></select>
+        <button class="btn wide" style="margin-top:14px" type="submit">Enviarme una prueba</button>
+        <p class="muted" style="font-size:12px;margin:10px 0 0">${
+          r.sim
+            ? `<b>Ahora mismo no saldría ningún correo</b> (${r.mail ? "modo demo" : "correo sin activar"}): verás una vista previa y quedará «Simulado». `
+            : "El correo está activo: la prueba se envía de verdad. "
+        }Para que llegue de verdad hace falta <code>RESEND_API_KEY</code>, <code>MAIL_FROM</code> con un dominio verificado en Resend (registros DNS SPF y DKIM) y quitar <code>MODO_DEMO</code>.</p>
+        <div id="av-prev"></div>
+      </form>
+      <p class="section-label">Historial de envíos</p>
+      ${
+        r.log.length
+          ? `<div class="card">${r.log.map((x) => `<p class="tr-line" style="margin:0 0 8px">${noticeTxt(x)} · ${esc(x.name || x.email)} ${st(x.status)}</p>`).join("")}</div>`
+          : `<p class="ag-free">Aún no hay avisos.</p>`
+      }`,
+  );
+  const run = (btn, path, body, okMsg) =>
+    (btn.onclick = async () => {
+      btn.disabled = true;
+      try {
+        const x = await api(path, body(btn));
+        toast(x.status === "simulado" ? "Simulado: anotado en el historial, no se ha enviado." : okMsg);
+        render();
+      } catch (e) {
+        btn.disabled = false;
+        toast(e.message);
+      }
+    });
+  $$("[data-notice]").forEach((b) => run(b, "staff/clients/contact", (x) => ({ email: x.dataset.notice, channel: "email" }), "Aviso enviado."));
+  $$("[data-resend]").forEach((b) => run(b, "staff/avisos/resena", (x) => ({ bookingId: x.dataset.resend }), "Petición reenviada."));
+  onForm("av-test", async (d) => {
+    const x = await api("staff/avisos/prueba", { email: d.email, kind: d.kind });
+    const box = $("#av-prev");
+    box.textContent = "";
+    for (const m of x.sent) {
+      const head = document.createElement("p");
+      head.className = "tr-line";
+      head.innerHTML = `${st(m.status)} <b></b>`;
+      head.querySelector("b").textContent = m.subject;
+      box.append(head);
+      if (m.error) {
+        const er = document.createElement("p");
+        er.className = "warning";
+        er.textContent = m.error;
+        box.append(er);
+      }
+      box.append(mailPreview(m.html));
+    }
+    toast(x.sim ? "Simulado: no se ha enviado, mira la vista previa." : x.ok ? "Prueba enviada." : "No se ha podido enviar.");
+  });
+  onForm("av", async (d) => {
+    await api("staff/rules", {
+      dormantWeeks: d.dormantWeeks,
+      winbackText: d.winbackText,
+      winbackOffer: d.winbackOffer,
+      winbackAuto: d.winbackAuto === "on",
+      reviews: d.reviews === "on",
+      reviewUrl: d.reviewUrl,
+      reviewGapDays: d.reviewGapDays,
+    });
     toast("Guardado.");
     render();
   });
 }
+
 
 // Estado de las tareas automáticas (recordatorios y correos).
 function autoStatus(n) {

@@ -34,6 +34,21 @@ El cliente escribe el correo una vez, recibe el código y la sesión queda en es
 
 El cron horario (`/api/cron/tick`) manda recordatorios, reseñas, reactivación y la copia de los lunes. Hace falta `CRON_SECRET` y el correo configurado. Sin correo, el cron no escribe a nadie.
 
+## Clientes dormidos y reseñas de Google (panel del dueño)
+
+Panel: **Más → Avisos y reseñas** (solo el dueño; 403 a barberos y caja). Amplía lo que ya hacía el cron, sin duplicarlo:
+
+- **Clientes dormidos**: sin venir `dormantWeeks` semanas (por defecto 6, de 2 a 52) y sin cita futura. Sustituye a la antigua regla de «días» (`lapseDays` se convierte solo a semanas). La misma función alimenta «Clientes», el cron y «Cuánto gana Nova».
+- **Aviso automático** (casilla `winbackAuto`, desactivada por defecto): una vez al día, desde las 9:00, como mucho 15 correos; un aviso por cliente cada N semanas (también cuenta un aviso manual), nunca a quien tiene cita o se dio de baja. El correo lleva un enlace de reserva directa `#reservar/<servicio>/<barbero>` con los habituales del cliente ya elegidos.
+- **Reseña tras cada cita completada** (`reviews`): una hora después, una sola petición por cita (`revreq:<id>`) y como mucho una cada `reviewGapDays` días por cliente (por defecto 180). El enlace es el del panel; si no, `GOOGLE_REVIEW_URL`; si no, la ficha de Google de la pestaña Web. El botón del correo pasa por `/api/resena/…`, que apunta la medalla.
+- **Sin envío en demo**: con `MODO_DEMO=1` o sin `RESEND_API_KEY` no sale ningún correo; cada aviso se anota con estado «simulado» en el registro `avisos:log` (últimos 300; se limpia al borrar a un cliente) y el cron lo cuenta en `simulated`.
+- Cron: el mismo `/api/cron/tick` horario. En Vercel exige `CRON_SECRET`; en local solo si la variable está puesta.
+- API: `GET /api/staff/avisos`, `POST /api/staff/avisos/resena` (reenviar), `POST /api/staff/clients/contact` (aviso manual) y `POST /api/staff/rules` (`dormantWeeks`, `winbackAuto`, `reviews`, `reviewUrl`, `reviewGapDays`).
+- **Enviarme una prueba** (`POST /api/staff/avisos/prueba`, solo dueño): manda el aviso de dormido, la petición de reseña o ambos con datos de ejemplo («Carlos (ejemplo)», última visita hace 7 semanas, primer servicio y barbero activos del catálogo), con las mismas plantillas que los envíos reales, el enlace de reserva real (`PUBLIC_HOST`/petición) y el enlace de reseña configurado. Asunto `[Prueba] …`. Solo va al correo escrito (por defecto el del dueño); no toca a ningún cliente ni la deduplicación (`winback:`, `revreq:`, `revmail:`) y queda en el historial como «prueba». En demo o sin `RESEND_API_KEY` queda «Simulado» y el panel enseña la vista previa (HTML saneado, sin iframes ni scripts, compatible con la CSP). Con Resend activo, envía y muestra enviado o el error de Resend. Máximo 10 pruebas por hora. Para que llegue de verdad: `RESEND_API_KEY`, `MAIL_FROM` con dominio verificado en Resend (SPF/DKIM) y sin `MODO_DEMO`. Tests: `test/avisos-prueba.test.js`. Sin variables nuevas.
+- Variable nueva: `GOOGLE_REVIEW_URL`. Tests: `test/reengage.test.js`. El panel está solo en castellano, así que `i18n.js` no cambia.
+
+---
+
 ---
 
 ## Variables de entorno
@@ -58,6 +73,7 @@ Solo los nombres. Los valores van en Vercel, nunca en el repo.
 | `STAFF_PIN_AIRAM` | Clave del panel de Airam (y `STAFF_PIN_` + el id en mayúsculas de cada barbero) |
 | `STAFF_PIN_EHEDEY` | Clave de Ehedey |
 | `STAFF_PIN_NOA` | Clave de Noah |
+| `GOOGLE_REVIEW_URL` | Enlace donde se deja la reseña de Google (`https://…`). El que ponga el dueño en el panel prevalece; si no hay ninguno, se usa la ficha de Google elegida en la pestaña Web |
 | `GOOGLE_PLACES_KEY` | Leer la ficha y las reseñas de Google |
 | `AVISO_CORREO` | Correo que recibe los avisos del salón, si no es el del titular |
 | `PUBLIC_HOST` | Dominio de los enlaces de los correos, de `llms.txt` y de la URL del MCP, si no vale el de la petición |
@@ -126,7 +142,7 @@ Limitaciones: no hay SSE ni notificaciones del servidor. No hay OAuth: los clien
 
 En el panel, **Más → Cuánto gana Nova** (solo el dueño; la API devuelve 403 a barberos y caja). Elige el mes (por defecto el actual) y compara con el anterior en € y %.
 
-- **Ingresos**: facturación de las citas hechas o cobradas (misma lógica que Caja y Progreso: una cita cobrada cuenta por lo cobrado), servicios, ticket medio, ocupación (minutos con cita entre minutos de horario de cada barbero), ingresos por barbero, clientes nuevos y recurrentes, y clientes dormidos (más de 6 semanas sin venir).
+- **Ingresos**: facturación de las citas hechas o cobradas (misma lógica que Caja y Progreso: una cita cobrada cuenta por lo cobrado), servicios, ticket medio, ocupación (minutos con cita entre minutos de horario de cada barbero), ingresos por barbero, clientes nuevos y recurrentes, y clientes dormidos (los mismos de «Avisos y reseñas», según las semanas que fije el dueño).
 - **Otros ingresos**: línea aparte. Hoy suma la ropa vendida (`supply:ventas`). Para añadir otra fuente, se agrega un objeto a la lista `INCOME_SOURCES` de `api/handler.js` (`{ id, label, get(month) }`).
 - **Gastos** editables (alquiler, luz, agua, internet, productos, sueldo fijo y comisión % de cada barbero, Seguridad Social, autónomo, gestoría, software, otros y conceptos libres), guardados en `gastos:<AAAA-MM>`. Un mes sin gastos propios hereda los del último mes anterior que los tenga. El servidor valida (importes de 0 a 100.000 €, % de 0 a 100, máximo 30 conceptos libres).
 - **Beneficio neto** = ingresos − gastos fijos − comisiones, con margen %. Se recalcula en el navegador al escribir; el botón «Guardar gastos» lo guarda. El % de comisión sale del equipo; si se cambia aquí solo vale para este análisis.

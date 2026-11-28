@@ -1348,6 +1348,15 @@ const pages = {
     await calendar({ backTo: `barber/${draft.service}`, backLabel: "Cambiar barbero" });
   },
 
+  // Enlace de los correos a clientes dormidos: #reservar/<servicio>/<barbero> deja puestos los de siempre.
+  async reservar([sid, pid]) {
+    const s = svcById(sid);
+    if (!s || s.consult || !provById(pid)) return go("home");
+    draft = { service: s.id, provider: pid };
+    saveDraft();
+    location.replace("#time/" + pid);
+  },
+
   async hueco([sid, pid, date]) {
     const s = svcById(sid);
     if (!s || s.consult || !provById(pid) || !/^\d{4}-\d{2}-\d{2}$/.test(date || "")) return go("home");
@@ -1900,7 +1909,7 @@ const pages = {
     if (!staff) return staffLogin();
     try {
       if (staff.caja) return await (args[0] === "agenda" ? staffAgenda : staffCobros)();
-      await ({ mas: staffMore, cobrar: staffCobros, caja: staffCaja, progreso: staffProgress, ganancias: staffEarnings, socios: staffMembers, faltas: staffFaltas, formacion: staffTraining, productos: staffProducts, ajustes: staffTeam, web: staffWeb, servicios: staffServices, clientes: staffClients, ropa: staffRopa }[args[0]] || staffAgenda)();
+      await ({ mas: staffMore, cobrar: staffCobros, caja: staffCaja, progreso: staffProgress, ganancias: staffEarnings, socios: staffMembers, faltas: staffFaltas, formacion: staffTraining, productos: staffProducts, ajustes: staffTeam, web: staffWeb, servicios: staffServices, clientes: staffClients, avisos: staffAvisos, ropa: staffRopa }[args[0]] || staffAgenda)();
     } catch (e) {
       if (e.status !== 401) throw e;
       staff = null;

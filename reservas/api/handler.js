@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { cmd, pipe, getJSON, setJSON, hgetall, usingMemory, scanKeys, dumpKeys, claim, hit } from "./_lib/store.js";
 import { SERVICES, PROVIDERS, RULES, BUSINESS, POINTS, MEDALS, REWARDS, COMMISSION, TRAINING, EXTRAS, PAY_METHODS, SHOP, MEMBERSHIP, publicCatalog } from "./_lib/config.js";
 import * as T from "./_lib/time.js";
-import { codeMail, send, bookingLines, mailReady } from "./_lib/mail.js";
+import { codeMail, send, sendDetailed, shell, bookingLines, mailReady } from "./_lib/mail.js";
 import * as Card from "./_lib/stripe.js";
 import * as Sup from "./_lib/supply.js";
 import { accessPolicy, MAIL_NOT_READY } from "./_lib/access.js";
@@ -11,6 +11,7 @@ import * as Tokens from "./_lib/assistant.js";
 import * as E from "./_lib/earnings.js";
 import * as M from "./_lib/membership.js";
 import { serveMcp } from "./_lib/mcp.js";
+import * as R from "./_lib/reengage.js";
 
 const ON_VERCEL = !!process.env.VERCEL;
 // Para entrar hace falta el código de 6 cifras del correo. En Vercel no hay
@@ -755,12 +756,13 @@ let NORMS = {
   reminders: true, // correo el día antes de cada cita
   recurring: false, // los clientes pueden reservar citas que se repiten
   recurringMax: 6, // como mucho, cuántas citas de una vez
-  lapseDays: 45, // a partir de cuántos días sin venir alguien «se ha perdido»
-  winbackAuto: false, // mandarles un correo solo (una vez cada 60 días como mucho)
+  dormantWeeks: R.WEEKS.def, // semanas sin venir (y sin cita) para ser «cliente dormido»
+  winbackAuto: false, // avisar solo a los dormidos por correo (uno cada `dormantWeeks` semanas como mucho)
+  reviewGapDays: R.REVIEW_GAP.def, // como mucho una petición de reseña a cada cliente cada tantos días
   winbackText: "Hace tiempo que no te vemos por el estudio. Tu hueco te está esperando: reserva en un minuto desde la app.",
   winbackOffer: "",
   remindSoon: true, // otro correo unas 2 horas antes de la cita
-  reviews: false, // pedir reseña por correo después de un corte (hace falta reviewUrl)
+  reviews: false, // pedir reseña por correo después de un corte (hace falta enlace: reviewUrl, GOOGLE_REVIEW_URL o ficha de Google)
   reviewUrl: "",
   dailyClose: true, // cada mañana, el resumen de caja de ayer al dueño
   waitlist: true, // «avísame si se libera» en los días completos
@@ -787,7 +789,11 @@ async function loadTeam() {
     await setJSON("team", t);
   }
   TEAM = t;
-  NORMS = { ...NORMS0, ...(rawNorms ? JSON.parse(rawNorms) : {}) };
+  const savedNorms = rawNorms ? JSON.parse(rawNorms) : {};
+  // Normas de antes: «días sin venir» pasa a semanas.
+  if (savedNorms.lapseDays && savedNorms.dormantWeeks === undefined) savedNorms.dormantWeeks = R.weeksFromDays(savedNorms.lapseDays);
+  delete savedNorms.lapseDays;
+  NORMS = { ...NORMS0, ...savedNorms };
 }
 const activeTeam = () => TEAM.filter((p) => p.active !== false);
 let SVCS = SERVICES;
@@ -1267,8 +1273,9 @@ function habitOf(list, now) {
 
 // ── Clientes que han dejado de venir ───────────────────────────────────────
 // Para cada socio: cuándo vino por última vez, cada cuánto suele venir y si
-// tiene cita. «Perdido» = sin cita y más días sin venir que lapseDays (o que
-// el doble de lo que suele tardar, si es más).
+// tiene cita. «Perdido» (= cliente dormido) = sin cita y dormantWeeks semanas
+// o más sin venir (regla en _lib/reengage.js, la misma para el cron, el panel
+// y «Cuánto gana Nova»).
 // Los correos de todos los socios (el índice `users`). La primera vez se
 // completa con los socios de antes de existir el índice.
 async function allEmails() {
@@ -1301,8 +1308,7 @@ async function allClients() {
       const list = byEmail[e] || [];
       const h = habitOf(list, now);
       const next = list.filter((b) => isActive(b, now)).sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start))[0];
-      const limit = Math.max(NORMS.lapseDays, h?.every ? h.every * 2 : 0);
-      const status = !h ? "nuevo" : next ? "con-cita" : h.since > limit ? "perdido" : h.due ? "le-toca" : "al-dia";
+      const status = !h ? "nuevo" : next ? "con-cita" : h.since >= NORMS.dormantWeeks * 7 ? "perdido" : h.due ? "le-toca" : "al-dia";
       return {
         email: e,
         name: u.name || "",
@@ -1334,11 +1340,12 @@ const ownerMail = async () => {
 };
 async function cronTick(req) {
   const secret = process.env.CRON_SECRET;
-  if (ON_VERCEL && (!secret || !same(String(req.headers.authorization || ""), "Bearer " + secret))) fail(401, "No.");
+  // En Vercel el secreto es obligatorio; en local, solo si CRON_SECRET está puesto.
+  if ((ON_VERCEL || secret) && (!secret || !same(String(req.headers.authorization || ""), "Bearer " + secret))) fail(401, "No.");
   if ((await cmd("SET", "lock:cron", "1", "NX", "EX", 900)) !== "OK") return { skipped: "ya en marcha" };
   const now = T.nowLocal(),
     host = hostOf(req);
-  const out = { at: now.stamp, soon: 0, reviews: 0, rebook: 0, reminders: 0, winback: 0, close: false, backup: false, mail: mailReady() };
+  const out = { at: now.stamp, soon: 0, reviews: 0, rebook: 0, reminders: 0, winback: 0, simulated: 0, close: false, backup: false, mail: mailReady() };
   const once = async (key, seconds) => (await cmd("SET", key, "1", "NX", "EX", seconds)) === "OK";
   const changeLink = (b) =>
     host ? `<a href="https://${host}/#booking/${b.id}">Cámbiala o cancélala desde la app</a>` : "Cámbiala o cancélala desde la app";
@@ -1357,22 +1364,15 @@ async function cronTick(req) {
     } catch (e) {
       out.membership = { error: String(e.message || e) };
     }
-    // Sin correo no se manda nada, pero lo que no envía nada se hace igual:
-    // borrar las cuentas que pasaron 3 años sin uso (lo promete la política).
-    if (!mailReady()) {
-      if (now.min >= 9 * 60 && (await once("cronday:" + now.date, 2 * 86400))) {
-        out.purge = await purgeInactive(now, host);
-        out.records = await purgeRecords(now);
-        await setJSON("crondaily", { at: now.stamp, reminders: 0, winback: 0, close: false, backup: false, purge: out.purge, records: out.records });
-      }
-      return out;
-    }
+    // Sin correo (o en demo) los avisos de dormidos y reseñas no salen: se anotan como «simulado».
+    // Lo demás que necesita correo se salta; lo que no, se hace igual (p. ej. borrar cuentas sin uso).
+    const noMail = !mailReady();
     const daytime = now.min >= 9 * 60 && now.min < 21 * 60;
     const todays = daytime ? await bookingsByIds(await cmd("SMEMBERS", "day:" + now.date)) : [];
     const live = (b) => b.kind === "booking" && b.status === "confirmed" && b.email;
 
     // 1) Hoy, de 1 a 3 horas antes. No a quien reservó hace menos de 6 horas.
-    if (NORMS.remindSoon)
+    if (!noMail && NORMS.remindSoon)
       for (const b of todays) {
         const left = T.minutesUntil(b.date, b.start);
         if (!live(b) || left < 60 || left > 180) continue;
@@ -1402,7 +1402,7 @@ async function cronTick(req) {
         const first = b.name ? String(b.name).split(" ")[0] : "";
         const barber = b.provider.name.split(" ")[0];
         if (await cmd("GET", "reviewed:" + b.email)) {
-          if (!host) continue;
+          if (!host || noMail) continue;
           const mine = await bookingsByIds(await cmd("SMEMBERS", "ubk:" + b.email));
           if (mine.some((x) => x.id !== b.id && x.kind === "booking" && isActive(x, now))) continue;
           if (!(await once("revask:" + b.id, 7 * 86400)) || !(await once("backmail:" + b.email, 14 * 86400))) continue;
@@ -1424,27 +1424,16 @@ async function cronTick(req) {
           if (ok) out.rebook++;
           continue;
         }
-        if (!NORMS.reviewUrl || !host) continue;
-        if (!(await once("revask:" + b.id, 7 * 86400)) || !(await once("revmail:" + b.email, 180 * 86400))) continue;
-        const link = `https://${host}/api/resena/${encodeURIComponent(b.email)}/${await reviewToken(b.email)}`;
-        const ok = await send(
-          b.email,
-          `¿Qué tal tu ${b.service.name.toLowerCase()}?`,
-          `Gracias por venir${first ? ", " + first : ""}`,
-          `<p style="margin:0 0 12px">Esperamos que ${htmlEsc(barber)} te haya dejado como querías.</p>
-           <p style="margin:0 0 14px">Si te ha gustado, nos ayudas muchísimo contándolo. Es un minuto:</p>
-           <p style="margin:0 0 12px"><a href="${htmlEsc(link)}" style="display:inline-block;background:#171717;color:#fff;padding:12px 18px;text-decoration:none">Dejar mi reseña</a></p>
-           <p style="margin:0;color:#64645e;font-size:13px">Y si algo no fue bien, responde a este correo: lo lee el equipo.</p>` + (await unsubFoot(b.email, host)),
-          await ownerMail(),
-        );
-        if (ok) out.reviews++;
+        const st = await reviewRequest(b, host);
+        if (st === "enviado") out.reviews++;
+        else if (st === "simulado") out.simulated++;
       }
     }
 
     // 3) Una vez al día, desde las 9:00.
     if (now.min >= 9 * 60 && (await once("cronday:" + now.date, 2 * 86400))) {
       // a) Recordatorio de las citas de mañana.
-      if (NORMS.reminders) {
+      if (!noMail && NORMS.reminders) {
         const tomorrow = T.addDays(now.date, 1);
         for (const b of await bookingsByIds(await cmd("SMEMBERS", "day:" + tomorrow))) {
           if (b.date !== tomorrow || !live(b) || b.reminded || !(await once("reminded:" + b.id, 3 * 86400))) continue;
@@ -1460,24 +1449,24 @@ async function cronTick(req) {
         }
       }
       // b) Resumen de caja de ayer al dueño.
-      if (NORMS.dailyClose) {
+      if (!noMail && NORMS.dailyClose) {
         const date = T.addDays(now.date, -1),
           html = await closeOf(date);
         if (html) out.close = await send(await ownerMail(), `Caja de ayer · ${T.niceDate(date)}`, "Resumen de ayer", html);
       }
       // c) Clientes que se han perdido (como mucho 15 correos al día, y 1 cada 60 días por persona).
       if (NORMS.winbackAuto) {
-        for (const c of (await allClients()).filter((x) => x.status === "perdido" && !x.optout)) {
-          if (out.winback >= 15) break;
-          if (c.contacted && daysBetween(c.contacted.at.slice(0, 10), now.date) < 60) continue;
-          if (await winbackMail(c, host)) {
-            await setJSON("winback:" + c.email, { at: now.stamp, by: "auto", channel: "email" });
-            out.winback++;
-          }
+        let sentToday = 0;
+        for (const c of (await allClients()).filter((x) => R.dormantDue(x, NORMS.dormantWeeks, now.date))) {
+          if (sentToday >= 15) break; // como mucho 15 avisos al día
+          sentToday++;
+          const st = await winbackMail(c, host);
+          if (st === "enviado") out.winback++;
+          else if (st === "simulado") out.simulated++;
         }
       }
       // d) Los lunes, copia de seguridad (sin fotos) al correo del dueño.
-      if (T.weekday(now.date) === 1) {
+      if (!noMail && T.weekday(now.date) === 1) {
         const data = await backup("data");
         out.backup = await send(
           await ownerMail(),
@@ -1491,7 +1480,7 @@ async function cronTick(req) {
       // e) Cuentas sin uso: aviso un mes antes y borrado a los 3 años (política de privacidad).
       out.purge = await purgeInactive(now, host);
       out.records = await purgeRecords(now);
-      await setJSON("crondaily", { at: now.stamp, reminders: out.reminders, winback: out.winback, close: out.close, backup: out.backup, purge: out.purge, records: out.records });
+      await setJSON("crondaily", { at: now.stamp, reminders: out.reminders, winback: out.winback, simulated: out.simulated, close: out.close, backup: out.backup, purge: out.purge, records: out.records });
     }
     return out;
   } catch (e) {
@@ -1617,6 +1606,9 @@ async function eraseAccount(a, now) {
   for (const k of ["user:", "ubk:", "ush:", "urd:", "refs:", "seen:", "purgewarn:", "winback:", "nomkt:", "reviewed:", "revmail:", "backmail:", "fr:", "frx:"]) ops.push(["DEL", k + email]);
   ops.push(["SREM", "users", email], ["DEL", "contacts:list"]);
   await pipe(ops);
+  // Fuera también del registro de avisos (dormidos y reseñas).
+  const nlog = await getJSON("avisos:log");
+  if (Array.isArray(nlog) && nlog.some((e) => e.email === email)) await setJSON("avisos:log", nlog.filter((e) => e.email !== email));
   await rankDrop(email);
   await Tokens.revokeAll(email); // los tokens de asistente de IA dejan de valer
   if (u.card?.pm) await Card.removeCard(u.card.pm).catch(() => {});
@@ -1795,29 +1787,109 @@ async function markReviewed(email) {
   if (!email || !EMAIL.test(email)) return;
   if ((await cmd("SET", "reviewed:" + email, T.nowLocal().stamp, "NX")) === "OK") await rankTouch(email); // bonus de la medalla
 }
-const goReview = () =>
-  NORMS.reviewUrl
-    ? { redirect: NORMS.reviewUrl }
+// Enlace donde se deja la reseña. Prevalece lo que pone el dueño en el panel;
+// si no, GOOGLE_REVIEW_URL; si no, la ficha de Google elegida en la pestaña Web.
+async function reviewLink(norms = NORMS) {
+  if (norms.reviewUrl) return { url: norms.reviewUrl, source: "panel" };
+  const env = String(process.env.GOOGLE_REVIEW_URL || "").trim();
+  if (/^https:\/\/[^\s"<>]+$/.test(env)) return { url: env, source: "env" };
+  const pid = ((await getJSON("site")) || {}).google?.placeId;
+  if (pid && G_ID.test(pid)) return { url: gWriteLink(pid), source: "google" };
+  return { url: "", source: "" };
+}
+const goReview = async () => {
+  const { url } = await reviewLink();
+  return url
+    ? { redirect: url }
     : { raw: `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><body style="font-family:Arial;padding:40px 20px;text-align:center"><h1 style="font-size:22px">¡Gracias!</h1><p>El enlace de reseñas no está disponible ahora mismo. Prueba más tarde.</p></body>`, type: "text/html; charset=utf-8" };
+};
 // Pie de baja para los correos comerciales (art. 21 LSSI: en cada uno hay que
 // poder darse de baja de forma sencilla y gratuita).
 async function unsubFoot(email, host) {
   const t = await unsubToken(email);
   return `<p style="margin:12px 0 0;color:#64645e;font-size:12px">¿No quieres más correos así? ${host ? `<a href="https://${host}/api/unsub/${encodeURIComponent(email)}/${t}">Darte de baja</a>` : "Respóndenos y te quitamos."}</p>`;
 }
-async function winbackMail(c, host) {
-  if (c.optout || !c.email) return false;
-  const t = await unsubToken(c.email);
+// ¿Se manda de verdad? En MODO_DEMO o sin RESEND_API_KEY no: el aviso se registra como «simulado».
+const TEST_MAX = 10; // pruebas de «Enviarme una prueba» por hora
+const simMail = () => !mailReady() || process.env.MODO_DEMO === "1";
+// Registro de avisos (dormidos y reseñas) para el panel del dueño.
+async function logNotice(e) {
+  const now = T.nowLocal();
+  const entry = { id: newId(), at: now.stamp, ...e };
+  await setJSON("avisos:log", R.pushLog(await getJSON("avisos:log"), entry));
+  return entry;
+}
+// Plantilla del aviso a un cliente dormido: la usan el envío real y «Enviarme una prueba».
+function winbackContent(c, host, foot, test = false) {
   const base = host ? `https://${host}` : "";
   const off = NORMS.winbackOffer ? `<p style="margin:0 0 12px;padding:12px;border:1px solid #dcdad3;background:#f5f4f0"><b>${htmlEsc(NORMS.winbackOffer)}</b></p>` : "";
-  return send(
-    c.email,
-    `Publi · ${c.name ? c.name.split(" ")[0] + ", t" : "T"}e echamos de menos en ${BUSINESS.short}`,
-    "Te echamos de menos",
-    `<p style="margin:0 0 12px">${c.name ? "Hola " + htmlEsc(c.name.split(" ")[0]) + ": " : ""}${htmlEsc(NORMS.winbackText)}</p>${off}
-     ${base ? `<p style="margin:0 0 12px"><a href="${base}/#home" style="display:inline-block;background:#171717;color:#fff;padding:12px 18px;text-decoration:none">Reservar cita</a></p>` : ""}
-     <p style="margin:12px 0 0;color:#64645e;font-size:12px">¿No quieres más correos así? ${base ? `<a href="${base}/api/unsub/${encodeURIComponent(c.email)}/${t}">Darte de baja</a>` : "Respóndenos y te quitamos."}</p>`,
-  );
+  const link = R.bookLink(host, c.habit, { service: (id) => !!service(id) && service(id).active !== false, provider: (id) => !!provider(id) && provider(id).active !== false });
+  return {
+    subject: `${test ? "[Prueba] " : ""}Publi · ${c.name ? c.name.split(" ")[0] + ", t" : "T"}e echamos de menos en ${BUSINESS.short}`,
+    title: "Te echamos de menos",
+    html: `<p style="margin:0 0 12px">${c.name ? "Hola " + htmlEsc(c.name.split(" ")[0]) + ": " : ""}${htmlEsc(NORMS.winbackText)}</p>${off}
+       ${base ? `<p style="margin:0 0 12px"><a href="${htmlEsc(link)}" style="display:inline-block;background:#171717;color:#fff;padding:12px 18px;text-decoration:none">Reservar cita</a></p>` : ""}` + foot,
+  };
+}
+// Plantilla de la petición de reseña (`href` = a dónde lleva el botón).
+function reviewContent(b, href, foot, test = false) {
+  const first = b.name ? String(b.name).split(" ")[0] : "";
+  return {
+    subject: `${test ? "[Prueba] " : ""}¿Qué tal tu ${b.service.name.toLowerCase()}?`,
+    title: `Gracias por venir${first ? ", " + first : ""}`,
+    html: `<p style="margin:0 0 12px">Esperamos que ${htmlEsc(b.provider.name.split(" ")[0])} te haya dejado como querías.</p>
+       <p style="margin:0 0 14px">Si te ha gustado, nos ayudas muchísimo contándolo. Es un minuto:</p>
+       <p style="margin:0 0 12px"><a href="${htmlEsc(href)}" style="display:inline-block;background:#171717;color:#fff;padding:12px 18px;text-decoration:none">Dejar mi reseña</a></p>
+       <p style="margin:0;color:#64645e;font-size:13px">Y si algo no fue bien, responde a este correo: lo lee el equipo.</p>` + foot,
+  };
+}
+// Aviso a un cliente dormido, con enlace de reserva directa (su barbero y servicio de siempre).
+// Devuelve "enviado" | "simulado" | "fallido". Anota el aviso en `winback:` (que es lo que
+// evita repetirlo) y en el registro.
+async function winbackMail(c, host, by = "auto") {
+  if (c.optout || !c.email) return "fallido";
+  const sim = simMail();
+  let status = "simulado";
+  if (!sim) {
+    const m = winbackContent(c, host, await unsubFoot(c.email, host));
+    const ok = await send(c.email, m.subject, m.title, m.html);
+    status = ok ? "enviado" : "fallido";
+  }
+  await logNotice({ type: "dormido", email: c.email, name: c.name || "", status, by });
+  if (status !== "fallido") await setJSON("winback:" + c.email, { at: T.nowLocal().stamp, by, channel: "email", ...(sim ? { simulated: true } : {}) });
+  return status;
+}
+// Petición de reseña de una cita hecha. Una sola por cita (`revreq:`) y, por cliente,
+// no más de una cada reviewGapDays (`revmail:`). `force` = reenvío manual del dueño.
+async function reviewRequest(b, host, { by = "auto", force = false } = {}) {
+  const link = (await reviewLink()).url;
+  if (!link || !b.email) return "sin-enlace";
+  const sim = simMail();
+  if (!sim && !host) return "sin-enlace";
+  if (!force) {
+    const [asked, rawLast] = await cmd("MGET", "revreq:" + b.id, "revmail:" + b.email);
+    let lastAsk = null;
+    if (rawLast) {
+      try {
+        const v = JSON.parse(rawLast);
+        lastAsk = v && v.at ? v : { at: T.nowLocal().date }; // marca antigua: cuenta como pedida hoy
+      } catch {
+        lastAsk = { at: T.nowLocal().date };
+      }
+    }
+    if (!R.reviewDue({ booking: b, askedBooking: !!asked, lastAsk, gapDays: NORMS.reviewGapDays, today: T.nowLocal().date })) return "repetida";
+    if ((await cmd("SET", "revreq:" + b.id, "1", "NX", "EX", 400 * 86400)) !== "OK") return "repetida";
+  } else await cmd("SET", "revreq:" + b.id, "1", "EX", 400 * 86400);
+  await cmd("SET", "revmail:" + b.email, JSON.stringify({ at: T.nowLocal().stamp, booking: b.id }), "EX", Math.max(NORMS.reviewGapDays, 1) * 86400);
+  let status = "simulado";
+  if (!sim) {
+    const href = `https://${host}/api/resena/${encodeURIComponent(b.email)}/${await reviewToken(b.email)}`;
+    const m = reviewContent(b, href, await unsubFoot(b.email, host));
+    const ok = await send(b.email, m.subject, m.title, m.html, await ownerMail());
+    status = ok ? "enviado" : "fallido";
+  }
+  await logNotice({ type: "resena", email: b.email, name: b.name || "", status, by, bookingId: b.id, service: b.service.name, date: b.date });
+  return status;
 }
 
 // ── Copias de seguridad ────────────────────────────────────────────────────
@@ -2343,7 +2415,7 @@ const routes = {
         // Mientras dure el paso desde Booksy: desde qué día se reserva aquí y adónde ir para antes.
         ...(NORMS.openFrom > T.nowLocal().date ? { openFrom: NORMS.openFrom, openBefore: BUSINESS.booksy } : {}),
       },
-      reviews: !!NORMS.reviewUrl,
+      reviews: !!(await reviewLink()).url,
       card: Card.cardPublic(),
       membership: memberOut(),
     };
@@ -4229,13 +4301,13 @@ const routes = {
   "GET resena/:email/:t": async ({ params }) => {
     const email = normEmail(decodeURIComponent(params.email));
     if (EMAIL.test(email) && same(String(params.t), await reviewToken(email))) await markReviewed(email);
-    return goReview();
+    return await goReview();
   },
   // Desde el Club, con la sesión abierta.
   "GET resena": async ({ req }) => {
     const u = await currentUser(req);
     if (u) await markReviewed(u.email);
-    return goReview();
+    return await goReview();
   },
 
   "GET unsub/:email/:t": async ({ params }) => {
@@ -4251,7 +4323,90 @@ const routes = {
     if (!me.owner) fail(403, "Los clientes los lleva el dueño.");
     const list = (await allClients()).sort((a, b) => (b.since ?? -1) - (a.since ?? -1));
     const count = (st) => list.filter((c) => c.status === st).length;
-    return { list, stats: { total: list.length, lost: count("perdido"), due: count("le-toca"), booked: count("con-cita") }, mail: mailReady() };
+    return { list, stats: { total: list.length, lost: count("perdido"), due: count("le-toca"), booked: count("con-cita") }, mail: mailReady(), sim: simMail() };
+  },
+  // Avisos automáticos (solo el dueño): dormidos, peticiones de reseña y registro de envíos.
+  "GET staff/avisos": async ({ req }) => {
+    const me = await needStaff(req);
+    if (!me.owner) fail(403, "Los avisos los lleva el dueño.");
+    const today = T.nowLocal().date;
+    const [clients, log, link] = await Promise.all([allClients(), getJSON("avisos:log"), reviewLink()]);
+    const entries = Array.isArray(log) ? log : [];
+    const reviews = [];
+    const seen = new Set();
+    for (const e of entries) {
+      if (e.type !== "resena" || e.test || seen.has(e.bookingId)) continue;
+      seen.add(e.bookingId);
+      reviews.push(e);
+      if (reviews.length >= 20) break;
+    }
+    const done = reviews.length ? await cmd("MGET", ...reviews.map((e) => "reviewed:" + e.email)) : [];
+    return {
+      config: { dormantWeeks: NORMS.dormantWeeks, auto: !!NORMS.winbackAuto, reviews: !!NORMS.reviews, reviewGapDays: NORMS.reviewGapDays, reviewUrl: NORMS.reviewUrl || "", reviewSource: link.source },
+      dormant: R.dormantList(clients, NORMS.dormantWeeks, today),
+      reviews: reviews.map((e, i) => ({ ...e, reviewed: !!done[i] })),
+      log: entries.slice(0, 100),
+      mail: mailReady(),
+      sim: simMail(),
+      testEmail: await ownerMail(),
+      testLimit: TEST_MAX,
+    };
+  },
+  // «Enviarme una prueba»: los mismos correos con datos de ejemplo, solo al correo escrito.
+  // No toca a ningún cliente ni la deduplicación (winback:, revreq:, revmail:); queda en el historial como prueba.
+  "POST staff/avisos/prueba": async ({ req, body }) => {
+    const me = await needStaff(req);
+    if (!me.owner) fail(403, "Los avisos los lleva el dueño.");
+    const email = normEmail(body.email);
+    if (!EMAIL.test(email) || email.length > 120) fail(400, "Escribe un correo válido para la prueba.");
+    const kind = String(body.kind || "ambos");
+    if (!["dormido", "resena", "ambos"].includes(kind)) fail(400, "Elige qué quieres probar.");
+    const host = hostOf(req);
+    const link = (await reviewLink()).url;
+    if (kind !== "dormido" && !link) fail(400, "Falta el enlace de reseñas: ponlo en «Avisos y reseñas» o define GOOGLE_REVIEW_URL.");
+    await limit("avisotest:" + me.id, TEST_MAX, 3600, `Has mandado ${TEST_MAX} pruebas en la última hora. Espera un rato.`);
+    // Servicio y barbero reales del catálogo (los primeros activos).
+    const svc = SVCS.find((x) => x.active !== false) || SVCS[0];
+    const pro = TEAM.find((x) => x.active !== false && !x.owner) || TEAM.find((x) => x.active !== false) || TEAM[0];
+    const name = "Carlos (ejemplo)";
+    const now = T.nowLocal();
+    const foot = `<p style="margin:12px 0 0;color:#64645e;font-size:12px">¿No quieres más correos así? <u>Darte de baja</u> <i>(en los envíos reales, aquí va el enlace de baja)</i></p>`;
+    const sim = simMail();
+    const out = [];
+    for (const k of kind === "ambos" ? ["dormido", "resena"] : [kind]) {
+      const m =
+        k === "dormido"
+          ? winbackContent({ email, name, habit: { service: svc.id, provider: pro.id } }, host, foot, true)
+          : reviewContent({ name, service: { name: svc.name }, provider: { name: pro.name } }, link, foot, true);
+      let status = "simulado",
+        error = "";
+      if (!sim) {
+        const r = await sendDetailed(email, m.subject, m.title, m.html, k === "resena" ? await ownerMail() : undefined);
+        status = r.ok ? "enviado" : "fallido";
+        error = r.error || "";
+      }
+      await logNotice({ type: k, email, name, status, by: me.id, test: true });
+      out.push({ kind: k, status, error, subject: m.subject, title: m.title, html: shell(m.title, m.html), link: k === "dormido" ? R.bookLink(host, { service: svc.id, provider: pro.id }) : link });
+    }
+    return {
+      ok: out.every((x) => x.status !== "fallido"),
+      sim,
+      mail: mailReady(),
+      example: { name, lastVisit: T.addDays(now.date, -49), weeks: 7, service: svc.name, provider: pro.name },
+      sent: out,
+    };
+  },
+  // Reenviar la petición de reseña de una cita (aunque ya se pidiera).
+  "POST staff/avisos/resena": async ({ req, body }) => {
+    const me = await needStaff(req);
+    if (!me.owner) fail(403, "Los avisos los lleva el dueño.");
+    const b = (await bookingsByIds([String(body.bookingId || "")]))[0];
+    if (!b || b.kind !== "booking" || b.status !== "confirmed" || b.attendance !== "done" || !b.email) fail(404, "Esa cita no se puede reseñar.");
+    if (await cmd("GET", "nomkt:" + b.email)) fail(400, "Este cliente pidió no recibir estos correos.");
+    const st = await reviewRequest(b, hostOf(req), { by: me.id, force: true });
+    if (st === "sin-enlace") fail(400, "Falta el enlace de reseñas: ponlo en «Equipo y normas» o define GOOGLE_REVIEW_URL.");
+    if (st === "fallido") fail(502, "No se ha podido enviar.");
+    return { ok: true, status: st };
   },
   // Un cliente pide que borremos sus datos (derecho de supresión). Solo el dueño.
   // Se busca por correo, código del Club o teléfono (los apuntados por el equipo
@@ -4314,11 +4469,12 @@ const routes = {
     const c = (await allClients()).find((x) => x.email === email);
     if (!c) fail(404, "No encontramos a ese cliente.");
     if (body.channel === "email") {
-      if (!mailReady()) fail(400, "El envío de correos aún no está activado.");
       if (c.optout) fail(400, "Este cliente pidió no recibir estos correos.");
-      if (!(await winbackMail(c, req.headers.host))) fail(502, "No se ha podido enviar.");
+      const status = await winbackMail(c, hostOf(req), me.id);
+      if (status === "fallido") fail(502, "No se ha podido enviar.");
+      return { ok: true, status };
     }
-    await setJSON("winback:" + email, { at: T.nowLocal().stamp, by: me.id, channel: body.channel === "email" ? "email" : "whatsapp" });
+    await setJSON("winback:" + email, { at: T.nowLocal().stamp, by: me.id, channel: "whatsapp" });
     return { ok: true };
   },
 
@@ -4447,7 +4603,7 @@ const routes = {
   "GET staff/rules": async ({ req }) => {
     await needStaff(req);
     const [last, daily] = await cmd("MGET", "cronlast", "crondaily");
-    return { ...NORMS, mail: mailReady(), cron: !ON_VERCEL || !!process.env.CRON_SECRET, lastCron: last ? JSON.parse(last) : null, lastDaily: daily ? JSON.parse(daily) : null };
+    return { ...NORMS, mail: mailReady(), sim: simMail(), reviewSource: (await reviewLink()).source, cron: !ON_VERCEL || !!process.env.CRON_SECRET, lastCron: last ? JSON.parse(last) : null, lastDaily: daily ? JSON.parse(daily) : null };
   },
   "POST staff/rules": async ({ req, body }) => {
     const me = await needStaff(req);
@@ -4464,14 +4620,21 @@ const routes = {
     if (has("lateFeePct")) norms.lateFeePct = num(body.lateFeePct, 0, 100, "El cobro por cancelar tarde va de 0 a 100 %.");
     if (has("noShowFeePct")) norms.noShowFeePct = num(body.noShowFeePct, 0, 100, "El cobro por no venir va de 0 a 100 %.");
     if (has("recurringMax")) norms.recurringMax = num(body.recurringMax, 2, 12, "Las citas seguidas van de 2 a 12.");
-    if (has("lapseDays")) norms.lapseDays = num(body.lapseDays, 14, 365, "Pon entre 14 y 365 días.");
+    try {
+      if (has("dormantWeeks")) norms.dormantWeeks = R.weeksOf(body.dormantWeeks);
+      else if (has("lapseDays")) norms.dormantWeeks = R.weeksFromDays(body.lapseDays);
+      if (has("reviewGapDays")) norms.reviewGapDays = R.gapOf(body.reviewGapDays);
+    } catch (e) {
+      fail(400, e.message);
+    }
+    delete norms.lapseDays;
     for (const k of ["reminders", "recurring", "winbackAuto", "remindSoon", "reviews", "dailyClose", "waitlist"]) if (has(k)) norms[k] = body[k] === true;
     if (has("reviewUrl")) {
       const u = clean(body.reviewUrl, 400);
       if (u && !/^https:\/\/[^\s"<>]+$/.test(u)) fail(400, "El enlace de reseñas tiene que empezar por https://");
       norms.reviewUrl = u;
     }
-    if (norms.reviews && !(norms.reviewUrl ?? NORMS.reviewUrl)) fail(400, "Para pedir reseñas pega antes el enlace donde se dejan.");
+    if (norms.reviews && !(await reviewLink({ ...NORMS, ...norms })).url) fail(400, "Para pedir reseñas pega antes el enlace donde se dejan (o pon GOOGLE_REVIEW_URL en Vercel).");
     if (has("winbackText")) norms.winbackText = clean(body.winbackText, 600) || NORMS.winbackText;
     if (has("winbackOffer")) norms.winbackOffer = clean(body.winbackOffer, 200);
     if (has("openFrom")) {
@@ -4930,10 +5093,10 @@ async function newVsReturning(data, start, end) {
   return { new: list.length - returning, returning, unknown };
 }
 
-// Clientes dormidos: más de 6 semanas sin venir y sin cita próxima.
+// Clientes dormidos (los mismos que en «Clientes»): misma función que usa el cron.
 async function dormantClients() {
-  const list = (await allClients()).filter((c) => c.visits && c.since != null && c.since > 42 && !c.next).sort((a, b) => a.since - b.since);
-  return { count: list.length, list: list.slice(0, 20).map((c) => ({ name: c.name || c.email.split("@")[0], since: c.since, last: c.last })) };
+  const list = R.dormantList(await allClients(), NORMS.dormantWeeks, T.nowLocal().date).reverse();
+  return { count: list.length, weeks: NORMS.dormantWeeks, list: list.slice(0, 20).map((c) => ({ name: c.name, since: c.since, last: c.last })) };
 }
 
 // Gastos de un mes. Si el mes no tiene, hereda los del último mes anterior que sí (hasta dos años atrás).
