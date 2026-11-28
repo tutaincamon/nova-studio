@@ -1894,7 +1894,7 @@ const pages = {
     if (!staff) return staffLogin();
     try {
       if (staff.caja) return await (args[0] === "agenda" ? staffAgenda : staffCobros)();
-      await ({ mas: staffMore, cobrar: staffCobros, caja: staffCaja, progreso: staffProgress, faltas: staffFaltas, formacion: staffTraining, productos: staffProducts, ajustes: staffTeam, web: staffWeb, servicios: staffServices, clientes: staffClients, ropa: staffRopa }[args[0]] || staffAgenda)();
+      await ({ mas: staffMore, cobrar: staffCobros, caja: staffCaja, progreso: staffProgress, ganancias: staffEarnings, faltas: staffFaltas, formacion: staffTraining, productos: staffProducts, ajustes: staffTeam, web: staffWeb, servicios: staffServices, clientes: staffClients, ropa: staffRopa }[args[0]] || staffAgenda)();
     } catch (e) {
       if (e.status !== 401) throw e;
       staff = null;

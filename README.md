@@ -120,6 +120,19 @@ Limitaciones: no hay SSE ni notificaciones del servidor. No hay OAuth: los clien
 
 ---
 
+## Cuánto gana Nova (panel del dueño)
+
+En el panel, **Más → Cuánto gana Nova** (solo el dueño; la API devuelve 403 a barberos y caja). Elige el mes (por defecto el actual) y compara con el anterior en € y %.
+
+- **Ingresos**: facturación de las citas hechas o cobradas (misma lógica que Caja y Progreso: una cita cobrada cuenta por lo cobrado), servicios, ticket medio, ocupación (minutos con cita entre minutos de horario de cada barbero), ingresos por barbero, clientes nuevos y recurrentes, y clientes dormidos (más de 6 semanas sin venir).
+- **Otros ingresos**: línea aparte. Hoy suma la ropa vendida (`supply:ventas`). Para añadir otra fuente, se agrega un objeto a la lista `INCOME_SOURCES` de `api/handler.js` (`{ id, label, get(month) }`).
+- **Gastos** editables (alquiler, luz, agua, internet, productos, sueldo fijo y comisión % de cada barbero, Seguridad Social, autónomo, gestoría, software, otros y conceptos libres), guardados en `gastos:<AAAA-MM>`. Un mes sin gastos propios hereda los del último mes anterior que los tenga. El servidor valida (importes de 0 a 100.000 €, % de 0 a 100, máximo 30 conceptos libres).
+- **Beneficio neto** = ingresos − gastos fijos − comisiones, con margen %. Se recalcula en el navegador al escribir; el botón «Guardar gastos» lo guarda. El % de comisión sale del equipo; si se cambia aquí solo vale para este análisis.
+- API: `GET /api/staff/earnings?month=AAAA-MM` y `POST /api/staff/expenses`. Sin variables de entorno nuevas.
+- Tests: `test/earnings.test.js`. El panel está solo en castellano (no usa `i18n.js`), así que no hay textos nuevos allí.
+
+---
+
 ## Probar
 
 ```bash
