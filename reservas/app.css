@@ -2070,3 +2070,20 @@ main:has(.ag-wide) { max-width: 1180px; }
 .caja-today { display: block; margin: 0 auto 6px; background: none; border: 0; color: var(--ink); font-size: 13px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; min-height: 36px; cursor: pointer; }
 .caja-days td:first-child { position: relative; }
 .caja-bar { position: absolute; left: 0; bottom: 2px; height: 3px; background: var(--ink); opacity: .18; border-radius: 2px; pointer-events: none; }
+
+/* Conectar mi asistente de IA (perfil) */
+.ai-box .ai-lead { margin: 0 0 4px; font-weight: 600; }
+.ai-box .ai-example { margin: 0 0 12px; font-style: italic; }
+.ai-steps { margin: 0 0 14px; padding-left: 20px; font-size: 14px; line-height: 1.5; }
+.ai-steps li { margin: 0 0 10px; }
+.ai-box code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; overflow-wrap: anywhere; word-break: break-all; }
+.ai-copy-row, .ai-token { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px; padding: 8px 8px 8px 12px; border: 1px dashed var(--ink); }
+.ai-token { margin: 4px 0 0; }
+.ai-box code.ai-hdr { white-space: nowrap; word-break: normal; overflow-wrap: normal; }
+.ai-token code { font-size: 13px; }
+.ai-copy { width: 44px; min-height: 44px; padding: 0; flex: none; border-radius: 0; }
+.ai-list-h { font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin: 18px 0 8px; }
+.ai-tok { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.ai-tok strong { display: block; font-size: 14px; }
+.ai-tok span { display: block; font-size: 12.5px; color: var(--muted); }
+.ai-note { font-size: 12.5px; margin: 10px 0 0; }

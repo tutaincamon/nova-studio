@@ -58,7 +58,8 @@ Solo los nombres. Los valores van en Vercel, nunca en el repo.
 | `STAFF_PIN_NOA` | Clave de Noah |
 | `GOOGLE_PLACES_KEY` | Leer la ficha y las reseñas de Google |
 | `AVISO_CORREO` | Correo que recibe los avisos del salón, si no es el del titular |
-| `PUBLIC_HOST` | Dominio de los enlaces de los correos, si no vale el de la petición |
+| `PUBLIC_HOST` | Dominio de los enlaces de los correos, de `llms.txt` y de la URL del MCP, si no vale el de la petición |
+| `MCP_ALLOWED_ORIGINS` | Opcional. Orígenes de navegador (separados por comas) que pueden llamar a `/api/mcp`, p. ej. un inspector MCP local. Sin ella solo se acepta la propia web; los clientes de servidor (sin `Origin`) siempre entran |
 
 `VERCEL` la pone la plataforma. No hay que crearla.
 
@@ -81,6 +82,44 @@ En el ordenador, sin `RESEND_API_KEY`, el mismo código se imprime en la termina
 
 ---
 
+## Reserva con tu asistente de IA (MCP)
+
+Un asistente (Claude, ChatGPT, Grok…) puede reservar por orden del cliente, sin navegador ni contraseña. Por ejemplo: «Pídeme cita con Airam el jueves por la tarde».
+
+- **Servidor MCP**: `https://nova.appflu.es/api/mcp`. Usa Streamable HTTP: JSON-RPC 2.0 por `POST`, respuestas JSON, sin SSE y sin sesión (versiones 2025-06-18 y 2025-03-26). `GET` devuelve 405.
+- **Sin token**: `list_services`, `list_barbers`, `get_availability`.
+- **Con token**: `create_booking`, `list_my_bookings`, `cancel_booking`, `revoke_assistant_token`.
+- **Cómo se consigue el token**: el asistente llama a `request_login_code` con el correo del cliente (le llega el mismo código de 6 cifras que en la web) y después a `verify_login_code` con ese código y el nombre si la cuenta es nueva. El token se devuelve una sola vez. También se puede generar en la web: **Perfil → «Conectar mi asistente de IA»**. Desde ahí se ven los tokens activos y se revocan. En modo demo (`MODO_DEMO=1`) no se manda correo y vale cualquier código de 6 cifras, igual que la web entra solo con el correo.
+- **Cómo se usa**: cabecera `Authorization: Bearer nova_ast_…`. Si el cliente MCP no deja poner cabeceras, el token también vale en el argumento `assistant_token`. Un token inválido en la cabecera da 401 con `WWW-Authenticate: Bearer`.
+- **Tokens**: 32 bytes aleatorios. En Redis solo se guarda su sha256 (`bnova:ast:<sha256>`, índice `bnova:uast:<correo>`). Caducan a los 180 días sin uso y cada uso los renueva. Hay como mucho 5 por cliente: al crear el sexto se revoca el más antiguo. Al borrar la cuenta se borran también.
+- **Mismas reglas que la web**: huecos, antelación, días vista, máximo de citas, condiciones y cancelación tardía usan las mismas funciones (`freeSlots`/`freeTimes`, `bookFor`, `cancelFor`, `codeRequest`/`codeCheck`). Si el estudio pide tarjeta en garantía y el cliente no tiene, `create_booking` devuelve un error con el enlace al perfil para añadirla.
+- **Límites**: 240 llamadas por minuto e IP. Para pedir código, 5 cada 15 minutos por correo y 10 por IP, además de los de la web. Para comprobarlo, 10 por correo y 30 por IP. Reservas y cancelaciones: 10 por hora y token.
+- **Descubrimiento**: `/llms.txt` (se genera con los servicios y el equipo que hay en la base, así que no se desfasa), `/.well-known/mcp.json`, y el JSON-LD (`HairSalon` con catálogo de precios) en `index.html`. El JSON-LD es estático: `test/llms-jsonld.test.js` comprueba que coincide con `config.js`.
+
+Conectarlo en Claude Code, por ejemplo:
+
+```bash
+claude mcp add --transport http nova https://nova.appflu.es/api/mcp --header "Authorization: Bearer nova_ast_…"
+```
+
+Probar con curl en local (`MODO_DEMO=1 node dev-server.js 5291 --demo`):
+
+```bash
+M=http://localhost:5291/api/mcp
+curl -s -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"1"}}}' $M
+curl -s -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' $M
+curl -s -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_availability","arguments":{"service_id":"corte","date":"2026-12-03","days":3}}}' $M
+curl -s -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"request_login_code","arguments":{"email":"yo@example.com"}}}' $M
+curl -s -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"verify_login_code","arguments":{"email":"yo@example.com","code":"000000","name":"Yo"}}}' $M
+curl -s -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" -d '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"create_booking","arguments":{"service_id":"corte","barber_id":"airam","date":"2026-12-03","time":"17:00","accept_terms":true}}}' $M
+```
+
+En local Stripe va en modo prueba, así que `create_booking` pide antes una tarjeta. Añádela desde el perfil, con cualquier número de prueba.
+
+Limitaciones: no hay SSE ni notificaciones del servidor. No hay OAuth: los clientes que solo aceptan conectores con OAuth (como los conectores web de algunos asistentes) pueden usar las herramientas de consulta y pasar el token en `assistant_token`. Las citas que se repiten no se piden por el asistente. La nota del cliente llega en el correo al salón, pero el panel aún no la enseña.
+
+---
+
 ## Probar
 
 ```bash
@@ -89,3 +128,5 @@ npm test
 ```
 
 Cubre el acceso (código obligatorio, y que en producción sin correo no hay sesión) y que `/api/catalog` no devuelve el NIF ni el nombre del titular. Esos dos datos siguen en `/api/legal`, que es lo que pinta el aviso legal.
+
+`test/mcp.test.js` cubre el servidor MCP: `initialize`, herramientas, el flujo código → token → reservar → ver → cancelar en modo demo, la cancelación tardía, el 401, revocar, el máximo de 5 tokens, los límites, que el token solo se guarda resumido y los errores JSON-RPC. `test/llms-jsonld.test.js` comprueba el JSON-LD contra `config.js` y que `index.html` no tiene scripts en línea.
